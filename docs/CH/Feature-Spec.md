@@ -6,7 +6,7 @@
 
 ## 1. 模块架构总览 (Module Map)
 
-根据 Herdr v1 插件规格与系统的独立常驻进程设计，MetaMach 2.0 软件由以下四层核心功能组件构成。本设计说明书严格遵循动静分离（Immutable ROOT vs. Mutable State）规范，并对各特性的行为边界、数据流向和异常处理进行像素级定义。
+根据 Herdr v1 插件规格与系统的独立常驻进程设计，MetaMach 1.0 软件由以下四层核心功能组件构成。本设计说明书严格遵循动静分离（Immutable ROOT vs. Mutable State）规范，并对各特性的行为边界、数据流向和异常处理进行像素级定义。
 
 ```
 +-----------------------------------------------------------------------------------------+
@@ -215,7 +215,7 @@ JSON
   "argv": ["esptool.py", "--chip", "esp32", "write_flash", "0x1000", "firmware.bin"],
   "env_snapshot": {
     "USER": "factory_agent",
-    "SHELL": "/target/release/janus-sh"
+    "SHELL": "${HERDR_PLUGIN_ROOT}/bin/janus-sh"
   }
 }
 ```

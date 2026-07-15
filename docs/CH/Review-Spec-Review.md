@@ -188,3 +188,6 @@ The厂长 signs off on "生产业务与合闸审批核准" but the review items 
 > - **#7 🟡 (replace '100%' with SQL)** ✅ RESOLVED - 指标 4.1 + REV-EVO-01 now use SQL count check (rows DELETE'd, returns 0) + `absurd_audit_log`.
 > - **#8 🟡 (production_report.md quality gates)** ✅ RESOLVED - 指标 4.2 adds gates: >500 bytes, four sections by heading search, valid Markdown.
 > - **#9 🟡 (review dependency ordering)** ✅ RESOLVED - sign-off sheet prepended with dependency graph (REV-SEC-01 -> ... -> REV-OPS-01).
+>
+> **Round 5 (⚪ Low, 2026-07-15):**
+> - **#4.1 ⚪ (handwritten signatures in digital doc)** ✅ RESOLVED - Review-Spec §4 adds digital sign-off recommendation (GPG-signed tag / GitHub PR approval); handwritten line kept as offline fallback.

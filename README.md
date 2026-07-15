@@ -1,8 +1,8 @@
-# 🛡️ MetaMach 2.0
+# 🛡️ MetaMach 1.0
 
 > **An industrial-grade, durable AI Software Factory OS powered by Janus Daemon and distributed physical execution sessions.**
 
-MetaMach 2.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines—managed straight from your pocket via Telegram or TUI.
+MetaMach 1.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines—managed straight from your pocket via Telegram or TUI.
 
 ---
 
@@ -23,9 +23,9 @@ MetaMach 2.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isol
 
 | Dimension | Description |
 |-----------|-------------|
-| **Agent Pool & Stack** (生产要素) | Global registration of AI resources—API keys and SSH credentials decrypted in `/dev/shm` (RAM disk, never leaked to disk). Fine-grained role-based permission levels (Scout / Coder / Deployer). |
-| **Workflows** (工艺流水线) | Declarative `.toml` pipelines (`workflows/*.toml`). Chain multiple agent stations across local and remote SSH hosts. |
-| **Blueprints** (产品蓝图) | Physical project containers under `blueprints/<name>/`. Each binds a custom `janus.toml` recipe, a multi-tenant database partition, OpenWiki knowledge scope, and optional remote compilation targets. On offboarding, auto-compacts the database and generates a `production_report.md`. |
+| **Agent Pool & Stack** | Global registration of AI resources—API keys and SSH credentials decrypted in `/dev/shm` (RAM disk, never leaked to disk). Fine-grained role-based permission levels (Scout / Coder / Deployer). |
+| **Workflows** | Declarative `.toml` pipelines (`workflows/*.toml`). Chain multiple agent stations across local and remote SSH hosts. |
+| **Blueprints** | Physical project containers under `blueprints/<name>/`. Each binds a custom `janus.toml` recipe, a multi-tenant database partition, OpenWiki knowledge scope, and optional remote compilation targets. On offboarding, auto-compacts the database and generates a `production_report.md`. |
 
 ---
 
@@ -53,16 +53,33 @@ metamach/
 │   ├── debug-flow.toml
 │   └── firmware-deploy.toml
 ├── provisioning/             # Bootstrap, init scripts
-├── docker-compose.yml        # Unified Postgres container
+├── docker-compose.yml        # Absurd Postgres container
 └── Makefile                  # Factory master switch
 ```
+
+---
+
+## 📚 Documentation
+
+Full design specifications live under `docs/CH/` (bilingual: Chinese body + English subtitle). Each spec has a paired `*-Review.md` deep-dive audit with resolution logs.
+
+| Doc | Scope |
+|-----|-------|
+| `ARCH.md` | System architecture, topology, component interactivity |
+| `PRD.md` | Product requirements & Factory Director user journey |
+| `Feature-Spec.md` | Engineering feature specs, data contracts (Contracts 3.1–3.8), fault matrix |
+| `Project-Plan.md` | Milestone roadmap (M0–M4) & check-in units |
+| `Review-Spec.md` | Audit/review standards & sign-off criteria |
+| `Test-Spec.md` | Test cases (UTC-01..07) & QA strategy |
+| `Deployment-Spec.md` | Physical deployment, bootstrap, directory mapping |
+| `ARCH-review.md` | Cross-document architectural audit & action items |
 
 ---
 
 ## ⚡ Quick Start
 
 ### Prerequisites
-- Ubuntu 22.04+ or macOS 13+
+- Ubuntu 21.04+ or macOS 13+
 - Rust 1.88+ (Edition 2024), Tmux 3.2+, Docker & Compose
 - Herdr with `metamach.janus` plugin installed
 
@@ -73,7 +90,7 @@ make bootstrap
 This single command **auto-provisions** everything:
 1. Creates immutable/mutable directory separation with symlinks
 2. Compiles `janus-daemon`, `herdr-janus`, and `janus-sh` in release mode
-3. Spins up and initializes the Unified Postgres database via Docker Compose
+3. Spins up and initializes the Absurd Postgres database via Docker Compose
 
 After bootstrap, press `prefix+j` inside Herdr to open the Dispatcher console and dispatch a workflow.
 

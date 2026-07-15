@@ -274,3 +274,6 @@ Feature §3.1 schema says valid statuses: `STARTING | COMPLETED | SUSPENDED`. Bu
 > - **#9 🟡 (agent prompt assembly)** ✅ RESOLVED - §2.5 adds priority-concatenation spec + context-window truncation.
 > - **#11 🟡 (melt DELETE vs NULL)** ✅ RESOLVED - §2.5 step 3 + Task 4.2a: whole-row DELETE (not NULL) + `absurd_audit_log`, for TOAST reclamation.
 > - **Bonus:** §4 16KB enforcement point clarified; §2.2 SHELL absolute path; Contract 3.8 `fallback.db` schema; §2.3 state-machine diagram.
+>
+> **Round 5 (⚪ Low, 2026-07-15):**
+> - **Contract 3.2 example SHELL path** ✅ RESOLVED - the `env_snapshot` example now shows absolute `${HERDR_PLUGIN_ROOT}/bin/janus-sh` (was leftover relative `/target/release/janus-sh`); Test-Spec UTC-02-01, Review-Spec 指标 1.2, and Deployment-Spec §6.1 sanity check also corrected to absolute.

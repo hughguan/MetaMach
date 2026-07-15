@@ -1,4 +1,4 @@
-# MetaMach 2.0 — Architectural Design Review
+# MetaMach 1.0 — Architectural Design Review
 
 > **Cross-document audit of all `docs/CH/` specifications.**
 > Target: identify inconsistencies, specification gaps, execution risks, and unresolved design decisions before Milestone 1 implementation begins.
@@ -598,3 +598,9 @@ The deployment spec lists "macOS 13+" as supported, but:
 > - **#5.1 (DB naming)** -> standardized to 'Absurd Postgres' / 'Absurd DB' across all source docs.
 > - **#5.3 (CN/EN titles)** -> English subtitles added to all 7 spec docs.
 > Remaining open: **#5.2** (metamach_db canonical - already consistent), **PRD-Review #5** (matrix reprioritization - deferred as a product-priority call, not a spec gap).
+>
+> **Round 5 (⚪ Low, 2026-07-15):** Final cosmetic sweep:
+> - **#5.3 (CN/EN titles)** fully closed - README synced (English) + added a 📚 Documentation section linking all `docs/CH/` specs; all CH docs carry English subtitles.
+> - **#5.1 (DB naming)** extended to README - `Unified Postgres` -> `Absurd Postgres` in README too.
+> - **Feature-Spec Contract 3.2 SHELL example** corrected to absolute path.
+> - **All ⚪ Low items now closed.** Only intentional defer remains: PRD-Review #5 (matrix reprioritization - product call).

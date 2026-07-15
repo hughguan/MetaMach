@@ -1,13 +1,13 @@
 
 ### ── 基于 Janus Daemon 与分布式耐久会话的硅基工业级生产机床
 
-> **EN:** MetaMach 2.0 Architecture — Janus Daemon & Distributed Durable Sessions: a silicon-grade industrial production machine.
+> **EN:** MetaMach 1.0 Architecture — Janus Daemon & Distributed Durable Sessions: a silicon-grade industrial production machine.
 
 ## 1. 宏观设计理念 (Philosophical Pillars)
 
 在分布式 AI 协同研发时代，传统的 AI 编程或 Agent 调度多属于“无状态单次调用”。面对长周期、重负载、多工位以及跨物理主机的研发场景，系统极易因网络抖动、API 熔断或上下文丢失而发生进程崩溃，导致开发心流支离破碎。
 
-**MetaMach 2.0** 彻底颠覆了这种脆弱的拓扑。它采用 **“守护进程为主体，影子插件为外壳”** 的高凝聚松耦合架构，将整套系统解耦为 **生产要素（Agent Pool）**、**工艺流水线（Workflows）** 与 **产品蓝图（Blueprints）**：
+**MetaMach 1.0** 彻底颠覆了这种脆弱的拓扑。它采用 **“守护进程为主体，影子插件为外壳”** 的高凝聚松耦合架构，将整套系统解耦为 **生产要素（Agent Pool）**、**工艺流水线（Workflows）** 与 **产品蓝图（Blueprints）**：
 
 - **大脑独立化 (Janus Daemon) ── 魂归中枢：** 核心控制流与状态转移完全由常驻后台的 **`janus-daemon`** 掌控，独占数据库连接池与事件监听网关。Herdr 端的插件仅作为轻量级影子客户端（`herdr-janus`），专门负责终端渲染与交互。
     
@@ -68,7 +68,7 @@
 
 ## 3. 系统架构拓扑 (System Architecture)
 
-MetaMach 2.0 实行“大脑独立监控、影子客户端透传、物理会话挂接、数据逻辑多租户”的工业化隔离方案：
+MetaMach 1.0 实行“大脑独立监控、影子客户端透传、物理会话挂接、数据逻辑多租户”的工业化隔离方案：
 
 - **Control Plane (控制层)：**
     

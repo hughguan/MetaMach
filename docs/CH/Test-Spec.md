@@ -5,7 +5,7 @@
 
 ## 1. 测试架构与策略总览 (Testing Strategy)
 
-为了保障 **MetaMach 2.0** 工厂的高可用性与强抗震防爆能力，本测试用例设计严格遵循以下三层质量防线：
+为了保障 **MetaMach 1.0** 工厂的高可用性与强抗震防爆能力，本测试用例设计严格遵循以下三层质量防线：
 
 1. **沙箱与隔离防线（Sandbox Invariants）**：验证 `janus-sh` 代理拦截和 `Tool Guard` 对高危命令、敏感密钥的 100% 同步拦截与重定向。
     
@@ -13,6 +13,11 @@
     
 3. **生命周期与防爆防线（Lifecycle & Storage Budget）**：验证 `Offboard` 下线熔炼、日志 16KB 截断（Size Budget）以及数据库自动降解。
     
+
+> **严重级别与发布门禁定义**：
+> - **Blocker**：阻塞发布--该用例不通过则对应里程碑绝不可发布/并网。
+> - **Critical**：必须在发布前修复；未修复不得进入下一里程碑。
+> - **Major**：应予修复，可带已知问题发布，但须登记追踪并在下轮迭代关闭。
 
 ## 2. 测试用例详细设计 (Test Cases)
 
@@ -31,7 +36,7 @@
 
 |**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
 |---|---|---|---|---|---|---|
-|**UTC-02-01**|**Shell 代理重定向**|验证 Tether PTY 启动时 `SHELL` 环境变量被强行替换|启动 `dev-flow` 研发流水线|在 Tether 启动的 tmux 窗格中执行 `echo $SHELL`。|终端输出为 `target/release/janus-sh`，而非系统的 `/bin/bash` 或 `/bin/sh`。|**Critical**|
+|**UTC-02-01**|**Shell 代理重定向**|验证 Tether PTY 启动时 `SHELL` 环境变量被强行替换|启动 `dev-flow` 研发流水线|在 Tether 启动的 tmux 窗格中执行 `echo $SHELL`。|终端输出为 `janus-sh` 的绝对路径（`${HERDR_PLUGIN_ROOT}/bin/janus-sh`），而非系统的 `/bin/bash` 或 `/bin/sh`。|**Critical**|
 |**UTC-02-02**|**同步命令拦截**|验证 `janus-sh` 能成功拦截并阻断未授权的敏感/危险指令|启动 `gatemetric` 的 `dev-flow` 任务|在 Agent 窗格中强行执行未在白名单中的命令：先建哨兵 `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`，再执行命中黑名单的 `rm -rf /tmp/metamach-test-guard-$(uuidgen)`（或系统级 `esptool.py erase_flash` 模拟）。|1. 终端指令被同步挂起。<br><br>  <br><br>2. `janus-daemon` 日志触发拦截并返回拒绝执行（Status: Blocked），原始物理 Shell 完好无损，且哨兵文件事后仍然存在（未被删除）。|**Blocker**|
 |**UTC-02-03**|**金融 Dry-Run 重定向**|验证高危操作在未经审批前被强制重定向为演练模式|启动金融级产品线再平衡流程|在未授权状态下，尝试执行发单命令：`hi5bot --action execute`。|1. `janus-sh` 在 UDS 同步对账中捕获该命令。<br><br>  <br><br>2. Tool Guard 强行将入参篡改替换为 `hi5bot --action dry-run` 交付给宿主 Shell。<br><br>  <br><br>3. 物理控制台仅生成对账单 Diff，未发生实质资金划拨。|**Blocker**|
 
@@ -144,4 +149,4 @@
     ```
     
 
-按照本说明书执行完全部的 UAT 物理对账和压力故障测试后，您的 **MetaMach 2.0** 将具备真正意义上的“物理防爆、进程不灭、安全合规、自我进化”的企业级质量背书！
+按照本说明书执行完全部的 UAT 物理对账和压力故障测试后，您的 **MetaMach 1.0** 将具备真正意义上的“物理防爆、进程不灭、安全合规、自我进化”的企业级质量背书！

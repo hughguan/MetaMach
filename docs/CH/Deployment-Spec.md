@@ -3,7 +3,7 @@
 
 > **EN:** Deployment Spec — immutable/mutable isolation, sandbox key mounting, and Absurd Postgres bring-up.
 
-本部署规范书（Deploy Spec）旨在指导系统管理员或厂长在本地物理算力节点（如 Richmond Hill 车间服务器）上安全、幂等、无缝地完成 **MetaMach 2.0** 生产底座的并网通电。
+本部署规范书（Deploy Spec）旨在指导系统管理员或厂长在本地物理算力节点（如 Richmond Hill 车间服务器）上安全、幂等、无缝地完成 **MetaMach 1.0** 生产底座的并网通电。
 
 本规范严格遵循 Herdr v1 插件的“动静隔离（Immutable ROOT vs. Mutable State）”规范与安全性红线，对物理目录、内存盘挂载、数据库容器及一键引导流程进行系统级定义。
 
@@ -13,7 +13,7 @@
 
 |**依赖组件**|**最低版本要求**|**物理用途**|**验证指令**|
 |---|---|---|---|
-|**操作系统**|Ubuntu 22.04+ / macOS 13+|提供标准的 POSIX 兼容环境与 UDS 支持|`uname -a`|
+|**操作系统**|Ubuntu 21.04+ / macOS 13+|提供标准的 POSIX 兼容环境与 UDS 支持|`uname -a`|
 |**Rust 工具链**|Rust 1.88+ (Edition 2024)|编译 `janus-daemon`、`herdr-janus` 与 `janus-sh`|`rustc --version`|
 |**Tmux**|Tmux 3.2+|Tether 维持 PTY 会话长生不老的物理载体|`tmux -V`|
 |**Docker & Compose**|Docker v24.0+ / Compose v2.20+|一键拉起并托管 Absurd Postgres 数据库|`docker compose version`|
@@ -128,7 +128,7 @@ fi
 
 ## 5. 一键通电引导流程 (Makefile Bootstrap)
 
-MetaMach 2.0 提供高度简化的“一键通电并网”指令。厂长只需在根目录下执行 `make bootstrap`，系统即会自动完成环境校验、代码编译、目录建立、符号链接挂载及数据库初始化。
+MetaMach 1.0 提供高度简化的“一键通电并网”指令。厂长只需在根目录下执行 `make bootstrap`，系统即会自动完成环境校验、代码编译、目录建立、符号链接挂载及数据库初始化。
 
 ### 5.1 自动化部署总闸：`Makefile`
 
@@ -148,7 +148,7 @@ all: bootstrap
 # 2. 一键通电最高控制原语
 bootstrap: symlinks compile db-up
 	@echo "================================================================="
-	@echo "🪐 MetaMach 2.0 successfully bootstrapped in Richmond Hill!"
+	@echo "🪐 MetaMach 1.0 successfully bootstrapped in Richmond Hill!"
 	@echo "🔌 Run 'prefix+j' inside Herdr to open Dispatcher Console."
 	@echo "================================================================="
 
@@ -251,7 +251,7 @@ Bash
 # 先建哨兵目录与哨兵文件，再尝试用命中黑名单的命令删除它（绝不执行真实系统级删除）
 SENTINEL_DIR=/tmp/metamach-deploy-guard-$(uuidgen)
 mkdir -p "$SENTINEL_DIR" && echo sentinel > "$SENTINEL_DIR/sentinel"
-export SHELL=./janus/target/release/janus-sh
+export SHELL=${HERDR_PLUGIN_ROOT}/bin/janus-sh
 $SHELL -c "rm -rf $SENTINEL_DIR"
 test -f "$SENTINEL_DIR/sentinel" && echo "✅ 哨兵存活，命令已被拦截"
 ```

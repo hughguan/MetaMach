@@ -3,7 +3,7 @@
 
 > **EN:** Project Plan — milestone roadmap (M0–M4) of independently check-in-able, network-able factory units.
 
-本计划书将 MetaMach 2.0 的研发与并网过程拆解为 **4 个核心里程碑阶段（Milestones）**。每个里程碑均以“**可编译、可独立 Commit/Check-in、100% 动静隔离合规**”的物理特性或功能模块（Feature Unit）为切分单位，并附带明确的物理验证手段，确保 Richmond Hill 车间的并网过程严丝合缝、稳步推进。
+本计划书将 MetaMach 1.0 的研发与并网过程拆解为 **4 个核心里程碑阶段（Milestones）**。每个里程碑均以“**可编译、可独立 Commit/Check-in、100% 动静隔离合规**”的物理特性或功能模块（Feature Unit）为切分单位，并附带明确的物理验证手段，确保 Richmond Hill 车间的并网过程严丝合缝、稳步推进。
 
 ## 📅 建设路线图总览 (Milestone Timeline)
 
@@ -338,7 +338,7 @@
 
 ## 🏁 交付质量门禁 (Check-in Gates)
 
-为保证 MetaMach 2.0 仓库历史（Git History）的清爽，每次 Check-in 提交前必须通过以下 CI/CD 核验：
+为保证 MetaMach 1.0 仓库历史（Git History）的清爽，每次 Check-in 提交前必须通过以下 CI/CD 核验：
 
 1. `cargo fmt --all -- --check` (100% 格式对齐)
     

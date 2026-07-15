@@ -188,3 +188,6 @@ What if the厂长 has 5 active blueprints? How do they manage them? The Popup is
 > - **#7 🟡 (measurable UAT)** ✅ RESOLVED - PRD §3 matrix UAT cells now measurable (warm/lazy-start render times, ≥99.9% block rate N=10k, webhook POST ≤500ms local).
 > - **#8 🟡 (workflow error handling)** ✅ RESOLVED - PRD §2.6 adds three failure modes (transient auto-retry 3x, blocking HITL card, fatal abort + partial report).
 > - **#5 🟡 (reprioritize matrix)** ⏸️ DEFERRED - subjective product-priority call (Tether→P0 etc.), not a spec gap; left for product decision.
+>
+> **Round 5 (⚪ Low, 2026-07-15):**
+> - **#10 ⚪ (厂长/您 narrative voice)** ✅ RESOLVED - PRD normalized to third-person "厂长" throughout (Director's Note + User Journey intro).

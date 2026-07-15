@@ -266,3 +266,6 @@ All tests assume a bare-metal or VM environment. For CI/CD, the entire test suit
 > - **#12 🟡 (performance benchmark suite)** ✅ RESOLVED - added Suite 2.7 (UTC-07-01..04: cold start, UDS p50/p99, popup render, step-history query).
 > - **#13 🟡 (ngrok -> local webhook)** ✅ RESOLVED - §3.1 prefers local webhook receiver for CI.
 > - **#14 🟡 (containerized test env)** ✅ RESOLVED - §3.1 adds `docker-compose.test.yml` + `make test-integration`.
+>
+> **Round 5 (⚪ Low, 2026-07-15):**
+> - **#15 ⚪ (severity release-gate definitions)** ✅ RESOLVED - Test-Spec §2 adds definitions: Blocker = cannot ship, Critical = must fix before release, Major = can ship with known issue.

@@ -171,3 +171,12 @@ What if the厂长 has 5 active blueprints? How do they manage them? The Popup is
 | 8 | 🟡 | Add workflow error handling from厂长 perspective |
 | 9 | 🟡 | Add multi-blueprint dashboard concept |
 | 10 | ⚪ | Normalize厂长/您 narrative voice |
+
+> **Resolution Log (2026-07-15):** The following action items have been addressed across the spec docs:
+> - **#1 🔴 (Onboard workflow)** ✅ RESOLVED — PRD §2.1 (6-step Onboard) + §4 (Day 0 journey); ARCH §2.2(C); Feature-Spec §2.5 (Onboard spec); Project-Plan Task 4.3; Test-Spec UTC-05-04 / UTC-05-05; Review-Spec 指标 4.3 + REV-EVO-02; Deployment-Spec §6.4.
+> - **#2 🔴 (View workflow progress in matrix)** ✅ RESOLVED — PRD §2.5 (Workflow Monitor) + §3 matrix row; ARCH §3 (progress UDS primitive + second popup mode) + §4 (progress query sequence); Feature-Spec §2.6 + Contract 3.3; Project-Plan Task 2.3; Test-Spec Suite 2.6 (UTC-06-01..04); Review-Spec 指标 2.3 + REV-OPS-01.
+> - **#4 🟠 (knowledge inheritance mechanism)** ✅ RESOLVED — concrete `## Previous Incidents` few-shot injection on re-Onboard, specified in PRD §2.1/§4, ARCH §2.2(C), Feature-Spec §2.5; verified by Test-Spec UTC-05-05.
+> - **#6 🟡 (Onboard row in matrix)** ✅ RESOLVED — Onboard row (P0) added to PRD §3.
+> - **#9 🟡 (multi-blueprint dashboard)** ✅ RESOLVED — PRD §2.5 (多蓝图并列运营), Feature-Spec §2.6, Test-Spec UTC-06-04.
+>
+> Items #3, #5, #7, #8, #10 remain open (out of scope for this change).

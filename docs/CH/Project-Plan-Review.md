@@ -203,3 +203,10 @@ Each check-in unit is described as "可独立提交" but there's no mention of h
 | 11 | 🟡 | Define UDS protocol contract in M1 for parallel development |
 | 12 | 🟡 | Add time estimates to milestones |
 | 13 | 🟡 | Add regression check to check-in gates |
+
+> **Resolution Log (2026-07-15):**
+> - **#1 🔴 (M0: Herdr v1 validation)** ✅ RESOLVED - Added Milestone 0 (Task 0.1 SDK validation + Task 0.2 Popup PoC) before M1; timeline updated; M1 Task 1.2 no longer assumes Herdr blindly.
+> - **#2 🔴 (herdr-tether fetch/build task)** ✅ RESOLVED - Added M2 Task 2.4 (Check-in Unit 4c): `make bootstrap` pulls/builds herdr-tether, UAT `herdr-tether open` persistent session.
+> - **#3 🔴 (OpenWiki integration tasks)** ✅ RESOLVED - Added M2 Task 2.5 (Check-in Unit 4d): pull/build OpenWiki + Daemon `openwiki_query` RAG, index isolation UAT; closes loop with M4 Offboard write-back.
+> - **#5 🟠 (M2 UAT real Postgres, not mock)** ✅ RESOLVED - M2 Task 2.1 UAT now queries real `blueprints` (status ACTIVE) from Postgres.
+> - **#11 🟡 (UDS protocol contract for parallel dev)** ✅ RESOLVED - UDS request/response contracts defined in Feature-Spec §3.2/3.4; enables parallel Daemon/janus-sh development.

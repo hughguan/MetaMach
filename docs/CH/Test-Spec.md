@@ -27,7 +27,7 @@
 |**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
 |---|---|---|---|---|---|---|
 |**UTC-02-01**|**Shell 代理重定向**|验证 Tether PTY 启动时 `SHELL` 环境变量被强行替换|启动 `dev-flow` 研发流水线|在 Tether 启动的 tmux 窗格中执行 `echo $SHELL`。|终端输出为 `target/release/janus-sh`，而非系统的 `/bin/bash` 或 `/bin/sh`。|**Critical**|
-|**UTC-02-02**|**同步命令拦截**|验证 `janus-sh` 能成功拦截并阻断未授权的敏感/危险指令|启动 `gatemetric` 的 `dev-flow` 任务|在 Agent 窗格中强行执行未在白名单中的命令，例如：`rm -rf /` 或系统级 `esptool.py erase_flash`。|1. 终端指令被同步挂起。<br><br>  <br><br>2. `janus-daemon` 日志触发拦截并返回拒绝执行（Status: Blocked），原始物理 Shell 完好无损。|**Blocker**|
+|**UTC-02-02**|**同步命令拦截**|验证 `janus-sh` 能成功拦截并阻断未授权的敏感/危险指令|启动 `gatemetric` 的 `dev-flow` 任务|在 Agent 窗格中强行执行未在白名单中的命令：先建哨兵 `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`，再执行命中黑名单的 `rm -rf /tmp/metamach-test-guard-$(uuidgen)`（或系统级 `esptool.py erase_flash` 模拟）。|1. 终端指令被同步挂起。<br><br>  <br><br>2. `janus-daemon` 日志触发拦截并返回拒绝执行（Status: Blocked），原始物理 Shell 完好无损，且哨兵文件事后仍然存在（未被删除）。|**Blocker**|
 |**UTC-02-03**|**金融 Dry-Run 重定向**|验证高危操作在未经审批前被强制重定向为演练模式|启动金融级产品线再平衡流程|在未授权状态下，尝试执行发单命令：`hi5bot --action execute`。|1. `janus-sh` 在 UDS 同步对账中捕获该命令。<br><br>  <br><br>2. Tool Guard 强行将入参篡改替换为 `hi5bot --action dry-run` 交付给宿主 Shell。<br><br>  <br><br>3. 物理控制台仅生成对账单 Diff，未发生实质资金划拨。|**Blocker**|
 
 ### Test Suite 2.3: 多 Agent 跨主机耐久工作流 (Distributed Durable Workflows)
@@ -36,7 +36,7 @@
 |---|---|---|---|---|---|---|
 |**UTC-03-01**|**Absurd 事务幂等**|验证工作流 Step 在发生多次重试时不会产生脏数据|数据库处于连接状态|调度 `gatemetric` 连续执行 3 次 `make compile` 工位。|1. Postgres 物理表中仅保留 1 条 Task 记录与最新 Step 状态。<br><br>  <br><br>2. `result_cache` JSON 数据根据最新的成功状态完成覆盖，未产生冗余记录。|**Critical**|
 |**UTC-03-02**|**跨主机进程保护**|验证网络断开/SSH 重启后，物理 tmux Session 完好不灭|任务在远程 SSH 编译主机运行|1. 手动断开本地网络（或临时拔掉网线/关闭 VPN）。<br><br>  <br><br>2. 等待 10 秒后恢复网络并重新执行 `tether attach`。|1. 远程主机的编译进程没有被杀死（`remain-on-exit` 生效）。<br><br>  <br><br>2. 重新挂接后编译现场 100% 还原，数据不折损。|**Critical**|
-|**UTC-03-03**|**冷启动自愈**|模拟系统物理断电，验证开机后从最后一个 Step 断点接棒|本地宿主机运行重型编译，任务状态为 `RUNNING`|1. 强行物理杀死 `postgres` 容器和 `janus-daemon`。<br><br>  <br><br>2. 重启 PG 容器，执行 `make bootstrap` 冷启动自愈线程。|1. Daemon 拒绝使用 `tmux-resurrect`。<br><br>  <br><br>2. 从 Absurd PG 读出最后一次 `COMPLETED` 的 Step Checkpoint，分配全新 UUID 在物理断点处重跑接力。|**Critical**|
+|**UTC-03-03**|**冷启动自愈**|模拟系统物理断电，验证开机后从最后一个 Step 断点接棒|本地宿主机运行重型编译，任务状态为 `RUNNING`|1. 强行物理杀死 `postgres` 容器和 `janus-daemon`。<br><br>  <br><br>2. 重启 PG 容器（`docker compose up -d`），并直接重启 `janus-daemon` 触发冷启动自愈（**不走 `make bootstrap`**，以免全量重编译掩盖真实的冷启动代码路径）。|1. Daemon 拒绝使用 `tmux-resurrect`。<br><br>  <br><br>2. 从 Absurd PG 读出最后一次 `COMPLETED` 的 Step Checkpoint，分配全新 UUID 在物理断点处重跑接力。|**Critical**|
 
 ### Test Suite 2.4: 人工干预多端异步合闸门禁 (HITL Gate)
 
@@ -52,6 +52,17 @@
 |**UTC-05-01**|**Size Budget 截断**|验证 Agent 输出死循环刷屏日志时，大 JSON 缓存不撑爆数据库|运行一个无限输出 `Hello World` 垃圾日志的脚本|调度流水线捕获该任务输出，并执行入库事务。|1. 写入 Postgres 物理表的 `result_cache` 大小被强制限制在 **16 KiB** 预算内。<br><br>  <br><br>2. 截断位置自动附加 `[MetaMach Log Budget Exceeded]` 标签，保护数据库不崩溃。|**Major**|
 |**UTC-05-02**|**下线降解熔炼**|验证产品 Offboard 时，自动凝炼经验脑图并清空大 JSON 缓存|项目 `gatemetric` 开发完成，积累了 200MB 的历史 Steps 日志|运行 `janus offboard --blueprint gatemetric`。|1. 数据库自动触发存储过程 `melt_blueprint_data`，**100% 物理擦除过期的 Step JSON 大字段**。<br><br>  <br><br>2. 在 `gatemetric/openwiki/` 下自动沉淀生成 `production_report.md`，内含引脚修复、报错审计等少样本（Few-shot）进化脑图。|**Critical**|
 |**UTC-05-03**|**Git 经验遗传**|验证生成的质检报告能自动增量 Commit，形成免疫自愈|熔炼器成功吐出 `production_report.md`|执行 Offboard 结算，并重新 onboard 启动下一个周期的开发。|1. 物理目录中的报告自动执行本地 `git commit` 并推送到 GitHub 远端。<br><br>  <br><br>2. 新一代 Agent 进场扫描该脑图后，在 System Prompt 中自动获得“避坑”抗体，编译一次性通过。|**Major**|
+|**UTC-05-04**|**蓝图上线与租户注册**|验证 `janus onboard` 能注册租户并使产品即时可派发，且操作幂等|零产品线的干净车间，`blueprints/joyrobots/janus.toml` 已就位|1. 执行 `janus onboard --blueprint joyrobots`。<br><br>  <br><br>2. 立即连续重复执行同一指令一次。|1. `blueprints` 表新增一行 `status='ACTIVE'` 记录，Popup 派单菜单即时出现 `joyrobots`。<br><br>  <br><br>2. 重复执行不产生第二行记录（`ON CONFLICT` 幂等），菜单无重复条目。|**Blocker**|
+|**UTC-05-05**|**重新上线与经验遗传**|验证 Offboard 后重新 Onboard 能回收 `production_report.md` 为免疫抗体|`gatemetric` 已 Offboard 且 `production_report.md` 内含标记串 `PIN_CONFLICT_MARKER_21`|1. 执行 `janus onboard --blueprint gatemetric` 重新上线。<br><br>  <br><br>2. 通过 Daemon 调试端点导出该蓝图 Agent 的 System Prompt。<br><br>  <br><br>3. 派发一个历史曾触发引脚冲突的工位。|1. Onboard 成功，蓝图状态回到 `ACTIVE`。<br><br>  <br><br>2. 导出的 System Prompt 的 `## Previous Incidents` 段落必须包含 `PIN_CONFLICT_MARKER_21`。<br><br>  <br><br>3. Agent 不再尝试冲突引脚配置，工位一次性通过。|**Critical**|
+
+### Test Suite 2.6: 工作流进度大盘 (Workflow Monitor)
+
+|**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
+|---|---|---|---|---|---|---|
+|**UTC-06-01**|**进度实时刷新**|验证进度大盘在 2s 内反映工位真实推进|一个多工位流水线（如 `dev-flow` 的 scout→code→cross_compile）正在运行|1. `prefix+j` 唤醒 Popup，`Tab` 切换到“进度”视图。<br><br>  <br><br>2. 观察工位状态随执行推进的变化。|1. 大盘按 1–2s 节拍刷新，工位状态依次变为 `PENDING → RUNNING → COMPLETED`，延迟 ≤ 2s。<br><br>  <br><br>2. `current_step` 与耗时字段随真实执行实时更新。|**Critical**|
+|**UTC-06-02**|**挂起高亮与 Resume 入口**|验证 `SUSPENDED` 工位 1s 内高亮并附带恢复入口|流水线运行中，人为触发一次安全熔断（如越权指令）|触发熔断后立即观察进度大盘对应行。|1. 该工位在 1s 内高亮标红为 `SUSPENDED`。<br><br>  <br><br>2. 行尾渲染 `[A]ttach 现场` / `[R]esume` 快捷键入口，可成功 attach 或触发恢复。|**Major**|
+|**UTC-06-03**|**`janus status` CLI 输出**|验证无 TUI 环境下 CLI 快照与大盘数据一致|至少一个在途任务存在|在 SSH 终端执行 `janus status` 与 `janus status --json`。|1. 纯文本输出列出所有在途任务的蓝图/工位/状态/耗时。<br><br>  <br><br>2. `--json` 输出符合 Contract 3.3 Payload 结构，与同时刻大盘显示一致。|**Major**|
+|**UTC-06-04**|**多蓝图隔离展示**|验证多蓝图并行时大盘按蓝图独立分组、互不串扰|`joyrobots` 与 `gatemetric` 均为 `ACTIVE` 且各自有在途任务|同时为两个蓝图派发流水线，打开进度大盘。|1. 大盘按蓝图分组列出两条独立工作流，各自的工位状态互不串扰。<br><br>  <br><br>2. 每条工作流的 `task_id` 唯一，`result_cache` 无跨蓝图污染。|**Major**|
 
 ## 3. 测试环境配置与自动化并网验证 (Testing Environment)
 

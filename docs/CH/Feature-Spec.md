@@ -79,6 +79,20 @@
     
     - **联邦 Wiki 设计**：`configs/global_rules.md` 存放于 Immutable ROOT 中作为全局注入的 System Line。每个蓝图独占 `blueprints/<name>/openwiki/` 子目录用于存放项目专有 AST 脑图。
         
+    - **上线注册机制 (Onboard)**：当厂长执行 `janus onboard --blueprint <name>` 时，Daemon 按以下原子序列接管（任一关键步骤失败即整体回滚，不留半激活态）：
+        
+        1. **配方校验**：读取 `blueprints/<name>/janus.toml`，校验必填字段（`blueprint.name`、`blueprint.default_workflow`、`openwiki.scope`、可选 `remote`）。确认 `workflows/<default_workflow>.toml` 存在且符合工作流文件 schema。校验失败返回明确错误，不写库。
+            
+        2. **点火前自检**：探测 Absurd Postgres 连接可用、tmux 引擎就位。若声明了 `[remote]`，对远程 SSH 靶机执行一次 `BatchMode` 连通性探测（`-o ConnectTimeout=5`），不可达仅记录 `WARN`，不阻断上线（允许离线先上线、后补靶机）。
+            
+        3. **租户注册（幂等）**：执行 `INSERT INTO blueprints (name, status, default_workflow, config, openwiki_scope, remote_host, onboarded_at) VALUES (…) ON CONFLICT (name) DO UPDATE SET status='ACTIVE', onboarded_at=NOW(), offboarded_at=NULL, …`。以 `blueprint_id` 作为物理分区键完成逻辑多租户隔离。重复 Onboard 无副作用；重新上线已 `OFFBOARDED` 的蓝图将其重新激活。
+            
+        4. **流水线绑定**：将 `default_workflow` 持久化到蓝图元数据，并预编译校验该工作流的 Step 序列，确保派单时可即时点火。
+            
+        5. **脑图载入与经验遗传**：索引 `blueprints/<name>/openwiki/` 进入 OpenWiki 检索范围。**若该路径下存在 `production_report.md`（上一代 Offboard 产物）**，Daemon 优先解析其结构化区块（编译报错历史 / 引脚冲突 / Tool Guard 拦截日志 / 成功 Patch），将关键失败模式以 `## Previous Incidents` 少样本（Few-shot）形式追加进该蓝图 Agent 的 System Prompt 模板，实现跨代免疫遗传。
+            
+        6. **上线就绪**：事务提交，状态置 `ACTIVE`。Daemon 通过 UDS 向 `herdr-janus` 广播 `blueprint_registered` 事件，Popup 派单菜单即时刷新出现新产品。
+            
     - **下线熔炼机制 (Offboard)**：当厂长执行 `janus offboard --blueprint <name>` 时：
         
         1. Daemon 扫描 Absurd 数据库，抽取该蓝图历史上所有的 Task、Step 执行轨迹与 Tool Guard 历史拦截日志。
@@ -90,23 +104,66 @@
         4. 通过影子客户端调用本地 Git 自动将 `production_report.md` 进行增量 Commit 与 Push，完成硅基经验的自我遗传。
             
 
+### Feature 2.6: 工作流进度大盘 (Workflow Monitor & Status Query)
+
+- **特性描述**：为厂长提供在途工作流的实时可视性，回答“它还在跑吗 / 卡在第几工位 / 正常还是卡死”。以只读旁路方式聚合 Absurd PG 权威状态，不干扰工作流执行通道。
+
+- **技术规格**：
+
+    - **双视图 Popup**：`herdr-janus` 的 Popup 在原有“派单 (Dispatch)”视图基础上新增“进度 (Progress)”视图，由 `prefix+j` 唤醒后通过 `Tab` 键切换。进度视图以 `ratatui` 表格按蓝图分组渲染在途任务矩阵：所属蓝图 · 流水线 · 当前工位 · 各工位状态（`PENDING` / `STARTING` / `RUNNING` / `COMPLETED` / `SUSPENDED` / `FAILED`）· 已耗时 · 最近 Stdout 摘要（截断至 1KB）。
+
+    - **轮询节拍**：进度视图打开期间，`herdr-janus` 以固定 1–2s 节拍经 UDS 向 Daemon 发送 `progress` 查询并重绘。关闭视图即停止轮询，零空转开销。
+
+    - **`progress` 查询原语（Daemon 侧）**：Daemon 收到查询后执行只读 `SELECT` 聚合 `absurd_tasks JOIN absurd_steps`（过滤非终结态任务），并叠加 Tether 物理 Session 的存活信号（`tmux has-session`）。该查询走独立只读事务，**绝不占用**工作流执行的写事务通道。
+
+    - **挂起即时高亮**：当某工位状态为 `SUSPENDED` 时，大盘在该行 1s 内高亮标红，并在行尾渲染 `[A]ttach 现场` / `[R]esume` 快捷键入口，直接复用既有 Tether attach 与 HITL resume 通路。
+
+    - **`janus status` CLI 兜底**：无 TUI 环境（SSH / CI）下，`janus status [--blueprint <name>] [--json]` 走同一 `progress` 原语，输出纯文本或 JSON 快照，供脚本化巡检。
+
 ## 3. 系统数据交换契约 (Data Contracts)
 
-### Contract 3.1: 步骤持久化核心 schema (Absurd DB)
+### Contract 3.1: 核心 schema (Absurd DB)
 
 SQL
 
 ```
+-- 蓝图租户注册表 (Onboard 写入 / Offboard 置 OFFBOARDED)
+CREATE TABLE blueprints (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,          -- 蓝图名，亦为逻辑租户/分区键标识
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', -- ACTIVE | OFFBOARDED
+    default_workflow VARCHAR(100) NOT NULL,     -- 绑定的默认 SOP 工作流
+    config JSONB,                                -- janus.toml 原文
+    openwiki_scope JSONB,                        -- [openwiki].scope 索引范围
+    remote_host VARCHAR(100),                    -- [remote].host (NULL = 纯本地蓝图)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    onboarded_at TIMESTAMPTZ,                    -- 最近一次 Onboard 时间
+    offboarded_at TIMESTAMPTZ                    -- 最近一次 Offboard 时间
+);
+
+-- 工作流任务表 (一次派单 = 一行 Task)
+CREATE TABLE absurd_tasks (
+    id SERIAL PRIMARY KEY,
+    blueprint_id INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+    workflow_name VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL,                 -- PENDING | STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- 核心步骤检查点表 (带 Size Budget 限制)
 CREATE TABLE absurd_steps (
     task_id INTEGER REFERENCES absurd_tasks(id) ON DELETE CASCADE,
     step_name VARCHAR(100) NOT NULL,
-    status VARCHAR(20) NOT NULL,            -- STARTING | COMPLETED | SUSPENDED
+    status VARCHAR(20) NOT NULL,            -- PENDING | STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
     result_cache JSONB,                     -- 严格限制物理存储体积，最大 16KB 截断
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (task_id, step_name)
 );
 ```
+
+> **状态枚举统一**：全系统 Step/Task 状态机为 `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`。蓝图级别状态机为 `ACTIVE <-> OFFBOARDED`（Onboard 激活 / Offboard 归档）。
 
 ### Contract 3.2: 代理 Shell 同步通信 UDS Payload (janus-sh -> daemon)
 
@@ -126,6 +183,77 @@ JSON
   }
 }
 ```
+
+### Contract 3.3: 工作流进度查询响应 Payload (Daemon -> herdr-janus / `janus status`)
+
+JSON
+
+```
+{
+  "active_tasks": [
+    {
+      "task_id": 1042,
+      "blueprint_id": "gatemetric",
+      "workflow_name": "dev-flow",
+      "status": "RUNNING",
+      "started_at": "2026-07-15T09:00:00Z",
+      "elapsed_seconds": 945,
+      "current_step": "cross_compile",
+      "tether_alive": true,
+      "suspended_reason": null,
+      "steps": [
+        {"name": "scout",         "status": "COMPLETED"},
+        {"name": "code",          "status": "COMPLETED"},
+        {"name": "cross_compile", "status": "RUNNING",  "stdout_tail": "…最近 1KB 终端摘要…"}
+      ]
+    }
+  ]
+}
+```
+
+> `active_tasks` 仅包含非终结态任务（`STARTING` / `RUNNING` / `SUSPENDED`）。`stdout_tail` 为各工位最近终端输出截断至 1KB 的摘要，`tether_alive` 反映对应 Tether 物理 Session 是否存活。该 Payload 同时驱动 Popup 进度大盘渲染与 `janus status --json` 的 CLI 输出。
+
+### Contract 3.4: 代理 Shell 同步通信 UDS 响应 (Daemon -> janus-sh)
+
+JSON
+
+```
+{
+  "execution_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a",
+  "verdict": "ALLOW",                         // ALLOW | BLOCK | REWRITE
+  "reason": "financial_trade_requires_approval", // 人类可读的决策成因
+  "rewritten_argv": ["hi5bot", "--action", "dry-run"], // 仅当 verdict=REWRITE 时存在
+  "correlation_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a" // 审计追踪 ID；HITL 挂起时即 Resume 凭证
+}
+```
+
+> **裁决语义**：`ALLOW` = 原样交付宿主 Shell 执行；`BLOCK` = `janus-sh` 向 Agent 返回非零退出码且不执行，并将 Step 置 `SUSPENDED` 触发 HITL；`REWRITE` = 以 `rewritten_argv` 替换原始 argv 后执行（如 Dry-Run 重定向）。**超时**：若 Daemon 在 `janus-sh` 同步阻塞窗口内（默认 30s）未响应，`janus-sh` 按 **fail-closed** 视为 `BLOCK` 返回错误，绝不放行（见 §2.2 deadlock 处理）。
+
+### Contract 3.5: Agent Pool 资质与 Tool Guard 规则 schema (`configs/agents.toml`)
+
+TOML
+
+```
+# 全局 Agent 岗位资质与 Tool Guard 决策矩阵（Daemon 启动时载入，热重载支持）
+
+[agent.scout]
+permissions      = ["read", "grep", "find", "git-log"]   # 白名单能力
+allow_network    = false                                  # 禁止任何网络外联
+bash_safe        = true                                   # 强制走安全 Bash 子集
+
+[agent.coder]
+permissions      = ["read", "write", "edit", "bash-safe", "git-commit"]
+allow_network    = false
+bash_safe        = true
+bash_blacklist   = ["rm -rf /", "> /dev/sd*", "mkfs.*", "dd if=* of=/dev/*"]  # 正则黑名单
+
+[agent.deployer]
+permissions      = ["read", "write", "bash-full", "ssh", "git-push"]
+allow_network    = true
+require_approval = ["esptool.py write_flash", "make flash", "*production*"]  # 命中即触发 HITL 挂起
+```
+
+> **决策优先级**：Tool Guard 对每条 `janus-sh` 上报的 argv 依次判定——(1) `bash_blacklist` 命中 -> `BLOCK`；(2) `require_approval` 命中 -> `BLOCK` 并置 `SUSPENDED` 等 HITL；(3) 命令能力不在当前岗位 `permissions` 白名单 -> `BLOCK`；(4) 金融类高危指令 -> `REWRITE` 为 Dry-Run；(5) 其余 -> `ALLOW`。规则可配置（非硬编码 Rust），Daemon 通过 `configs/agents.toml` 软链接（Mutable Config 区）载入。
 
 ## 4. 交付质量指标与异常熔断矩阵 (UAT & Fault Matrix)
 

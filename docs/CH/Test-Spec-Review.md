@@ -246,3 +246,7 @@ All tests assume a bare-metal or VM environment. For CI/CD, the entire test suit
 | 13 | 🟡 | Replace ngrok dependency with local webhook receiver |
 | 14 | 🟡 | Add containerized test environment (docker-compose.test.yml) |
 | 15 | ⚪ | Define severity level release gate meanings |
+
+> **Resolution Log (2026-07-15):**
+> - **#1 🔴 (rm -rf / in UTC-02-02)** ✅ RESOLVED - UTC-02-02 now creates a `/tmp/metamach-test-guard-$(uuidgen)` sentinel dir + file, attempts a blacklisted `rm -rf` against it, and verifies the sentinel survives the block.
+> - **#2 🔴 (UTC-03-03 uses make bootstrap)** ✅ RESOLVED - UTC-03-03 now restarts PG via `docker compose up -d` and the Daemon directly via `janus-daemon` (no `make bootstrap` recompile); expected output already correctly reads the last `COMPLETED` checkpoint.

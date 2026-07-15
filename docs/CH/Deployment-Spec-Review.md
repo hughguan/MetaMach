@@ -329,3 +329,12 @@ db-up:
 | 14 | 🟡 | Pin Docker image to specific version |
 | 15 | 🟡 | Fix race condition in `db-up` target |
 | 16 | ⚪ | Remove deprecated `version` from docker-compose.yml |
+
+> **Resolution Log (2026-07-15):**
+> - **#1 🔴 (hardcoded DB password)** ✅ RESOLVED - Makefile no longer hardcodes a default; `METAMACH_DB_PASSWORD` is read from `${HERDR_PLUGIN_STATE_DIR}/.db_password` or generated via `openssl rand -hex 16`, persisted (chmod 600, gitignored), printed once at bootstrap.
+> - **#2 🔴 (Postgres TCP exposure)** ✅ RESOLVED - docker-compose `ports` removed; `command: postgres -c listen_addresses=''` disables TCP; Unix Socket mounted to `${METAMACH_PG_SOCKET_DIR}`; daemon connects via socket.
+> - **#3 🔴 (decrypt_secrets.sh prereq checks)** ✅ RESOLVED - Script now guards `command -v sops`, `command -v age`, and `$SOPS_AGE_KEY_FILE` existence with clear errors before any RAM-disk work.
+> - **#4 🔴 (`clean` unsafe rm -rf)** ✅ RESOLVED - `clean` now guards `if [ -d /dev/shm/metamach.janus ]` before deletion, with a warning.
+> - **Bonus #11 🟡 (§6.3 COMPLETED vs SUSPENDED)** ✅ RESOLVED - §6.3 aligned to Feature-Spec §2.3: `RUNNING` resumes from last `COMPLETED` checkpoint; `SUSPENDED` stays suspended + notifies.
+> - **Bonus #14 🟡 (pin Docker image)** ✅ RESOLVED - image pinned to `postgres:15.8-alpine`.
+> - **Bonus #16 ⚪ (deprecated `version`)** ✅ RESOLVED - `version: '3.8'` removed from docker-compose.

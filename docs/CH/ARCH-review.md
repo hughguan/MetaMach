@@ -34,7 +34,7 @@ Documents audited:
 
 ## 1. 🔴 Source Tree vs. Referenced Binaries — Critical Gaps
 
-### 1.1 `herdr-tether` binary has no source location
+### 1.1 `herdr-tether` binary has no source location ✅ RESOLVED
 
 **Affected docs:** `ARCH.md` §5, `Feature-Spec.md` §2.3, `Project-Plan.md` Task 4.1
 
@@ -51,12 +51,10 @@ Yet `herdr-tether` is referenced throughout as a first-class binary responsible 
 - Cross-host SSH session orchestration
 - `tether open`, `tether attach` CLI commands
 
-**Questions:**
-- Is `herdr-tether` a separate Rust crate? A sub-binary under `janus/src/bin/herdr_tether.rs`? A standalone Go/Rust project?
-- If it's part of the `janus/` Cargo workspace, it should appear in the tree.
-- If it's a separate repository or external binary, that boundary must be explicitly declared.
+**Resolution:** `herdr-tether` is an **external dependency** — separate repository at:
+> https://github.com/moneycaringcoder/herdr-tether
 
-**Recommendation:** Add `herdr_tether.rs` to `janus/src/bin/` in the directory tree, or document it as an external dependency with its own repo path.
+**Remaining action:** Update `ARCH.md` §5 directory tree to document `herdr-tether` as an external dep (git submodule or cargo git dependency). Update `Deployment-Spec.md` and `Project-Plan.md` to reflect that `herdr-tether` is fetched/built from this external repo, not compiled from within `janus/`.
 
 ---
 
@@ -81,7 +79,7 @@ But `tool_guard/` is described as a module, not a binary crate. `Project-Plan.md
 
 ---
 
-### 1.3 `openwiki/` — standalone binary without source
+### 1.3 `openwiki/` & `absurd/` — external dependency boundaries ✅ RESOLVED
 
 **Affected docs:** `ARCH.md` §5
 
@@ -93,14 +91,18 @@ openwiki/
     └── global_rules.md
 ```
 
-Pre-compiled binaries in a monorepo are an anti-pattern.
+Pre-compiled binaries in a monorepo are an anti-pattern. All three referenced external components now have confirmed repos:
 
-**Questions:**
-- Is OpenWiki a separate repository? If so, document the repo URL and how it's integrated (git submodule? cargo dependency?).
-- If it's built from source within this monorepo, where is the source?
-- If it's purely a configuration layer (no separate binary), the `bin/` directory is misleading.
+| Component | External Repo | Status |
+|-----------|--------------|--------|
+| **herdr-tether** (tmux/SSH execution engine) | https://github.com/moneycaringcoder/herdr-tether | ✅ |
+| **Absurd** (Postgres engine / DB layer) | https://github.com/earendil-works/absurd | ✅ |
+| **OpenWiki** (RAG knowledge /联邦脑图) | https://github.com/langchain-ai/openwiki | ✅ |
 
-**Recommendation:** Either remove `bin/` and define OpenWiki as a pure configuration + RAG skill layer loaded by Janus, or add its source tree and build instructions.
+**Remaining action:** Document integration strategy for all three external deps in `ARCH.md` §5 and `Deployment-Spec.md` §1:
+- Git submodules? Cargo git dependencies? Pre-built binaries fetched by `make bootstrap`?
+- Remove `openwiki/bin/` from the monorepo tree; OpenWiki is now an external dep, not a pre-compiled binary checked into the repo.
+- Clarify: does the `openwiki/` directory in the monorepo become a pure config/skill directory (per-blueprint knowledge), with the OpenWiki engine pulled from the external repo at build time?
 
 ---
 
@@ -294,7 +296,7 @@ The Offboard process "调用大模型将运行快照…压缩总结为高密度 
 
 ---
 
-### 3.3 `rm -rf /` as a test case is dangerously specified
+### 3.3 `rm -rf /` as a test case is dangerously specified ✅ RESOLVED
 
 **Affected docs:** `Test-Spec.md` UTC-02-02, `Review-Spec.md` REV-SEC-02
 
@@ -536,11 +538,11 @@ The deployment spec lists "macOS 13+" as supported, but:
 
 | # | Severity | Item | Affected Milestone |
 |---|----------|------|---------------------|
-| 1 | 🔴 | Add `herdr-tether` source location to tree | M1 (infrastructure) |
+| 1 | ~ | ~~Add `herdr-tether` source location to tree~~ → external: [herdr-tether](https://github.com/moneycaringcoder/herdr-tether) | M1 (document dep) |
 | 2 | 🔴 | Add `janus-sh` binary source to tree | M3 (shield) |
 | 3 | 🔴 | Add `configs/` directory to tree | M1 (infrastructure) |
 | 4 | 🔴 | Add `janus/migrations/` to tree | M1 (infrastructure) |
-| 5 | 🔴 | Resolve `openwiki/` source vs. binary question | M1 (infrastructure) |
+| 5 | ~ | ~~Resolve `openwiki/` source~~ → [langchain-ai/openwiki](https://github.com/langchain-ai/openwiki) | M1 (document dep) |
 | 6 | 🟠 | Define complete database schema (3 tables) | M1 (infrastructure) |
 | 7 | 🟠 | Define `janus.toml` schema | M1 (infrastructure) |
 | 8 | 🟠 | Define workflow `.toml` schema | M2 (daemon) |
@@ -548,20 +550,22 @@ The deployment spec lists "macOS 13+" as supported, but:
 | 10 | 🟠 | Fix `herdr-tether` CLI command naming | M4 (advanced) |
 | 11 | 🟠 | Add janus-sh timeout/deadlock handling | M3 (shield) |
 | 12 | 🟠 | Add PID file staleness detection | M2 (daemon) |
-| 13 | 🟠 | Replace `rm -rf /` test with safe equivalent | M3 (shield) |
+| 13 | ✅ | ~~Replace `rm -rf /` test with safe equivalent~~ RESOLVED -> Review-Spec REV-SEC-02 + Test-Spec UTC-02-02 now use `/tmp/metamach-*` sentinel (see Review-Spec-Review #1, Test-Spec-Review #1) | M3 (shield) |
 | 14 | 🟠 | Redesign HITL resume mechanism | M4 (advanced) |
 | 15 | 🟠 | Clarify 16KB enforcement point | M4 (advanced) |
 | 16 | 🟠 | Specify Offboard LLM dependency | M4 (advanced) |
 | 17 | 🟡 | Resolve Teams vs. Telegram notification priority | M4 (advanced) |
 | 18 | 🟡 | Use absolute path for `SHELL` env var | M3 (shield) |
 | 19 | 🟡 | Document Herdr v1 plugin contract | M1 (infrastructure) |
-| 20 | 🟡 | Remove deprecated Docker Compose `version` field | M1 (infrastructure) |
-| 21 | 🟡 | Remove hardcoded DB password default | M1 (infrastructure) |
+| 20 | ✅ | ~~Remove deprecated Docker Compose `version` field~~ RESOLVED -> removed from docker-compose.yml (Deployment-Spec-Review #16) | M1 (infrastructure) |
+| 21 | ✅ | ~~Remove hardcoded DB password default~~ RESOLVED -> Deployment-Spec Makefile generates random password (`openssl rand`), persists to Mutable State (chmod 600, gitignored); see Deployment-Spec-Review #1 | M1 (infrastructure) |
 | 22 | 🟡 | Add state machine diagram | M2 (daemon) |
 | 23 | 🟡 | Define `fallback.db` schema | M4 (advanced) |
 | 24 | 🟡 | Address macOS `/dev/shm` compatibility | M1 (infrastructure) |
 | 25 | ⚪ | Standardize database naming | All |
 | 26 | ⚪ | Confirm `metamach_db` as canonical DB name | M1 |
+| 27 | ✅ | **Add "Onboard a new Blueprint" workflow** (from PRD-Review #1) — RESOLVED across PRD §2.1/§4, ARCH §2.2(C), Feature-Spec §2.5, Project-Plan Task 4.3, Test-Spec UTC-05-04/05, Review-Spec 指标 4.3, Deployment-Spec §6.4 | M4 (lifecycle) |
+| 28 | ✅ | **Add "View workflow progress" feature to matrix** (from PRD-Review #2) — RESOLVED across PRD §2.5/§3, ARCH §3/§4, Feature-Spec §2.6 + Contract 3.3, Project-Plan Task 2.3, Test-Spec Suite 2.6, Review-Spec 指标 2.3 | M2 (daemon) |
 
 ---
 

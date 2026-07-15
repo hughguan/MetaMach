@@ -1,6 +1,8 @@
 
 ### ── 围绕设计哲学、极致安全性、系统稳定性与多维灾备的核心架构走查与审计标准
 
+> ⚠️ **安全审查红线**：本规范中所有安全审查项（尤其 REV-SEC-* 系列）**必须在隔离的容器或专用测试 VM 中执行，严禁在生产机或含个人数据的宿主机上运行**。所有“破坏性指令”测试一律使用 `/tmp/metamach-review-*` 哨兵目录等安全等价物，绝不执行真实系统级删除。
+
 ## 1. 宏观审查目标与设计哲学对账 (Philosophy Alignment)
 
 在 MetaMach 2.0 正式合闸并网前，必须由架构师与厂长共同对系统进行**架构级审查（Design Review）**。本规范书提供了一套硬核、量化的审计标准，用以证明系统设计在面对恶劣物理环境和黑盒 AI 漏洞时，依然能 100% 捍卫以下四大设计支柱：
@@ -74,6 +76,21 @@
         2. 输入超出预算的文本，落盘至 `absurd_steps.result_cache` 的 JSON 字段大小必须严格等于 16KB，且超出部分被物理裁剪（Truncated），并在尾部原子注入 `[MetaMach Log Budget Exceeded]` 标志。
             
 
+- **指标 2.3：工作流进度可视性审计**
+
+    - _审查要求_：证明厂长对在途工作流具备实时、可信的可视性，能区分“正常运行”与“卡死”，且查询不干扰执行通道。
+
+    - _通过标准_：
+
+        1. Popup 进度视图打开期间，工位状态（`PENDING -> RUNNING -> COMPLETED`）相对真实执行的延迟必须 ≤ 2s。
+            
+        2. 任意工位进入 `SUSPENDED` 后，进度大盘必须在 1s 内高亮该行并渲染 `[Attach]` / `[Resume]` 入口。
+            
+        3. `progress` 查询必须走只读旁路事务：在重型编译（写事务密集）期间打开大盘，不得造成工作流卡顿或 UDS 阻塞。
+            
+        4. 无 TUI 环境下 `janus status` 输出必须与同时刻大盘数据一致（同源 `progress` 原语）。
+            
+
 ### 🌀 审查域三：高可用与灾备恢复 (Disaster Recovery Review)
 
 本审查旨在证明：**在 Richmond Hill 车间突发停电、物理硬件重启等灾难场景下，系统具备完全无损的状态重建与自愈能力。**
@@ -135,6 +152,18 @@
             
         3. 新一任 Agent 进场扫描该脑图后，其 System Prompt 必须成功携带该免疫信息，并在后续代码生成中主动规避引脚冲突，编译一次性通过。
             
+- **指标 4.3：蓝图上线与租户注册审计**
+
+    - _审查要求_：证明 `janus onboard` 能将一个蓝图目录安全、幂等地转化为 `ACTIVE` 可派发产品线，并正确回收历史经验。
+
+    - _通过标准_：
+        
+        1. 执行 `janus onboard --blueprint <name>` 后，`blueprints` 表必须出现且仅出现一行该蓝图的 `ACTIVE` 记录，且 Popup 派单菜单即时可见。
+            
+        2. 连续重复执行 Onboard 不得产生重复行（`ON CONFLICT` 幂等），亦不得破坏既有 Task/Step 数据。
+            
+        3. 对一个已 `OFFBOARDED` 的蓝图重新 Onboard，其状态必须回到 `ACTIVE`，且若存在上一代 `production_report.md`，该白皮书的关键失败模式必须以 `## Previous Incidents` 少样本形式出现在新一代 Agent 的 System Prompt 中（可经 Daemon 调试端点核验）。
+            
 
 ## 3. 软件审查评审表 (Review Sign-Off Sheet)
 
@@ -143,10 +172,12 @@
 |**审查编号**|**审计项 (Audit Item)**|**验证手段**|**物理状态确认 (Sign-off)**|**风险判定**|
 |---|---|---|---|---|
 |**REV-SEC-01**|**`/dev/shm` 权限隔离**|在宿主机上运行 `stat /dev/shm/*.decrypted`，核对权限是否为 `0600` 且属主为守护进程用户。|`[ ]` 已核对 / 物理隔离正常|**极高 (Red)**|
-|**REV-SEC-02**|**`janus-sh` 越权阻断**|强制执行 `rm -rf /`，验证 `janus-daemon` UDS 套接字是否同步拦截并锁定挂起。|`[ ]` 已核对 / 拦截阻断通过|**极高 (Red)**|
+|**REV-SEC-02**|**`janus-sh` 越权阻断**|创建哨兵目录 `mkdir -p /tmp/metamach-review-$(uuidgen) && echo s > /tmp/metamach-review-$(uuidgen)/sentinel`，再经 Agent 窗格强制执行命中黑名单的 `rm -rf /tmp/metamach-review-*`，验证 `janus-daemon` UDS 是否同步拦截并锁定挂起，且哨兵文件事后仍然存在。|`[ ]` 已核对 / 拦截阻断通过|**极高 (Red)**|
 |**REV-STB-01**|**16KB Size Budget**|运行 `cat /dev/urandom` 刷屏，验证写入 Postgres 的 JSON 是否被强制截断且附带 Budget 标记。|`[ ]` 已核对 / 存储降解正常|**中 (Yellow)**|
-|**REV-DIS-01**|**冷启动零状态自愈**|强行 `killall -9 tmux` 模拟机房断电，验证重新拉起后是否根据 PG Step 断点平滑接棒。|`[ ]` 已核对 / 自愈接力成功|**高 (Orange)**|
+|**REV-DIS-01**|**冷启动零状态自愈**|`killall -9 janus-daemon` 并仅杀 MetaMach 所属 tmux 会话（`for s in $(tmux list-sessions -F '#{session_name}' | grep '^tether-janus-'); do tmux kill-session -t "$s"; done`），DB 用 `docker compose stop` 模拟机房断电；验证重新拉起后是否根据 PG Step 断点平滑接棒。|`[ ]` 已核对 / 自愈接力成功|**高 (Orange)**|
 |**REV-EVO-01**|**下线降解与经验遗传**|执行 `janus offboard`，验证数据库大 JSON 擦除率达 100%，且本地成功生成 `production_report.md`。|`[ ]` 已核对 / 经验遗传闭环|**中 (Yellow)**|
+|**REV-OPS-01**|**工作流进度可视性**|派发多工位流水线，打开进度大盘，验证工位状态 ≤2s 刷新、`SUSPENDED` ≤1s 高亮，且 `janus status` 与大盘同源一致。|`[ ]` 已核对 / 进度可视正常|**高 (Orange)**|
+|**REV-EVO-02**|**蓝图上线与租户注册**|执行 `janus onboard`，验证 `blueprints` 表出现唯一 `ACTIVE` 行、幂等无重复，且重新 Onboard 回收 `production_report.md` 进 System Prompt。|`[ ]` 已核对 / 上线注册闭环|**高 (Orange)**|
 
 ## 4. 架构师与厂长联签合闸 (UAT Final Approval)
 

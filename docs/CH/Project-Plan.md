@@ -6,9 +6,49 @@
 ## 📅 建设路线图总览 (Milestone Timeline)
 
 ```
-[Milestone 1] ──> [Milestone 2] ──> [Milestone 3] ──> [Milestone 4]
- 基础设施与外壳      双生进程调度        代理沙箱与安全卫兵    生命周期与自愈
+[Milestone 0] ──> [Milestone 1] ──> [Milestone 2] ──> [Milestone 3] ──> [Milestone 4]
+ Herdr v1 验证      基础设施与外壳      双生进程调度        代理沙箱与安全卫兵    生命周期与自愈
 ```
+
+> **M0 为前置门禁**：M1 起的所有 Popup/插件任务都依赖 Herdr v1 插件 SDK 可用。M0 必须先验证该外部契约，否则 M1 Task 1.2 即被阻塞。
+
+## 🧪 Milestone 0: Herdr v1 插件契约验证 (External SDK Validation)
+
+- **研发目标**：在投入任何 MetaMach 自研代码前，先验证 Herdr v1 插件 SDK 真实可用，消除 M1 的最大未知外部依赖。M0 不产出 MetaMach 业务代码，仅产出“契约验证证据 + 最小 PoC 插件 + Herdr v1 API 接口备忘”。
+
+- **本阶段完成即可独立 Check-in 的物理目录结构**：
+
+    `docs/CH/herdr-v1-contract.md`（接口备忘）, `spike/herdr-hello-plugin/`（PoC 插件，gitignore）
+
+### 🛠️ 任务分解 (Tasks)
+
+#### Task 0.1: Herdr v1 安装与插件 SDK 可用性验证 (Check-in Unit 0a)
+
+- **任务描述**：安装 Herdr v1 并验证插件加载链路端到端可用。
+
+- **实现细节**：
+
+    - 安装 Herdr v1，执行 `herdr plugin link` 能成功挂载一个插件目录。
+        
+    - 验证 `prefix+j` 键绑定能派发到已挂载插件，且 `herdr-plugin.toml` 可被解析。
+        
+    - 验证 `placement = "popup"`、`width`、`height` 为 Herdr v1 合法指令并真实生效。
+        
+
+- **UAT 物理验证**：挂载一个空壳插件，按下 `prefix+j` 后 Herdr 真实弹出指定尺寸的 Popup 窗口；记录 Herdr v1 实际 API 表面（事件钩子、UDS 约定、生命周期回调）写入 `docs/CH/herdr-v1-contract.md`。
+
+#### Task 0.2: 最小 Popup PoC 插件 (Check-in Unit 0b)
+
+- **任务描述**：用 Herdr v1 SDK 实现一个“Hello World”Popup 插件，验证 MetaMach 后续所需的全部交互原语。
+
+- **实现细节**：
+
+    - PoC 插件能渲染一个 `ratatui` Popup，接管键盘焦点，按 `Esc` 安全退栈。
+        
+    - 验证 Popup 内能通过 UDS 与一个后台进程通信（为 M2 的 `herdr-janus` <-> `janus-daemon` 通路打样）。
+        
+
+- **UAT 物理验证**：PoC 插件按下 `prefix+j` 弹出、键盘焦点不逃逸、`Esc` 关闭、UDS 通信往返成功。若任何一项失败，M1 暂不启动，先与 Herdr v1 上游对齐契约。
 
 ## 📐 Milestone 1: 基础设施并网与影子外壳 (Immutable & Base)
 
@@ -68,7 +108,7 @@
         
     - **单例文件锁 (PID Lock)**：在 `~/.local/state/.../janus.pid` 写入当前进程 PID。二次启动检测到该文件时，直接安全退出，防止重复抢占 UDS。
         
-    - 当 UDS 收到请求时，向客户端（`herdr-janus`）发送 Mock 的 Blueprint 列表。
+    - 当 UDS 收到请求时，Daemon 查询 Absurd Postgres 的 `blueprints` 表，向客户端（`herdr-janus`）返回所有 `status = 'ACTIVE'` 的真实蓝图列表（不再使用 Mock 数据；M1 已建表，可由 migration 种子或 M4 的 `janus onboard` 写入）。
         
 
 #### Task 2.2: 影子客户端 UDS 对账与“惰性启动” (Check-in Unit 4)
@@ -83,6 +123,52 @@
         
 - **UAT 物理验证**：手动物理杀死 `janus-daemon`，直接在 Herdr 内按下 `prefix+j`。弹窗应无延迟弹出，并在后台自动生成新的 `janus.pid`。
     
+
+#### Task 2.3: 工作流进度查询与大盘渲染 (Check-in Unit 4b)
+
+- **任务描述**：在 Daemon 侧实现只读 `progress` 查询原语，在 `herdr-janus` 侧为 Popup 新增“进度 (Progress)”视图与 `janus status` CLI。
+
+- **实现细节**：
+    
+    - Daemon 暴露 `progress` UDS 查询：以只读事务聚合 `absurd_tasks JOIN absurd_steps`（过滤非终结态），叠加 Tether `tmux has-session` 存活信号，返回 Contract 3.3 定义的 Payload。该查询走独立只读通道，不与工作流写事务争用。
+        
+    - `herdr-janus` Popup 新增 Progress 视图，`Tab` 键在“派单 / 进度”间切换；进度视图以 1–2s 节拍轮询 `progress` 并用 `ratatui` 表格按蓝图分组渲染。`SUSPENDED` 工位高亮并附 `[A]ttach` / `[R]esume` 入口。
+        
+    - 实现 `janus status [--blueprint <name>] [--json]` CLI，复用同一 `progress` 原语输出纯文本/JSON 快照。
+        
+- **UAT 物理验证**：派发一个多工位流水线后切换到进度视图，工位状态应在 2s 内随真实执行推进（`PENDING -> RUNNING -> COMPLETED`）；人为触发 `SUSPENDED` 后该行 1s 内高亮。SSH 环境执行 `janus status` 应输出与大盘一致的在途任务快照。
+
+> 注：本任务在 M2 即落地查询与渲染骨架，其所读取的 Task/Step 真实数据随 M3（janus-sh 工位执行）、M4（跨主机工作流）逐步丰满；M2 阶段可用 migration 种子任务验证渲染。
+
+#### Task 2.4: Tether Engine 外部依赖拉取与本地会话验证 (Check-in Unit 4c)
+
+- **任务描述**：将外部依赖 `herdr-tether`（https://github.com/moneycaringcoder/herdr-tether）纳入 `make bootstrap` 拉取/构建流程，并验证本地 tmux 会话原语可用，为 M3（janus-sh 在 Tether 窗格内测试）与 M4（跨主机）提前就位。
+
+- **实现细节**：
+    
+    - 在 `make bootstrap` 中增加 `tether` 目标：通过 git submodule 或 cargo git 依赖拉取 `herdr-tether` 源码并 `cargo build --release`，产物安装到 `${HERDR_PLUGIN_ROOT}/bin/herdr-tether`。
+        
+    - 验证 `herdr-tether open --command "sleep 100"` 能创建一个持久 tmux 会话，且注入 `set -g remain-on-exit on`（或 per-session 等价设置）。
+        
+    - 验证 `herdr-tether attach` 能秒级挂接并存留现场。
+        
+
+- **UAT 物理验证**：`make bootstrap` 后 `herdr-tether open --command "sleep 100"` 拉起会话；强行关闭前台视图，`tmux list-sessions` 仍见 `tether-janus-*` 会话活跃；`herdr-tether attach` 现场毫秒级还原。
+
+#### Task 2.5: OpenWiki 外部依赖拉取与 RAG 查询验证 (Check-in Unit 4d)
+
+- **任务描述**：将外部依赖 OpenWiki（https://github.com/langchain-ai/openwiki）纳入构建流程，并打通 Daemon -> OpenWiki 的 RAG 查询链路，为 M4 Offboard 写回与 Agent 进场检索提前就位。
+
+- **实现细节**：
+    
+    - `make bootstrap` 增加 `openwiki` 目标：拉取/构建 OpenWiki 引擎，配置 `blueprints/<name>/openwiki/` 与全局 `configs/global_rules.md` 的索引范围。
+        
+    - Daemon 实现 `openwiki_query` 旁路：Agent 遇代码盲区时发起 RAG 检索，Daemon 优先命中 Absurd PG 级缓存（Git-SHA 去重），未命中再查 OpenWiki 引擎。
+        
+    - 验证索引范围隔离：不同蓝图的局部脑图互不串扰。
+        
+
+- **UAT 物理验证**：为一个蓝图索引其 `openwiki/` 后，`openwiki_query` 能返回精准 AST 片段；跨蓝图查询结果不串扰。Offboard 写回 `production_report.md` 后，重新索引能被检索命中（与 M4 Task 4.2/4.3 闭环）。
 
 ## 🛡️ Milestone 3: 物理沙箱、代理 Shell 与安全卫兵 (Shield Layer)
 
@@ -116,7 +202,7 @@
         
     - **非破坏性挂起 (Suspension)**：若为未授权高危指令，将状态标记为 `SUSPENDED`。Daemon 不杀底层 PTY，阻止 `janus-sh` 往下派发，同时通过 Teams Webhook 发送带有一键 `Resume` 的卡片。
         
-- **UAT 物理验证**：在 Agent 窗格中强制运行 `rm -rf /`，终端应瞬间被同步挂起（Remain-on-Exit），手机端收到 Teams 审批卡片。
+- **UAT 物理验证**：在 Agent 窗格中先建哨兵 `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`，再强制运行命中黑名单的 `rm -rf /tmp/metamach-test-guard-$(uuidgen)`，终端应瞬间被同步挂起（Remain-on-Exit）、哨兵存活，手机端收到 Teams 审批卡片。
     
 
 ## 📈 Milestone 4: 跨主机耐久、冷自愈与下线熔炼 (Advanced & Prune)
@@ -157,6 +243,24 @@
         
 - **UAT 物理验证**：对积攒了大量编译日志的产品执行 `janus offboard --blueprint gatemetric`，本地成功 Commit 并推入 Git 远端一份 `production_report.md`，PG 数据库物理体积发生断崖式收缩。
     
+
+#### Task 4.3: 蓝图上线与租户注册 (Onboard) (Check-in Unit 8b)
+
+- **任务描述**：实现 `janus onboard --blueprint <name>` 指令，补齐与 Offboard 对称的上线侧生命周期闭环。
+
+- **实现细节**：
+    
+    - 读取并校验 `blueprints/<name>/janus.toml`（必填字段 + `workflows/<default_workflow>.toml` 存在性），校验失败明确报错且不写库。
+        
+    - 执行点火前自检：Absurd PG 可达、tmux 就位；跨主机蓝图对 `[remote].host` 做尽力 SSH 连通性探测（不可达仅 `WARN`）。
+        
+    - **幂等租户注册**：`INSERT … ON CONFLICT (name) DO UPDATE` 写入 `blueprints` 行（`status='ACTIVE'`、`config`、`openwiki_scope`、`remote_host`、`onboarded_at`）。重新上线已 `OFFBOARDED` 蓝图即重新激活。
+        
+    - **脑图载入与经验遗传**：索引 `blueprints/<name>/openwiki/`；若存在上一代 `production_report.md`，解析其结构化区块并以 `## Previous Incidents` 少样本注入该蓝图 Agent System Prompt 模板。
+        
+    - 上线就绪后通过 UDS 广播 `blueprint_registered` 事件，Popup 派单菜单即时刷新。
+        
+- **UAT 物理验证**：对零产品线的干净车间执行 `janus onboard --blueprint joyrobots`，`blueprints` 表出现一行 `ACTIVE` 记录且 Popup 菜单即时出现该产品；重复执行无副作用（幂等）。对一个已 Offboard 的蓝图重新 Onboard，验证其 `production_report.md` 被回收进新一代 Agent 的 System Prompt。
 
 ## 🏁 交付质量门禁 (Check-in Gates)
 

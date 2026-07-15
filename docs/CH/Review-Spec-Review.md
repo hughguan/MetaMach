@@ -173,3 +173,7 @@ The厂长 signs off on "生产业务与合闸审批核准" but the review items 
 | 8 | 🟡 | Add production_report.md quality gates |
 | 9 | 🟡 | Add review dependency ordering |
 | 10 | ⚪ | Split sign-off into technical and business roles |
+
+> **Resolution Log (2026-07-15):**
+> - **#1 🔴 (rm -rf / in REV-SEC-02)** ✅ RESOLVED - REV-SEC-02 now uses a `/tmp/metamach-review-*` sentinel directory + sentinel file; verifies guard blocks AND sentinel survives. Added a top-of-doc isolation warning (all security review items must run in isolated container/VM).
+> - **#2 🔴 (killall -9 tmux in REV-DIS-01)** ✅ RESOLVED - REV-DIS-01 now kills only `janus-daemon` + targeted `tether-janus-*` tmux sessions (preserving the reviewer's unrelated sessions); DB via `docker compose stop`.

@@ -46,21 +46,19 @@
 YAML
 
 ```
-version: '3.8'
-
 services:
   metamach-db:
-    image: postgres:15-alpine
+    image: postgres:15.8-alpine               # 锁定次版本，避免 floating tag 漂移
     container_name: metamach-postgres-db
+    command: postgres -c listen_addresses=''   # 禁用 TCP 监听，仅暴露 Unix Socket，彻底杜绝网络面
     environment:
       POSTGRES_DB: metamach_db
       POSTGRES_USER: metamach_admin
-      POSTGRES_PASSWORD: ${METAMACH_DB_PASSWORD} # 通过宿主机环境变量安全注入
-    ports:
-      - "127.0.0.1:5432:5432" # 仅暴露给本地环回，杜绝外网渗透
+      POSTGRES_PASSWORD: ${METAMACH_DB_PASSWORD} # 由 make bootstrap 随机生成并注入（见 §5.1 Makefile）
     volumes:
       - metamach_pgdata:/var/lib/postgresql/data
       - ./janus/migrations:/docker-entrypoint-initdb.d # 容器初始化时自动执行迁移
+      - ${METAMACH_PG_SOCKET_DIR}:/var/run/postgresql  # Unix Socket 挂出至宿主机状态目录，宿主进程经 socket 连接
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U metamach_admin -d metamach_db"]
@@ -72,6 +70,8 @@ volumes:
   metamach_pgdata:
     driver: local
 ```
+
+> **安全说明（对应 Deployment 评审 #2）**：已移除 `ports` 映射，Postgres 不再监听任何 TCP 端口（`listen_addresses=''`），宿主机 `janus-daemon` 经 Unix Socket 连接：连接串形如 `postgresql://metamach_admin:${METAMACH_DB_PASSWORD}@/metamach_db?host=${METAMACH_PG_SOCKET_DIR}`。即使是同机其他用户也无法经由 TCP 猜测口令连入。
 
 ## 4. 物理沙箱密钥解密与挂载 (RAM Disk Decryption)
 
@@ -85,6 +85,22 @@ Bash
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 0. 前置依赖检查：sops / age 必须就位，否则给出明确报错而非 cryptic "command not found"
+export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+
+if ! command -v sops >/dev/null 2>&1; then
+    echo "❌ sops 未安装。请先安装：macOS 'brew install sops' / Linux 'apt install sops'。"
+    exit 1
+fi
+if ! command -v age >/dev/null 2>&1; then
+    echo "❌ age 未安装。请先安装：macOS 'brew install age' / Linux 'apt install age'。"
+    exit 1
+fi
+if [ ! -f "$SOPS_AGE_KEY_FILE" ]; then
+    echo "❌ Age 私钥不存在于 $SOPS_AGE_KEY_FILE，无法解密金融凭证。"
+    exit 1
+fi
+
 # 1. 声明内存盘临时路径
 RAM_DISK_PATH="/dev/shm/metamach.janus"
 DECRYPTED_KEY="${RAM_DISK_PATH}/hi5bot.decrypted"
@@ -96,8 +112,6 @@ if [ ! -d "$RAM_DISK_PATH" ]; then
 fi
 
 # 3. 使用 Age 私钥通过 SOPS 同步解密至内存盘
-export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
-
 if [ -f "configs/sops/hi5bot.encrypted.json" ]; then
     echo "🔑 Decrypting financial secrets directly to RAM disk..."
     sops --decrypt --output "$DECRYPTED_KEY" configs/sops/hi5bot.encrypted.json
@@ -119,8 +133,11 @@ Makefile
 ```
 .PHONY: all bootstrap compile symlinks db-up db-down clean
 
-# 1. 设置默认环境变量
-export METAMACH_DB_PASSWORD ?= metamach_secure_pass_2026
+# 1. 设置环境变量（严禁硬编码口令默认值）
+HERDR_PLUGIN_STATE_DIR ?= ~/.local/state/herdr/plugins/metamach.janus
+METAMACH_PG_SOCKET_DIR ?= $(HERDR_PLUGIN_STATE_DIR)/pg_socket
+# 口令未显式设置时，优先从 Mutable State 读取；均不存在则随机生成（由 bootstrap 首次持久化）
+export METAMACH_DB_PASSWORD ?= $(shell [ -f $(HERDR_PLUGIN_STATE_DIR)/.db_password ] && cat $(HERDR_PLUGIN_STATE_DIR)/.db_password || openssl rand -hex 16)
 
 all: bootstrap
 
@@ -136,6 +153,9 @@ symlinks:
 	@echo "📁 Creating mutable state and config directories..."
 	@mkdir -p ~/.config/herdr/plugins/metamach.janus
 	@mkdir -p ~/.local/state/herdr/plugins/metamach.janus
+	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
+	@printf '%s' "$(METAMACH_DB_PASSWORD)" > $(HERDR_PLUGIN_STATE_DIR)/.db_password && chmod 600 $(HERDR_PLUGIN_STATE_DIR)/.db_password
+	@echo "🔑 DB password persisted to $(HERDR_PLUGIN_STATE_DIR)/.db_password (chmod 600, gitignored). Save it now."
 	@echo "🔗 Linking agents config into Herdr Config Directory..."
 	@ln -sf $$(pwd)/configs/agents.toml ~/.config/herdr/plugins/metamach.janus/agents.toml
 
@@ -148,7 +168,8 @@ compile:
 
 # 5. 拉起 Postgres 统一数据库容器
 db-up:
-	@echo "🐳 Starting Unified Postgres container..."
+	@echo "🐳 Starting Unified Postgres container (Unix Socket only, no TCP)..."
+	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
 	@docker compose up -d
 	@echo "⏳ Waiting for database health check..."
 	@docker compose exec -T metamach-db sh -c \
@@ -164,7 +185,10 @@ db-down:
 clean:
 	@echo "🧹 Cleaning cargo workspace and unmounting RAM disk..."
 	@cd janus && cargo clean
-	@rm -rf /dev/shm/metamach.janus
+	@if [ -d /dev/shm/metamach.janus ]; then \
+		echo "⚠️  Wiping RAM disk secrets at /dev/shm/metamach.janus..."; \
+		rm -rf /dev/shm/metamach.janus; \
+	fi
 ```
 
 ## 6. 部署验证与联调对账 (Sanity Check)
@@ -178,12 +202,15 @@ clean:
 Bash
 
 ```
-# 启动代理 Shell 并在交互模式下执行未经 Tool Guard 授权的命令
+# 先建哨兵目录与哨兵文件，再尝试用命中黑名单的命令删除它（绝不执行真实系统级删除）
+SENTINEL_DIR=/tmp/metamach-deploy-guard-$(uuidgen)
+mkdir -p "$SENTINEL_DIR" && echo sentinel > "$SENTINEL_DIR/sentinel"
 export SHELL=./janus/target/release/janus-sh
-$SHELL -c "rm -rf /"
+$SHELL -c "rm -rf $SENTINEL_DIR"
+test -f "$SENTINEL_DIR/sentinel" && echo "✅ 哨兵存活，命令已被拦截"
 ```
 
-- **合格表现**：终端屏幕瞬间挂起，未发生任何实际删除行为。`~/.local/state/herdr/plugins/metamach.janus/` 目录下产生 UDS 拦截日志，且手机 Teams/Telegram 收到安全挂起报警。
+- **合格表现**：终端屏幕瞬间挂起，未发生任何实际删除行为，且哨兵文件事后仍然存在（证明命令被拦截、未触达真实 Shell）。`~/.local/state/herdr/plugins/metamach.janus/` 目录下产生 UDS 拦截日志，且手机 Teams/Telegram 收到安全挂起报警。
     
 
 ### 🔍 步骤 6.2：验证 `remain-on-exit` 进程不死特性
@@ -207,4 +234,32 @@ $SHELL -c "rm -rf /"
 3. 重新启动 PG 数据库容器，并在终端运行 `target/release/janus-daemon`。
     
 
-- **合格表现**：Daemon 启动后在 `0.5s` 内自动识别到之前的 `SUSPENDED` 任务，自动提取 `absurd_steps` 表中的最后一次 Step Checkpoint 缓存，无缝在物理断点处重跑接棒，控制台无多余冗余输出。
+- **合格表现**：Daemon 启动后在 `0.5s` 内对断电前未完结的任务分型处置：对 `RUNNING` 态任务，从 `absurd_steps` 表中最后一次 `COMPLETED` 的 Step Checkpoint 无缝接棒重跑下一工位；对 `SUSPENDED` 态任务保持挂起并通知厂长（不盲目重跑），控制台无多余冗余输出。
+
+### 🔍 步骤 6.4：首次上线一个产品蓝图 (Onboard)
+
+`make bootstrap` 只通电底座（数据库、二进制、符号链接），此时车间为**零产品线**状态。厂长必须显式上线一个蓝图才能派单生产：
+
+1. 确认目标蓝图目录就位，例如 `blueprints/gatemetric/` 下含 `janus.toml`（声明 `default_workflow`、`[remote]` 靶机、`[openwiki].scope`）。
+    
+2. 执行上线指令：
+
+    Bash
+
+    ```
+    janus onboard --blueprint gatemetric
+    ```
+
+3. 验证租户注册与可派发性：
+
+    Bash
+
+    ```
+    # 蓝图已注册为 ACTIVE
+    docker compose exec -T metamach-db psql -U metamach_admin -d metamach_db \
+        -c "SELECT name, status, default_workflow FROM blueprints;"
+    # 无 TUI 环境下巡检车间全局
+    janus status
+    ```
+
+- **合格表现**：`blueprints` 表出现一行 `gatemetric` / `ACTIVE` 记录；`janus status` 输出当前在途任务（此时应为空，但命令本身返回成功，证明 `progress` 原语与 Daemon 连接正常）；在 Herdr 内 `prefix+j` 唤醒 Popup，派单菜单中已可见 `gatemetric` 并可立即派发。重复执行 `janus onboard` 不产生重复行（幂等）。

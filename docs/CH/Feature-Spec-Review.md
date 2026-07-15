@@ -255,3 +255,10 @@ Feature §3.1 schema says valid statuses: `STARTING | COMPLETED | SUSPENDED`. Bu
 | 10 | 🟡 | Complete database schema (blueprints + absurd_tasks) |
 | 11 | 🟡 | Clarify melt_blueprint_data DELETE vs NULL behavior |
 | 12 | ⚪ | Normalize status enum across all docs |
+
+> **Resolution Log (2026-07-15):**
+> - **#1 🔴 (agents.toml schema + Tool Guard rules)** ✅ RESOLVED - Feature-Spec Contract 3.5 defines full `configs/agents.toml` schema (Scout/Coder/Deployer permissions, `allow_network`, `bash_blacklist`, `require_approval`) + decision priority. Rules are config-driven, not hardcoded.
+> - **#2 🔴 (UDS response payload)** ✅ RESOLVED - Feature-Spec Contract 3.4 defines Daemon->janus-sh verdict (`ALLOW`/`BLOCK`/`REWRITE` + `rewritten_argv` + `correlation_id`) and timeout=fail-closed semantics.
+> - **#3 🔴 (Step execution model)** ✅ RESOLVED - Step/Task lifecycle surfaced via Contract 3.1 schema + Onboard atom sequence (§2.5) + Workflow Monitor (§2.6 answers "who monitors progress"); status enum `PENDING->STARTING->RUNNING->COMPLETED|FAILED|SUSPENDED`.
+> - **#10 🟡 (complete DB schema)** ✅ RESOLVED - Contract 3.1 now defines `blueprints` + `absurd_tasks` + `absurd_steps` with FK chain.
+> - **#12 ⚪ (normalize status enum)** ✅ RESOLVED - Contract 3.1 enumerates the full status enum; blueprint-level `ACTIVE<->OFFBOARDED`.

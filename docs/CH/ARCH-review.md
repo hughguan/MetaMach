@@ -571,6 +571,18 @@ The deployment spec lists "macOS 13+" as supported, but:
 
 ## Review Sign-Off
 
+> **Round 3 (🟠 items, 2026-07-15):** The following §6 🟠 action items are now RESOLVED across source docs:
+> - **#7 (janus.toml schema)** -> Feature-Spec Contract 3.6.
+> - **#8 (workflow .toml schema)** -> Feature-Spec Contract 3.7.
+> - **#9 (CLI architecture)** -> ARCH §3 CLI 架构 note (unified `janus` CLI + dedicated binaries).
+> - **#10 (herdr-tether CLI naming)** -> standardized `herdr-tether <subcommand>` across all docs.
+> - **#11 (janus-sh timeout/deadlock)** -> Feature-Spec §2.2 + Contract 3.4 (30s fail-closed).
+> - **#12 (PID staleness)** -> Project-Plan Task 2.1 (stale-PID detection).
+> - **#14 (HITL resume redesign)** -> Feature-Spec §2.4 (no `Ctrl+C`; `metamach-resume` + next step).
+> - **#15 (16KB enforcement point)** -> Feature-Spec §4 (Daemon `absurd` module before `INSERT` = authoritative).
+> - **#16 (Offboard LLM spec)** -> Feature-Spec §2.5 (`configs/offboard.toml`, prompt, fallback, timeout, async).
+> Remaining open: #17 (Teams/Telegram 🟡) and other 🟡/⚪ items not in scope.
+
 | Role | Name | Date |
 |------|------|------|
 | Architect | ___________ | 2026-07-15 |

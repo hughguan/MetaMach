@@ -262,3 +262,9 @@ Feature §3.1 schema says valid statuses: `STARTING | COMPLETED | SUSPENDED`. Bu
 > - **#3 🔴 (Step execution model)** ✅ RESOLVED - Step/Task lifecycle surfaced via Contract 3.1 schema + Onboard atom sequence (§2.5) + Workflow Monitor (§2.6 answers "who monitors progress"); status enum `PENDING->STARTING->RUNNING->COMPLETED|FAILED|SUSPENDED`.
 > - **#10 🟡 (complete DB schema)** ✅ RESOLVED - Contract 3.1 now defines `blueprints` + `absurd_tasks` + `absurd_steps` with FK chain.
 > - **#12 ⚪ (normalize status enum)** ✅ RESOLVED - Contract 3.1 enumerates the full status enum; blueprint-level `ACTIVE<->OFFBOARDED`.
+>
+> **Round 3 (🟠 items, 2026-07-15):**
+> - **#4 🟠 (fork()+exec())** ✅ RESOLVED - §2.1 now uses `std::process::Command::spawn()` + detach (`setsid`), with macOS-fork-safety / cross-platform rationale.
+> - **#5 🟠 (remain-on-exit per-session)** ✅ RESOLVED - §2.3 uses a dedicated tmux server `tmux -L metamach-tether` + per-session `remain-on-exit on` (no `-g`); Review-Spec §2.1 aligned.
+> - **#6 🟠 (HITL resume redesign)** ✅ RESOLVED - §2.4 rewritten: SUSPENDED = pane idle (no `Ctrl+C`), human attaches+fixes+`metamach-resume`, Daemon dispatches NEXT step (no blind re-execute).
+> - **#7 🟠 (Offboard LLM spec)** ✅ RESOLVED - §2.5 adds full LLM spec: `configs/offboard.toml` endpoint/key/model, input budget, prompt template, 120s timeout + raw-JSON fallback, async execution.

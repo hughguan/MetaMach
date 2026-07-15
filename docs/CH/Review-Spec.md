@@ -51,6 +51,43 @@
         3. 审计 Tool Guard 决策矩阵：高危命令（如未授权的网络外联、物理擦除 flash、非 Dry-run 交易发单等）在未检测到 Teams/TUI 端核准的 **Correlation ID 数字签名**前，必须 100% 触发重写重定向或直接报错阻断。
             
 
+- **指标 1.3：UDS 信道完整性审计**
+
+    - _审查要求_：证明 `janus.sock` 信道本身不可被本地恶意进程冒充或窃听。
+
+    - _通过标准_：
+
+        1. `janus.sock` 文件权限必须为 `0600`（仅属主可读写），属主为 `janus-daemon` 运行用户。
+            
+        2. Daemon 处理每条 UDS 请求前，必须校验对端 PID/UID（`getpeercred`/`SO_PEERCRED`），拒绝非授权来源。
+            
+        3. 以另一用户身份连接 `janus.sock` 必须被拒绝；伪造 `janus-sh` 发送恶意 `ALLOW` 响应的攻击面须被消除（响应仅由 Daemon 发出）。
+            
+- **指标 1.4：崩溃后密钥卫生审计**
+
+    - _审查要求_：验证 Daemon 被 `SIGKILL`（无法运行清理钩子）或主机重启后，`/dev/shm` 解密密钥不残留。
+
+    - _通过标准_：
+
+        1. 载入密钥后 `kill -9 janus-daemon`，审计 `/dev/shm/metamach.janus/*.decrypted`：或被清理，或明确文档化“残留至重启”并配置 `systemd-tmpfiles` 清理规则。
+            
+        2. 主机重启后 `/dev/shm` 必须为空（tmpfs 易失性核实，不可假设）。
+            
+        3. 审计是否存在 swap 残留风险；若 `allow_swap` 不可控，须文档化并建议 `swapoff` 或 `mlock`。
+            
+- **指标 1.5：网络外联控制审计**
+
+    - _审查要求_：证明 `allow_network = false` 的 Agent（如 Scout）无法经任何途径外联。
+
+    - _通过标准_：
+
+        1. Scout 级 Agent 执行 `curl http://evil.com` 必须被阻断。
+            
+        2. 经替代途径 `python3 -c "import urllib.request; urllib.request.urlopen('http://evil.com')"` 或 Bash `/dev/tcp` 也必须被阻断。
+            
+        3. 文档化网络控制的层级：仅命令白名单级，还是 OS 级（`iptables`/`nftables`/`pfctl`）；若仅命令级，须记录已知绕过风险。
+            
+
 ### ⏳ 审查域二：物理系统稳定性 (Stability & Budget Review)
 
 本审查旨在证明：**当面临 Agent 日志死循环刷屏、数据库连接池断开等极端高频负载时，系统不会发生级联物理崩溃。**
@@ -61,9 +98,9 @@
         
     - _通过标准_：
         
-        1. 审查 `configs/tmux.conf` 和 `herdr-tether` 调用的初始化入参，必须 100% 包含 `set -g remain-on-exit on`。
+        1. 审查 `configs/tmux.conf` 和 `herdr-tether` 调用的初始化入参，必须使用**独立 tmux server**（`tmux -L metamach-tether`）并 per-session 设置 `remain-on-exit on`（不得用 `-g` 全局开关污染厂长本机 tmux）。
             
-        2. 人为向 Agent 窗格发送 `kill -9 <agent_process>`，该 tmux 窗口必须保持 `[Exited]` 挂起状态，窗口不自动关闭，控制台历史缓存（Stdout）完全可被 `tether attach` 检索还原。
+        2. 人为向 Agent 窗格发送 `kill -9 <agent_process>`，该 tmux 窗口必须保持 `[Exited]` 挂起状态，窗口不自动关闭，控制台历史缓存（Stdout）完全可被 `herdr-tether attach` 检索还原。
             
 - **指标 2.2：16 KiB 存储体积预算（Size Budget）防爆审计**
     
@@ -89,6 +126,19 @@
         3. `progress` 查询必须走只读旁路事务：在重型编译（写事务密集）期间打开大盘，不得造成工作流卡顿或 UDS 阻塞。
             
         4. 无 TUI 环境下 `janus status` 输出必须与同时刻大盘数据一致（同源 `progress` 原语）。
+            
+
+- **指标 2.4：负载与资源压力审计**
+
+    - _审查要求_：证明高并发派单与长时运行下系统不发生死锁或资源泄漏。
+
+    - _通过标准_：
+
+        1. 同时派发 5 条 `dev-flow` 流水线，全部须正常完成、无死锁、无跨蓝图 `result_cache` 串扰。
+            
+        2. 连续运行 24 小时后，`janus-daemon` 内存占用须稳定在 256MB 以下（无单调增长泄漏）。
+            
+        3. UDS 命令裁决往返时延（`janus-sh` -> Daemon -> 响应）在并发压力下 p99 须 < 10ms。
             
 
 ### 🌀 审查域三：高可用与灾备恢复 (Disaster Recovery Review)
@@ -178,6 +228,10 @@
 |**REV-EVO-01**|**下线降解与经验遗传**|执行 `janus offboard`，验证数据库大 JSON 擦除率达 100%，且本地成功生成 `production_report.md`。|`[ ]` 已核对 / 经验遗传闭环|**中 (Yellow)**|
 |**REV-OPS-01**|**工作流进度可视性**|派发多工位流水线，打开进度大盘，验证工位状态 ≤2s 刷新、`SUSPENDED` ≤1s 高亮，且 `janus status` 与大盘同源一致。|`[ ]` 已核对 / 进度可视正常|**高 (Orange)**|
 |**REV-EVO-02**|**蓝图上线与租户注册**|执行 `janus onboard`，验证 `blueprints` 表出现唯一 `ACTIVE` 行、幂等无重复，且重新 Onboard 回收 `production_report.md` 进 System Prompt。|`[ ]` 已核对 / 上线注册闭环|**高 (Orange)**|
+|**REV-SEC-03**|**UDS 信道完整性**|`stat janus.sock` 核对权限 `0600`；以另一用户连接须被拒；核对 Daemon 校验对端 PID/UID。|`[ ]` 已核对 / 信道完整|**高 (Orange)**|
+|**REV-SEC-04**|**崩溃后密钥卫生**|载入密钥后 `kill -9 janus-daemon`，审计 `/dev/shm/*.decrypted` 清理或 tmpfiles 规则；重启后 `/dev/shm` 为空。|`[ ]` 已核对 / 密钥卫生|**高 (Orange)**|
+|**REV-SEC-05**|**网络外联控制**|Scout 级 Agent 执行 `curl`/`python3 urllib`/`/dev/tcp` 外联均被阻断；文档化控制层级。|`[ ]` 已核对 / 外联受控|**中 (Yellow)**|
+|**REV-STB-03**|**负载与资源压力**|5 并发 `dev-flow` 无死锁完成；24h 运行 Daemon 内存 <256MB；UDS 裁决 p99 <10ms。|`[ ]` 已核对 / 压力稳定|**中 (Yellow)**|
 
 ## 4. 架构师与厂长联签合闸 (UAT Final Approval)
 

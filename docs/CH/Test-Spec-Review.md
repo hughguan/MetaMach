@@ -250,3 +250,11 @@ All tests assume a bare-metal or VM environment. For CI/CD, the entire test suit
 > **Resolution Log (2026-07-15):**
 > - **#1 🔴 (rm -rf / in UTC-02-02)** ✅ RESOLVED - UTC-02-02 now creates a `/tmp/metamach-test-guard-$(uuidgen)` sentinel dir + file, attempts a blacklisted `rm -rf` against it, and verifies the sentinel survives the block.
 > - **#2 🔴 (UTC-03-03 uses make bootstrap)** ✅ RESOLVED - UTC-03-03 now restarts PG via `docker compose up -d` and the Daemon directly via `janus-daemon` (no `make bootstrap` recompile); expected output already correctly reads the last `COMPLETED` checkpoint.
+>
+> **Round 3 (🟠 items, 2026-07-15):**
+> - **#3 🟠 (programmatic network disruption)** ✅ RESOLVED - UTC-03-02 now uses `iptables`/`pfctl` drop rules (no physical 拔网线).
+> - **#4 🟠 (Daemon crash during active Step)** ✅ RESOLVED - added UTC-03-04.
+> - **#5 🟠 (concurrent workflow isolation)** ✅ RESOLVED - added UTC-03-05.
+> - **#6 🟠 (UDS protocol robustness)** ✅ RESOLVED - added UTC-02-04 (malformed JSON, DoS, oversized).
+> - **#7 🟠 (Tool Guard edge cases)** ✅ RESOLVED - added Suite 2.2b (UTC-02-05..09: allowlist, partial match, chaining, subshell, env-var expansion).
+> - **Bonus:** UTC-04-02 aligned with redesigned HITL resume (no `Ctrl+C`).

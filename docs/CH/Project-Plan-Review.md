@@ -210,3 +210,7 @@ Each check-in unit is described as "可独立提交" but there's no mention of h
 > - **#3 🔴 (OpenWiki integration tasks)** ✅ RESOLVED - Added M2 Task 2.5 (Check-in Unit 4d): pull/build OpenWiki + Daemon `openwiki_query` RAG, index isolation UAT; closes loop with M4 Offboard write-back.
 > - **#5 🟠 (M2 UAT real Postgres, not mock)** ✅ RESOLVED - M2 Task 2.1 UAT now queries real `blueprints` (status ACTIVE) from Postgres.
 > - **#11 🟡 (UDS protocol contract for parallel dev)** ✅ RESOLVED - UDS request/response contracts defined in Feature-Spec §3.2/3.4; enables parallel Daemon/janus-sh development.
+>
+> **Round 3 (🟠 items, 2026-07-15):**
+> - **#4 🟠 (move local Tether to M3)** ✅ RESOLVED - dependency inversion fixed: Tether integrated in M2 Task 2.4 (available before M3); M3 Task 3.1 now has explicit UAT in real Tether panes.
+> - **#6 🟠 (split M4 Task 4.2)** ✅ RESOLVED - Task 4.2 split into 4.2a (melt procedure, Unit 8a), 4.2b (offboard orchestrator + LLM, Unit 8b), 4.2c (git auto-commit, Unit 8c); Onboard renumbered to Unit 8d.

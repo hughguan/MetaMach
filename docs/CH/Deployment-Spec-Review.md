@@ -338,3 +338,8 @@ db-up:
 > - **Bonus #11 🟡 (§6.3 COMPLETED vs SUSPENDED)** ✅ RESOLVED - §6.3 aligned to Feature-Spec §2.3: `RUNNING` resumes from last `COMPLETED` checkpoint; `SUSPENDED` stays suspended + notifies.
 > - **Bonus #14 🟡 (pin Docker image)** ✅ RESOLVED - image pinned to `postgres:15.8-alpine`.
 > - **Bonus #16 ⚪ (deprecated `version`)** ✅ RESOLVED - `version: '3.8'` removed from docker-compose.
+>
+> **Round 3 (🟠 items, 2026-07-15):**
+> - **#5 🟠 (macOS /dev/shm)** ✅ RESOLVED - §4 adds platform note: production Linux-only; macOS dev uses `$TMPDIR`/`hdiutil` RAM disk (secrets not memory-backed on macOS).
+> - **#6 🟠 (UDS path length validation)** ✅ RESOLVED - Makefile `symlinks` validates `janus.sock` path <100 chars (macOS 104-char UDS limit).
+> - **#7 🟠 (cp janus-sh -> target_sh)** ✅ RESOLVED - `compile` now installs binaries to `${HERDR_PLUGIN_ROOT}/bin/` absolute paths (also aids the absolute-`SHELL` path concern).

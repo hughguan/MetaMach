@@ -30,20 +30,35 @@
 |**UTC-02-02**|**同步命令拦截**|验证 `janus-sh` 能成功拦截并阻断未授权的敏感/危险指令|启动 `gatemetric` 的 `dev-flow` 任务|在 Agent 窗格中强行执行未在白名单中的命令：先建哨兵 `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`，再执行命中黑名单的 `rm -rf /tmp/metamach-test-guard-$(uuidgen)`（或系统级 `esptool.py erase_flash` 模拟）。|1. 终端指令被同步挂起。<br><br>  <br><br>2. `janus-daemon` 日志触发拦截并返回拒绝执行（Status: Blocked），原始物理 Shell 完好无损，且哨兵文件事后仍然存在（未被删除）。|**Blocker**|
 |**UTC-02-03**|**金融 Dry-Run 重定向**|验证高危操作在未经审批前被强制重定向为演练模式|启动金融级产品线再平衡流程|在未授权状态下，尝试执行发单命令：`hi5bot --action execute`。|1. `janus-sh` 在 UDS 同步对账中捕获该命令。<br><br>  <br><br>2. Tool Guard 强行将入参篡改替换为 `hi5bot --action dry-run` 交付给宿主 Shell。<br><br>  <br><br>3. 物理控制台仅生成对账单 Diff，未发生实质资金划拨。|**Blocker**|
 
+|**UTC-02-04**|**UDS 协议健壮性**|验证 Daemon 对畸形/越权/超量 UDS 载荷不崩溃|Daemon 运行中|1. 向 `janus.sock` 发送非法 JSON（缺字段/坏 UTF-8）。<br><br>  <br><br>2. 1 秒内连发 1000 请求。<br><br>  <br><br>3. 发送 64KB 超大载荷。|1. 非法 JSON：Daemon 记 `WARN` 返回错误响应，不崩溃。<br><br>  <br><br>2. 高频请求：被限流，无 OOM。<br><br>  <br><br>3. 超大载荷：拒绝（消息过大）。|**Critical**|
+
+### Test Suite 2.2b: Tool Guard 边界用例 (Edge Cases)
+
+|**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
+|---|---|---|---|---|---|---|
+|**UTC-02-05**|**白名单放行**|验证合规命令正常透传执行|Scout 岗位运行|执行 `ls -la`。|命令被 `ALLOW`，正常执行并返回结果。|**Major**|
+|**UTC-02-06**|**部分匹配区分**|验证 `rm -rf /` 被拦而 `rm -rf ./build/` 放行|Coder 岗位运行|分别执行 `rm -rf /` 与 `rm -rf ./build/`。|前者 `BLOCK`，后者按 Coder 权限 `ALLOW`。|**Critical**|
+|**UTC-02-07**|**命令链阻断**|验证 `rm -rf / && echo done` 的危险部分被拦|Coder 岗位运行|执行 `rm -rf / && echo done`。|整条链被 `BLOCK`，不部分执行 `echo`。|**Major**|
+|**UTC-02-08**|**子 Shell 逃逸**|验证 `bash -c "rm -rf /"` 内层命令被识别拦截|Coder 岗位运行|执行 `bash -c "rm -rf /"`。|内层 `rm -rf /` 被识别并 `BLOCK`。|**Critical**|
+|**UTC-02-09**|**环境变量展开**|验证 `RM_TARGET=/ && rm -rf $RM_TARGET` 展开后被拦|Coder 岗位运行|设 `RM_TARGET=/` 后执行 `rm -rf $RM_TARGET`。|Daemon 展开变量后命中黑名单并 `BLOCK`。|**Major**|
+
 ### Test Suite 2.3: 多 Agent 跨主机耐久工作流 (Distributed Durable Workflows)
 
 |**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
 |---|---|---|---|---|---|---|
 |**UTC-03-01**|**Absurd 事务幂等**|验证工作流 Step 在发生多次重试时不会产生脏数据|数据库处于连接状态|调度 `gatemetric` 连续执行 3 次 `make compile` 工位。|1. Postgres 物理表中仅保留 1 条 Task 记录与最新 Step 状态。<br><br>  <br><br>2. `result_cache` JSON 数据根据最新的成功状态完成覆盖，未产生冗余记录。|**Critical**|
-|**UTC-03-02**|**跨主机进程保护**|验证网络断开/SSH 重启后，物理 tmux Session 完好不灭|任务在远程 SSH 编译主机运行|1. 手动断开本地网络（或临时拔掉网线/关闭 VPN）。<br><br>  <br><br>2. 等待 10 秒后恢复网络并重新执行 `tether attach`。|1. 远程主机的编译进程没有被杀死（`remain-on-exit` 生效）。<br><br>  <br><br>2. 重新挂接后编译现场 100% 还原，数据不折损。|**Critical**|
+|**UTC-03-02**|**跨主机进程保护**|验证网络断开/SSH 重启后，物理 tmux Session 完好不灭|任务在远程 SSH 编译主机运行|1. 以程序化方式切断到远程主机的网络（可自动化，无需物理拔线）：Linux `iptables -A OUTPUT -d <remote_host> -j DROP`，macOS `pfctl -e -f <(echo "block drop out to <remote_host>")`。<br><br>  <br><br>2. 等待 10 秒后删除规则恢复网络（`iptables -D OUTPUT -d <remote_host> -j DROP` / `pfctl -d`）并重新执行 `herdr-tether attach`。|1. 远程主机的编译进程没有被杀死（`remain-on-exit` 生效）。<br><br>  <br><br>2. 重新挂接后编译现场 100% 还原，数据不折损。|**Critical**|
 |**UTC-03-03**|**冷启动自愈**|模拟系统物理断电，验证开机后从最后一个 Step 断点接棒|本地宿主机运行重型编译，任务状态为 `RUNNING`|1. 强行物理杀死 `postgres` 容器和 `janus-daemon`。<br><br>  <br><br>2. 重启 PG 容器（`docker compose up -d`），并直接重启 `janus-daemon` 触发冷启动自愈（**不走 `make bootstrap`**，以免全量重编译掩盖真实的冷启动代码路径）。|1. Daemon 拒绝使用 `tmux-resurrect`。<br><br>  <br><br>2. 从 Absurd PG 读出最后一次 `COMPLETED` 的 Step Checkpoint，分配全新 UUID 在物理断点处重跑接力。|**Critical**|
+
+|**UTC-03-04**|**Daemon 崩溃恢复**|验证 Step 运行中 Daemon 崩溃后，tmux 现场存活且孤儿工位被正确处置|Step 处于 `RUNNING`，Daemon 为 tmux 会话父进程|`killall -9 janus-daemon`。|1. tmux 会话存活（remain-on-exit）。<br><br>  <br><br>2. `herdr-janus` 惰性重启 Daemon。<br><br>  <br><br>3. Daemon 扫描孤儿工位，置 `SUSPENDED` 并通知厂长。|**Critical**|
+|**UTC-03-05**|**并发工作流隔离**|验证多蓝图并发派单互不串扰|2 个蓝图均 `ACTIVE`|同时为两蓝图派发 `dev-flow`。|1. 创建 2 个独立 tmux 会话、2 条独立 `absurd_tasks` 记录。<br><br>  <br><br>2. UDS 请求正确按 `task_id` 归属，`result_cache` 无跨蓝图污染。|**Critical**|
 
 ### Test Suite 2.4: 人工干预多端异步合闸门禁 (HITL Gate)
 
 |**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
 |---|---|---|---|---|---|---|
 |**UTC-04-01**|**非破坏性挂起**|验证编译中断或超权拦截时，物理现场保留，不杀进程|编译脚本故意写入一个语法错误使其失败|运行编译流水线并触发失败。|1. 数据库状态锁定为 `SUSPENDED`。<br><br>  <br><br>2. Tether 物理 tmux Session 挂起，错误现场、内存变量和控制台缓存不消失。|**Critical**|
-|**UTC-04-02**|**异步双向审批**|验证移动端（Teams）接收高密卡片并执行合闸 Resume|配置了合规的外网 Teams/TG Webhook 密钥|1. 触发任务挂起。<br><br>  <br><br>2. 在手机 Teams 端阅读报错明细并点击 **`[🔄 Resume]`**。|1. Teams 秒级发出 Payload 至 Daemon 轮询端口。<br><br>  <br><br>2. Daemon 验证 Correlation ID 签名无误后，向 PTY 发送 `Ctrl+C` 释放，流水线无感接棒。|**Major**|
+|**UTC-04-02**|**异步双向审批**|验证移动端（Teams）接收高密卡片并执行合闸 Resume|配置了合规的外网 Teams/TG Webhook 密钥|1. 触发任务挂起。<br><br>  <br><br>2. 在手机 Teams 端阅读报错明细并点击 **`[🔄 Resume]`**。|1. Teams 秒级发出 Payload 至 Daemon 轮询端口。<br><br>  <br><br>2. Daemon 验证 Correlation ID 签名无误后，将状态由 `SUSPENDED` 置回 `RUNNING` 并派发下一工位（不发 `Ctrl+C`、不重跑被拦命令），流水线无感接棒。|**Major**|
 
 ### Test Suite 2.5: 联邦式生命周期熔炼器 (Onboard / Offboard & Auto-Pruning)
 

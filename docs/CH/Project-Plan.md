@@ -106,7 +106,7 @@
     
     - Daemon 启动时在 `~/.local/state/.../janus.sock` 绑定 UDS 监听。
         
-    - **单例文件锁 (PID Lock)**：在 `~/.local/state/.../janus.pid` 写入当前进程 PID。二次启动检测到该文件时，直接安全退出，防止重复抢占 UDS。
+    - **单例文件锁 (PID Lock) + 陈旧检测**：在 `~/.local/state/.../janus.pid` 写入当前进程 PID。二次启动检测到该文件时，**先读取其中的 PID 并校验该进程是否仍存活且确为 `janus-daemon`**：若进程已不存在（崩溃后残留的陈旧 PID 文件），则覆盖该文件并正常启动；若 PID 仍存活，则安全退出，防止重复抢占 UDS。文件内容非法（非数字 PID）时记 `WARN` 并覆盖。
         
     - 当 UDS 收到请求时，Daemon 查询 Absurd Postgres 的 `blueprints` 表，向客户端（`herdr-janus`）返回所有 `status = 'ACTIVE'` 的真实蓝图列表（不再使用 Mock 数据；M1 已建表，可由 migration 种子或 M4 的 `janus onboard` 写入）。
         
@@ -119,7 +119,7 @@
     
     - 当厂长按下 `prefix+j` 唤醒客户端时，影子客户端首先探测 `janus.sock`。
         
-    - 若探测失败，影子客户端在后台默默执行 `fork()` + `exec()` 拉起 `janus-daemon`，待其就绪后建立 UDS 连接，动态拉取产品数据渲染大盘。
+    - 若探测失败，影子客户端在后台默默以 `std::process::Command::spawn()` 拉起 `janus-daemon` 并 detach（`setsid` 脱离控制终端、标准流重定向至 `/dev/null`，见 Feature-Spec §2.1），待其就绪后建立 UDS 连接，动态拉取产品数据渲染大盘。
         
 - **UAT 物理验证**：手动物理杀死 `janus-daemon`，直接在 Herdr 内按下 `prefix+j`。弹窗应无延迟弹出，并在后台自动生成新的 `janus.pid`。
     
@@ -148,7 +148,7 @@
     
     - 在 `make bootstrap` 中增加 `tether` 目标：通过 git submodule 或 cargo git 依赖拉取 `herdr-tether` 源码并 `cargo build --release`，产物安装到 `${HERDR_PLUGIN_ROOT}/bin/herdr-tether`。
         
-    - 验证 `herdr-tether open --command "sleep 100"` 能创建一个持久 tmux 会话，且注入 `set -g remain-on-exit on`（或 per-session 等价设置）。
+    - 验证 `herdr-tether open --command "sleep 100"` 能在独立 tmux server（`tmux -L metamach-tether`）中创建持久会话，并 per-session 注入 `remain-on-exit on`（不用 `-g` 全局开关，不污染厂长本机 tmux）。
         
     - 验证 `herdr-tether attach` 能秒级挂接并存留现场。
         
@@ -189,8 +189,12 @@
     
     - `janus-sh` 本身是一个极小的 CLI 程序。它被唤醒后不执行命令，而是将当前的 `argv` 数组通过 UDS 抛给 `janus-daemon`。
         
-    - `janus-sh` 保持挂起（Blocked）状态，直到从 `janus-daemon` 收到核准（`ALLOW`）或篡改后（`REWRITE`）的指令再交付给真正的宿主 `/bin/sh` 执行。
+    - `janus-sh` 保持挂起（Blocked）状态，直到从 `janus-daemon` 收到 `ALLOW`/`REWRITE`/`BLOCK` 裁决（见 Contract 3.4）再决定交付宿主 `/bin/sh` 执行或返回错误。
         
+    - **依赖就位（解决依赖倒置）**：本任务的 UAT 须在真实 Tether 窗格内验证 `SHELL=janus-sh`。该依赖由 **M2 Task 2.4（Tether Engine）** 提前并网、M2 末即就位，故 M3 不再出现「janus-sh 已编译却无 Agent 窗格可测」的依赖倒置。
+        
+- **UAT 物理验证**：在 Tether 拉起的窗格中 `echo $SHELL` 应为 `janus-sh`；经 `janus-sh` 执行命令时同步阻塞于 UDS 对账，收到 `ALLOW`/`REWRITE` 方交付宿主 Shell，`BLOCK` 则返回错误且不执行。
+    
 
 #### Task 3.2: Tool Guard 内存规则引擎与 Teams 审批挂起 (Check-in Unit 6)
 
@@ -229,22 +233,51 @@
 - **UAT 物理验证**：运行重型编译时人为 `docker compose stop` PG 并杀死 Daemon。重启后 Daemon 应在 0.5s 内从数据库 Step 缓存中重构现场无感接棒。
     
 
-#### Task 4.2: 下线降解熔炼器 (Melt DB Cache) (Check-in Unit 8)
+#### Task 4.2a: 数据库降解存储过程 (melt_blueprint_data) (Check-in Unit 8a)
 
-- **任务描述**：实现 `janus offboard` 指令。
+- **任务描述**：实现 `melt_blueprint_data('<name>')` SQL 存储过程 + Daemon 集成（纯 DB 层，无外部依赖，可独立 Check-in）。
     
 - **实现细节**：
     
-    - 下线时，自动扫描数据库，将该 Blueprint 历史上的 Steps 报错、Tool Guard 拦截日志打包。
+    - 存储过程 **整行 DELETE** 该蓝图所有 Steps 的 `result_cache` JSON 大字段与 Stdout 日志（整行删除而非 NULL，以便释放 TOAST 空间），仅保留一行审计元数据统计（Task ID、执行耗时）写入独立的 `absurd_audit_log` 表。
         
-    - 调用大模型将其总结为高密度的 Markdown，写入 `./blueprints/<name>/openwiki/production_report.md`。
+    - Daemon `offboard` 路径调用该过程；调用后可 `VACUUM FULL` 回收磁盘。
         
-    - **PG 自动降解 (Pruning)**：调用存储过程 `melt_blueprint_data`，彻底物理擦除主库对应 Steps 的 `result_cache` 大 JSON，仅保留元数据统计，实现数据库防爆收缩。
-        
-- **UAT 物理验证**：对积攒了大量编译日志的产品执行 `janus offboard --blueprint gatemetric`，本地成功 Commit 并推入 Git 远端一份 `production_report.md`，PG 数据库物理体积发生断崖式收缩。
+
+- **UAT 物理验证**：执行 `melt_blueprint_data('gatemetric')` 后，该蓝图 `absurd_steps.result_cache` 行已删除/均为 NULL，`VACUUM FULL` 后磁盘占用断崖式收缩。
     
 
-#### Task 4.3: 蓝图上线与租户注册 (Onboard) (Check-in Unit 8b)
+#### Task 4.2b: Offboard 编排器与 LLM 熔炼 (Check-in Unit 8b)
+
+- **任务描述**：实现 `janus offboard` 编排：扫描历史 Steps -> LLM 总结 -> 写 `production_report.md`。
+    
+- **实现细节**：
+    
+    - 扫描数据库，抽取该蓝图历史 Steps 报错、Tool Guard 拦截日志打包。
+        
+    - 按 Feature-Spec §2.5「Offboard LLM 集成规格」调用配置化大模型（`configs/offboard.toml`），总结为高密度 Markdown 写入 `./blueprints/<name>/openwiki/production_report.md`；LLM 不可用或超时降级写 `production_report.raw.json`。
+        
+    - 编排完成后触发 Task 4.2a 的 melt 与 Task 4.2c 的 Git 提交。
+        
+
+- **UAT 物理验证**：对积攒大量编译日志的产品执行 `janus offboard --blueprint gatemetric`，本地生成结构化 `production_report.md`（含四区块）；LLM 不可用时回退为 `.raw.json`。
+    
+
+#### Task 4.2c: 质检报告 Git 自动遗传 (Check-in Unit 8c)
+
+- **任务描述**：将 `production_report.md` 增量 Commit 并 Push 至 Git 远端。
+    
+- **实现细节**：
+    
+    - 通过影子客户端调用本地 Git 对 `production_report.md` 做增量 Commit 与 Push，完成硅基经验自我遗传。
+        
+    - Push 失败不阻塞下线，记 `WARN` 并保留本地提交待后续重试。
+        
+
+- **UAT 物理验证**：Offboard 后本地成功 `git commit` 并推入 Git 远端一份 `production_report.md`。
+    
+
+#### Task 4.3: 蓝图上线与租户注册 (Onboard) (Check-in Unit 8d)
 
 - **任务描述**：实现 `janus onboard --blueprint <name>` 指令，补齐与 Offboard 对称的上线侧生命周期闭环。
 

@@ -179,4 +179,7 @@ What if the厂长 has 5 active blueprints? How do they manage them? The Popup is
 > - **#6 🟡 (Onboard row in matrix)** ✅ RESOLVED — Onboard row (P0) added to PRD §3.
 > - **#9 🟡 (multi-blueprint dashboard)** ✅ RESOLVED — PRD §2.5 (多蓝图并列运营), Feature-Spec §2.6, Test-Spec UTC-06-04.
 >
-> Items #3, #5, #7, #8, #10 remain open (out of scope for this change).
+> Items #5, #7, #8, #10 remain open (🟡/⚪, not requested).
+>
+> **Round 3 (🟠 items, 2026-07-15):**
+> - **#3 🟠 (contradictory mobile/laptop scenario)** ✅ RESOLVED - PRD §4 step 4 split into Path A (mobile-only: mark-for-manual-fix -> return to desk -> attach -> `metamach-resume`) and Path B (desk: attach immediately -> resume), aligned with the redesigned HITL resume.

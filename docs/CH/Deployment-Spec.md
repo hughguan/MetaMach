@@ -77,6 +77,8 @@ volumes:
 
 为确保金融 Blueprint（如交易账户）的 Refresh Token 绝不以明文形式残留在物理磁盘中，系统在运行时通过 `decrypt_secrets.sh` 执行内存盘挂载与阅后即焚。
 
+> ⚠️ **平台注意（macOS `/dev/shm` 不可用）**：macOS 默认不存在 `/dev/shm` tmpfs，`mkdir -p /dev/shm/...` 会在根文件系统创建**普通目录**，密钥将落盘，彻底丧失内存盘安全性。故：**生产部署仅支持 Linux**；macOS 仅限开发用途，须改用 `$TMPDIR` 或 `hdiutil attach -nomount ram://2048` 创建真 RAM 盘，并明确注明“macOS 下密钥非内存态、不可用于承载真实金融凭证”。
+
 ### 4.1 解密与挂载脚本：`provisioning/decrypt_secrets.sh`
 
 Bash
@@ -154,6 +156,7 @@ symlinks:
 	@mkdir -p ~/.config/herdr/plugins/metamach.janus
 	@mkdir -p ~/.local/state/herdr/plugins/metamach.janus
 	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
+	@SOCK="$(HERDR_PLUGIN_STATE_DIR)/janus.sock"; len=$$(printf '%s' "$$SOCK" | wc -c | tr -d ' '); [ "$$len" -lt 100 ] || { echo "❌ janus.sock path too long ($$len chars; macOS UDS limit 104): $$SOCK"; exit 1; }
 	@printf '%s' "$(METAMACH_DB_PASSWORD)" > $(HERDR_PLUGIN_STATE_DIR)/.db_password && chmod 600 $(HERDR_PLUGIN_STATE_DIR)/.db_password
 	@echo "🔑 DB password persisted to $(HERDR_PLUGIN_STATE_DIR)/.db_password (chmod 600, gitignored). Save it now."
 	@echo "🔗 Linking agents config into Herdr Config Directory..."
@@ -163,8 +166,11 @@ symlinks:
 compile:
 	@echo "🦀 Compiling Janus Daemon, Client, and janus-sh proxy..."
 	@cd janus && cargo build --release --locked
-	@echo "🛡️ Installing janus-sh helper to target bin..."
-	@cp janus/target/release/janus-sh janus/target/release/target_sh
+	@echo "🛡️ Installing binaries to absolute well-known paths..."
+	@mkdir -p ${HERDR_PLUGIN_ROOT}/bin
+	@cp janus/target/release/janus-sh ${HERDR_PLUGIN_ROOT}/bin/janus-sh
+	@cp janus/target/release/janus-daemon ${HERDR_PLUGIN_ROOT}/bin/janus-daemon
+	@cp janus/target/release/herdr-janus ${HERDR_PLUGIN_ROOT}/bin/herdr-janus
 
 # 5. 拉起 Postgres 统一数据库容器
 db-up:
@@ -222,7 +228,7 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ 哨兵存活，命令已被拦截"
 3. 在系统终端运行 `tmux list-sessions`。
     
 
-- **合格表现**：后台仍能清晰看到名为 `tether-janus-task-<uuid>` 的 tmux 会话处于活跃运行态。再次进入 Herdr 执行 `tether attach`，现场 100% 毫秒级还原。
+- **合格表现**：后台仍能清晰看到名为 `tether-janus-task-<uuid>` 的 tmux 会话处于活跃运行态。再次进入 Herdr 执行 `herdr-tether attach`，现场 100% 毫秒级还原。
     
 
 ### 🔍 步骤 6.3：验证冷启动自愈能力

@@ -177,3 +177,9 @@ The厂长 signs off on "生产业务与合闸审批核准" but the review items 
 > **Resolution Log (2026-07-15):**
 > - **#1 🔴 (rm -rf / in REV-SEC-02)** ✅ RESOLVED - REV-SEC-02 now uses a `/tmp/metamach-review-*` sentinel directory + sentinel file; verifies guard blocks AND sentinel survives. Added a top-of-doc isolation warning (all security review items must run in isolated container/VM).
 > - **#2 🔴 (killall -9 tmux in REV-DIS-01)** ✅ RESOLVED - REV-DIS-01 now kills only `janus-daemon` + targeted `tether-janus-*` tmux sessions (preserving the reviewer's unrelated sessions); DB via `docker compose stop`.
+>
+> **Round 3 (🟠 items, 2026-07-15):**
+> - **#3 🟠 (UDS channel integrity audit)** ✅ RESOLVED - added 指标 1.3 + REV-SEC-03 (socket `0600`, peer PID/UID validation, reject other users).
+> - **#4 🟠 (crash-secret hygiene)** ✅ RESOLVED - added 指标 1.4 + REV-SEC-04 (post-SIGKILL `/dev/shm`, reboot, swap).
+> - **#5 🟠 (network egress control)** ✅ RESOLVED - added 指标 1.5 + REV-SEC-05 (`curl`/`python3 urllib`/`/dev/tcp` blocked; control tier documented).
+> - **#6 🟠 (performance/stress)** ✅ RESOLVED - added 指标 2.4 + REV-STB-03 (5 concurrent pipelines, <256MB/24h, UDS p99 <10ms).

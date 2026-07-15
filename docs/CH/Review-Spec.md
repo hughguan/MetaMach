@@ -1,0 +1,159 @@
+
+### ── 围绕设计哲学、极致安全性、系统稳定性与多维灾备的核心架构走查与审计标准
+
+## 1. 宏观审查目标与设计哲学对账 (Philosophy Alignment)
+
+在 MetaMach 2.0 正式合闸并网前，必须由架构师与厂长共同对系统进行**架构级审查（Design Review）**。本规范书提供了一套硬核、量化的审计标准，用以证明系统设计在面对恶劣物理环境和黑盒 AI 漏洞时，依然能 100% 捍卫以下四大设计支柱：
+
+```
++-----------------------------------------------------------------------------------------+
+|                                🪐 METAMACH 2.0 REVIEW PILLARS                           |
++-----------------------------------------------------------------------------------------+
+|  1. 🛡️ 安全合规审查 (Security)  -->  验证物理级 janus-sh 拦截与 /dev/shm 内存盘密钥保护   |
+|  2. ⏳ 物理稳定性审查 (Stability) -->  验证 remain-on-exit 进程守护与 16KB 爆库防御      |
+|  3. 🌀 故障自愈审查 (Disaster)   -->  验证多租户隔离、零状态冷启动与 Fallback 缓存        |
+|  4. 📈 硅基进化审计 (Evolution)  -->  验证 Offboard 熔炼质检报告与 OpenWiki 遗传学        |
++-----------------------------------------------------------------------------------------+
+```
+
+## 2. 核心审查域详细规格 (Review Domains)
+
+### 🛡️ 审查域一：极客车间安全性 (Security Invariants Review)
+
+本审查旨在证明：**AI 无论如何发生幻觉或恶意越权，也绝对无法穿透沙箱窃取物理凭证，且高危指令无法到达真实系统 Shell。**
+
+- **指标 1.1：`/dev/shm` 内存盘物理隔离审计**
+    
+    - _审查要求_：验证敏感密钥（如 Questrade API 凭证、SSH 密钥等）在落盘、读取、销毁三个阶段的物理安全性。
+        
+    - _通过标准_：
+        
+        1. 宿主机磁盘上严禁存在任何明文解密后的 `.decrypted` 文件。
+            
+        2. `decrypt_secrets.sh` 挂载路径必须限定在内存文件系统 `/dev/shm/`（内存盘）中。
+            
+        3. 使用 `ls -l` 审计该文件权限，必须为 `0600`（仅 `janus-daemon` 运行用户可读写），严禁向 `others` 开放。
+            
+        4. `janus-daemon` 进程终止或任务结束后，系统必须原子化执行 `shm_unlink` 或直接清空该内存块。
+            
+- **指标 1.2：`janus-sh` 代理拦截与 `Tool Guard` 对账审计**
+    
+    - _审查要求_：证明不依赖大模型的自我克制，拦截是在真实的物理 Shell 之前同步发生的。
+        
+    - _通过标准_：
+        
+        1. 检查 Tether 启动的每一个 PTY 窗格，其 `SHELL` 环境变量必须强制指向 `/target/release/janus-sh`。
+            
+        2. 审计 `janus-sh` 与 `janus.sock` 之间的 UDS 同步阻塞调用机制。发送拦截命令时，`janus-sh` 必须保持 Blocked 挂起状态，绝不提前 fork 子进程。
+            
+        3. 审计 Tool Guard 决策矩阵：高危命令（如未授权的网络外联、物理擦除 flash、非 Dry-run 交易发单等）在未检测到 Teams/TUI 端核准的 **Correlation ID 数字签名**前，必须 100% 触发重写重定向或直接报错阻断。
+            
+
+### ⏳ 审查域二：物理系统稳定性 (Stability & Budget Review)
+
+本审查旨在证明：**当面临 Agent 日志死循环刷屏、数据库连接池断开等极端高频负载时，系统不会发生级联物理崩溃。**
+
+- **指标 2.1：PTY 进程防死锁与 `remain-on-exit` 审查**
+    
+    - _审查要求_：证明任务中断、报错或网络掉线时，现场绝对保留，不杀进程。
+        
+    - _通过标准_：
+        
+        1. 审查 `configs/tmux.conf` 和 `herdr-tether` 调用的初始化入参，必须 100% 包含 `set -g remain-on-exit on`。
+            
+        2. 人为向 Agent 窗格发送 `kill -9 <agent_process>`，该 tmux 窗口必须保持 `[Exited]` 挂起状态，窗口不自动关闭，控制台历史缓存（Stdout）完全可被 `tether attach` 检索还原。
+            
+- **指标 2.2：16 KiB 存储体积预算（Size Budget）防爆审计**
+    
+    - _审查要求_：验证系统是否能在入库前强力切断死循环刷屏日志，保护 Postgres。
+        
+    - _通过标准_：
+        
+        1. 当 Stdout 流式写入缓存时，`janus-sh` 或 `janus-daemon` 的缓冲池必须限制在 **16 KiB (16384 Bytes)** 限制内。
+            
+        2. 输入超出预算的文本，落盘至 `absurd_steps.result_cache` 的 JSON 字段大小必须严格等于 16KB，且超出部分被物理裁剪（Truncated），并在尾部原子注入 `[MetaMach Log Budget Exceeded]` 标志。
+            
+
+### 🌀 审查域三：高可用与灾备恢复 (Disaster Recovery Review)
+
+本审查旨在证明：**在 Richmond Hill 车间突发停电、物理硬件重启等灾难场景下，系统具备完全无损的状态重建与自愈能力。**
+
+- **指标 3.1：冷启动零状态自愈（Reconciliation）审查**
+    
+    - _审查要求_：证明系统不依赖脆弱的 `tmux-resurrect`，完全通过数据库事务在物理断点处重跑接棒。
+        
+    - _通过标准_：
+        
+        1. 禁止在 tmux 中配置任何 `tmux-resurrect` 插件。
+            
+        2. 模拟主机断电重启：杀掉所有 `tmux`、`janus-daemon` 进程。
+            
+        3. 重新拉起 Daemon 后，触发自愈对账：Daemon 必须成功从 `absurd_steps` 物理表中检索到最后一个处于 `COMPLETED` 状态的 Step。
+            
+        4. 系统必须能够利用该 Step 的 `result_cache` 缓存，自动申请全新的 Tether Session UUID 并在后台平滑重跑，整个过程对于前台交互端无感。
+            
+- **指标 3.2：数据库宕机 Fallback 机制审计**
+    
+    - _审查要求_：验证当 Unified PG 数据库容器闪退时，车间生产不中断。
+        
+    - _通过标准_：
+        
+        1. 手动关闭 Postgres 容器，在 `janus-daemon` 运行期间模拟数据库断开。
+            
+        2. 此时新启动的 Step 状态和过渡态必须无缝切换写入本地临时的 **`HERDR_PLUGIN_STATE_DIR/fallback.db`**（本地 SQLite 环形备份队列）。
+            
+        3. 重新拉起 PG 容器后，Daemon 必须触发同步重放（Log Replay），将本地 `fallback.db` 中的记录增量合并至主库，未发生任何状态丢失。
+            
+
+### 📈 审查域四：生命周期熔炼与自我进化 (Melt & Evolution Review)
+
+本审查旨在证明：**产品下线（Offboard）后，数据库无体积膨胀，且积累的调试经验可以 100% 遗传给下一代 Agent。**
+
+- **指标 4.1：逻辑多租户多维度清理审计**
+    
+    - _审查要求_：验证执行 `melt_blueprint_data('<name>')` 存储过程后，数据库占用的 TOAST 物理表空间被彻底释放。
+        
+    - _通过标准_：
+        
+        1. 在 Offboard 前记录 PG 中 `absurd_steps` 表的物理磁盘占用大小。
+            
+        2. 执行 `janus offboard --blueprint <name>`。
+            
+        3. 执行后，该 Blueprint 对应的所有 `result_cache` JSON 大字段物理值必须为 `NULL`（基础审计字段除外）。
+            
+        4. 调用 `VACUUM FULL absurd_steps`，磁盘物理占用必须出现断崖式收缩，证明空间成功回收。
+            
+- **指标 4.2：硅基知识遗传（Few-shot 避坑）审计**
+    
+    - _审查要求_：验证生成的 `production_report.md` 是否具备真正的少样本（Few-shot）自愈与抗体遗传能力。
+        
+    - _通过标准_：
+        
+        1. 在 `production_report.md` 中，必须结构化包含上一代开发时的：**【编译报错历史】**、**【引脚冲突细节】**、**【Tool Guard 同步拦截日志】** 以及 **【成功通过的 Patch】**。
+            
+        2. 重新 Onboard 该项目时，OpenWiki 必须优先索引并合并该质检白皮书。
+            
+        3. 新一任 Agent 进场扫描该脑图后，其 System Prompt 必须成功携带该免疫信息，并在后续代码生成中主动规避引脚冲突，编译一次性通过。
+            
+
+## 3. 软件审查评审表 (Review Sign-Off Sheet)
+
+厂长与架构师在对账时，必须针对以下表格中的每一项进行物理核对与签字确认：
+
+|**审查编号**|**审计项 (Audit Item)**|**验证手段**|**物理状态确认 (Sign-off)**|**风险判定**|
+|---|---|---|---|---|
+|**REV-SEC-01**|**`/dev/shm` 权限隔离**|在宿主机上运行 `stat /dev/shm/*.decrypted`，核对权限是否为 `0600` 且属主为守护进程用户。|`[ ]` 已核对 / 物理隔离正常|**极高 (Red)**|
+|**REV-SEC-02**|**`janus-sh` 越权阻断**|强制执行 `rm -rf /`，验证 `janus-daemon` UDS 套接字是否同步拦截并锁定挂起。|`[ ]` 已核对 / 拦截阻断通过|**极高 (Red)**|
+|**REV-STB-01**|**16KB Size Budget**|运行 `cat /dev/urandom` 刷屏，验证写入 Postgres 的 JSON 是否被强制截断且附带 Budget 标记。|`[ ]` 已核对 / 存储降解正常|**中 (Yellow)**|
+|**REV-DIS-01**|**冷启动零状态自愈**|强行 `killall -9 tmux` 模拟机房断电，验证重新拉起后是否根据 PG Step 断点平滑接棒。|`[ ]` 已核对 / 自愈接力成功|**高 (Orange)**|
+|**REV-EVO-01**|**下线降解与经验遗传**|执行 `janus offboard`，验证数据库大 JSON 擦除率达 100%，且本地成功生成 `production_report.md`。|`[ ]` 已核对 / 经验遗传闭环|**中 (Yellow)**|
+
+## 4. 架构师与厂长联签合闸 (UAT Final Approval)
+
+本规范书经由 **MetaMach 2.0 架构师** 与 **新任厂长（End User）** 物理核对无误后，共同在下方签字。
+
+一旦联签完成，意味着 Richmond Hill 车间的分布式硅基巨轮正式点火，并网通电！
+
+- **架构师（系统稳定性与安全背书）：** ______________________ 日期：2026年07月15日
+    
+- **新任厂长（生产业务与合闸审批核准）：** ______________________ 日期：2026年07月15日

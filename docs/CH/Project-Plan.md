@@ -1,6 +1,8 @@
 
 ### ── 以“可独立提交（Check-in）/ 物理并网”为业务单元的硅基工厂建设路线图
 
+> **EN:** Project Plan — milestone roadmap (M0–M4) of independently check-in-able, network-able factory units.
+
 本计划书将 MetaMach 2.0 的研发与并网过程拆解为 **4 个核心里程碑阶段（Milestones）**。每个里程碑均以“**可编译、可独立 Commit/Check-in、100% 动静隔离合规**”的物理特性或功能模块（Feature Unit）为切分单位，并附带明确的物理验证手段，确保 Richmond Hill 车间的并网过程严丝合缝、稳步推进。
 
 ## 📅 建设路线图总览 (Milestone Timeline)
@@ -11,6 +13,8 @@
 ```
 
 > **M0 为前置门禁**：M1 起的所有 Popup/插件任务都依赖 Herdr v1 插件 SDK 可用。M0 必须先验证该外部契约，否则 M1 Task 1.2 即被阻塞。
+>
+> **预估工期（粗粒度，单人/小团队，视规模调整）**：M0 ≈ 3 天 · M1 ≈ 2 周 · M2 ≈ 3 周 · M3 ≈ 3 周 · M4 ≈ 4 周。
 
 ## 🧪 Milestone 0: Herdr v1 插件契约验证 (External SDK Validation)
 
@@ -52,7 +56,7 @@
 
 ## 📐 Milestone 1: 基础设施并网与影子外壳 (Immutable & Base)
 
-- **研发目标**：确立动静隔离目录，拉起 Unified Postgres 容器，跑通轻量级影子客户端 Popup 弹窗。
+- **研发目标**：确立动静隔离目录，拉起 Absurd Postgres 容器，跑通轻量级影子客户端 Popup 弹窗。
     
 - **本阶段完成即可独立 Check-in 的物理目录结构**：
     
@@ -61,7 +65,7 @@
 
 ### 🛠️ 任务分解 (Tasks)
 
-#### Task 1.1: Unified Postgres 容器与 migrations 初始化 (Check-in Unit 1)
+#### Task 1.1: Absurd Postgres 容器与 migrations 初始化 (Check-in Unit 1)
 
 - **任务描述**：编写并提交 `docker-compose.yml` 及 `janus/migrations/`。
     
@@ -85,6 +89,30 @@
     - 在 `herdr_janus.rs` 中利用 `ratatui` 渲染一个静态的“生产排班大盘”交互界面。焦点自动锁定，按 `Esc` 退出。
         
 - **UAT 物理验证**：执行 `herdr plugin link` 挂载插件，在 Herdr 中按下 `prefix+j`，屏幕中央应流畅弹出 80% 宽度的浮动 Popup。
+    
+
+#### Task 1.3: 配置模板创建与 schema 校验 (Check-in Unit 2b)
+
+- **任务描述**：创建并校验全部配置文件模板，消除“配置被假设存在”的隐患。
+    
+- **实现细节**：
+    
+    - 创建 `configs/agents.toml`（Contract 3.5）、`configs/tmux.conf`（per-session remain-on-exit）、`configs/global_rules.md`、`blueprints/*/janus.toml`（Contract 3.6）、`workflows/*.toml`（Contract 3.7）模板。
+        
+    - 编写 schema 校验脚本；`make bootstrap` 在 `ln -sf` 前校验源文件存在，避免 broken symlink。
+        
+- **UAT 物理验证**：`make bootstrap` 后各配置软链接有效、schema 校验通过、无 broken symlink。
+    
+
+#### Task 1.4: GitHub Actions CI 流水线 (Check-in Unit 2c)
+
+- **任务描述**：配置 `.github/workflows/build-janus.yml`，push/PR 到 main 时自动跑 fmt + clippy + test。
+    
+- **实现细节**：
+    
+    - CI 步骤 = `cargo fmt --all -- --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test --workspace`；缓存 cargo registry/target 加速。
+        
+- **UAT 物理验证**：PR 触发 CI 全绿方可合并；缓存命中率可见。
     
 
 ## 🧠 Milestone 2: 双生子进程 UDS 通信与调度大脑 (Daemon Core)
@@ -163,7 +191,7 @@
     
     - `make bootstrap` 增加 `openwiki` 目标：拉取/构建 OpenWiki 引擎，配置 `blueprints/<name>/openwiki/` 与全局 `configs/global_rules.md` 的索引范围。
         
-    - Daemon 实现 `openwiki_query` 旁路：Agent 遇代码盲区时发起 RAG 检索，Daemon 优先命中 Absurd PG 级缓存（Git-SHA 去重），未命中再查 OpenWiki 引擎。
+    - Daemon 实现 `openwiki_query` 旁路：Agent 遇代码盲区时发起 RAG 检索，Daemon 优先命中 Absurd Postgres 级缓存（Git-SHA 去重），未命中再查 OpenWiki 引擎。
         
     - 验证索引范围隔离：不同蓝图的局部脑图互不串扰。
         
@@ -285,7 +313,7 @@
     
     - 读取并校验 `blueprints/<name>/janus.toml`（必填字段 + `workflows/<default_workflow>.toml` 存在性），校验失败明确报错且不写库。
         
-    - 执行点火前自检：Absurd PG 可达、tmux 就位；跨主机蓝图对 `[remote].host` 做尽力 SSH 连通性探测（不可达仅 `WARN`）。
+    - 执行点火前自检：Absurd Postgres 可达、tmux 就位；跨主机蓝图对 `[remote].host` 做尽力 SSH 连通性探测（不可达仅 `WARN`）。
         
     - **幂等租户注册**：`INSERT … ON CONFLICT (name) DO UPDATE` 写入 `blueprints` 行（`status='ACTIVE'`、`config`、`openwiki_scope`、`remote_host`、`onboarded_at`）。重新上线已 `OFFBOARDED` 蓝图即重新激活。
         
@@ -294,6 +322,19 @@
     - 上线就绪后通过 UDS 广播 `blueprint_registered` 事件，Popup 派单菜单即时刷新。
         
 - **UAT 物理验证**：对零产品线的干净车间执行 `janus onboard --blueprint joyrobots`，`blueprints` 表出现一行 `ACTIVE` 记录且 Popup 菜单即时出现该产品；重复执行无副作用（幂等）。对一个已 Offboard 的蓝图重新 Onboard，验证其 `production_report.md` 被回收进新一代 Agent 的 System Prompt。
+
+#### Task 4.4: 自动化集成测试套件与运维文档 (Check-in Unit 8e)
+
+- **任务描述**：将 Test-Spec 的 UTC-01..07 自动化为脚本，并补齐运维 runbook 与 UDS 协议文档。
+    
+- **实现细节**：
+    
+    - 实现 `docker-compose.test.yml`（`metamach-test` + `metamach-db-test`）与 `make test-integration`，将全部 UTC 跑在容器内、无裸金属依赖。
+        
+    - 编写 `docs/CH/runbook.md`（启停 / 备份恢复 / 常见故障排查）与 `docs/CH/uds-protocol.md`（UDS 请求/响应契约，引用 Contract 3.2/3.4）。
+        
+- **UAT 物理验证**：`make test-integration` 全绿；runbook 覆盖启停、备份恢复、降级模式处置。
+    
 
 ## 🏁 交付质量门禁 (Check-in Gates)
 
@@ -306,3 +347,5 @@
 3. `cargo test --workspace` (100% 本地 fall-back DB 及事务单元测试通过)
     
 4. 检查提交的文件，严禁将任何明文密钥、`.env` 文件、本地 `janus.sock` 误提交到 Git。
+    
+5. **回归核验**：所有先前里程碑的 UAT 物理验证仍须通过--新 Check-in 不得破坏既有功能（防止 M4 回归击穿 M1）。

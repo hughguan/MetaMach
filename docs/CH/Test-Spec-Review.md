@@ -258,3 +258,11 @@ All tests assume a bare-metal or VM environment. For CI/CD, the entire test suit
 > - **#6 🟠 (UDS protocol robustness)** ✅ RESOLVED - added UTC-02-04 (malformed JSON, DoS, oversized).
 > - **#7 🟠 (Tool Guard edge cases)** ✅ RESOLVED - added Suite 2.2b (UTC-02-05..09: allowlist, partial match, chaining, subshell, env-var expansion).
 > - **Bonus:** UTC-04-02 aligned with redesigned HITL resume (no `Ctrl+C`).
+>
+> **Round 4 (🟡 items, 2026-07-15):**
+> - **#9 🟡 (PID lock staleness edge cases)** ✅ RESOLVED - added UTC-01-04 (stale PID) + UTC-01-05 (corrupt PID).
+> - **#10 🟡 (UTC-01-03 focus verifiable)** ✅ RESOLVED - UTC-01-03 now: Down×10 wrap, Tab×5 cycle, no background keystroke leak.
+> - **#11 🟡 (Telegram notification test)** ✅ RESOLVED - added UTC-04-03 (Telegram Bot + Inline Keyboard).
+> - **#12 🟡 (performance benchmark suite)** ✅ RESOLVED - added Suite 2.7 (UTC-07-01..04: cold start, UDS p50/p99, popup render, step-history query).
+> - **#13 🟡 (ngrok -> local webhook)** ✅ RESOLVED - §3.1 prefers local webhook receiver for CI.
+> - **#14 🟡 (containerized test env)** ✅ RESOLVED - §3.1 adds `docker-compose.test.yml` + `make test-integration`.

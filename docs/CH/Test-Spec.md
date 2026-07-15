@@ -1,13 +1,15 @@
 
 ### ── 核心调度底盘、代理沙箱与耐久工作流的系统级质量保障方案
 
+> **EN:** Test Spec — QA strategy and test cases for the scheduler, agent sandbox, and durable workflows.
+
 ## 1. 测试架构与策略总览 (Testing Strategy)
 
 为了保障 **MetaMach 2.0** 工厂的高可用性与强抗震防爆能力，本测试用例设计严格遵循以下三层质量防线：
 
 1. **沙箱与隔离防线（Sandbox Invariants）**：验证 `janus-sh` 代理拦截和 `Tool Guard` 对高危命令、敏感密钥的 100% 同步拦截与重定向。
     
-2. **耐久与自愈防线（Durable Recovery）**：模拟网络超时、服务器断电等极端物理物理故障，验证 `Tether (remain-on-exit)` 的进程保留和 `Absurd PG` 的冷启动状态对账。
+2. **耐久与自愈防线（Durable Recovery）**：模拟网络超时、服务器断电等极端物理物理故障，验证 `Tether (remain-on-exit)` 的进程保留和 `Absurd Postgres` 的冷启动状态对账。
     
 3. **生命周期与防爆防线（Lifecycle & Storage Budget）**：验证 `Offboard` 下线熔炼、日志 16KB 截断（Size Budget）以及数据库自动降解。
     
@@ -20,7 +22,10 @@
 |---|---|---|---|---|---|---|
 |**UTC-01-01**|**Daemon 启动**|验证控制中枢能正常单例长跑，并在退出时清理 UDS 套接字|系统干净未运行 Janus|1. 运行 `janus-daemon` 启动后台进程。<br><br>  <br><br>2. 尝试再次运行 `janus-daemon`。|1. 在 `${HERDR_PLUGIN_STATE_DIR}` 下成功生成 `janus.sock` 与 `janus.pid`。<br><br>  <br><br>2. 第二次启动报 PID 锁冲突并安全退出，不破坏原 Socket。|**Blocker**|
 |**UTC-01-02**|**影子端自愈**|验证 `herdr-janus` 在 Daemon 异常死亡时能执行惰性自启|`janus-daemon` 未启动，`janus.sock` 物理文件不存在|在 Herdr 终端中按下 `prefix+j` 唤醒 Dispatcher。|1. `herdr-janus` 在后台自动 `fork` 并 `exec` 启动 `janus-daemon`。<br><br>  <br><br>2. 成功渲染出 80% 宽度 Popup 界面，连接状态显示正常。|**Critical**|
-|**UTC-01-03**|**Popup 键盘锁定**|验证 UI 弹窗能完全接管键盘输入流并支持 Esc 键退栈|厂长已通过 `prefix+j` 打开 Dispatcher 界面|1. 在弹窗中使用方向键选择 Blueprint。<br><br>  <br><br>2. 按下 `Esc` 键。|1. 弹窗支持高亮切换，焦点不逃逸至后台 tiled pane。<br><br>  <br><br>2. 按 `Esc` 弹窗安全关闭，Herdr TUI 焦点平滑还原。|**Major**|
+|**UTC-01-03**|**Popup 键盘锁定**|验证 UI 弹窗能完全接管键盘输入流并支持 Esc 键退栈|厂长已通过 `prefix+j` 打开 Dispatcher 界面|1. 打开含 3 个蓝图选项的 Popup。<br><br>  <br><br>2. 连按 `↓` 10 次。<br><br>  <br><br>3. 连按 `Tab` 5 次。<br><br>  <br><br>4. 按下 `Esc`。|1. `↓` 10 次后高亮循环回到顶部，不逃逸。<br><br>  <br><br>2. `Tab` 5 次焦点在 Popup 内循环，不切到后台 tiled pane。<br><br>  <br><br>3. 全程无任何字符泄漏到后台终端。<br><br>  <br><br>4. `Esc` 关闭 Popup，焦点平滑还原。|**Major**|
+
+|**UTC-01-04**|**陈旧 PID 恢复**|验证崩溃残留的陈旧 PID 文件不阻止重启|Daemon 曾崩溃，`janus.pid` 残留但进程已死|1. `kill -9` 当前 Daemon（不清理 pid）。<br><br>  <br><br>2. 重新启动 `janus-daemon`。|1. Daemon 检测 PID 已死，覆盖 `janus.pid` 并正常启动。<br><br>  <br><br>2. UDS 正常监听，无残留冲突。|**Critical**|
+|**UTC-01-05**|**损坏 PID 容错**|验证 `janus.pid` 内容非法时优雅处理|`janus.pid` 内容为 `not_a_pid`|启动 `janus-daemon`。|Daemon 记 `WARN`，覆盖非法文件并正常启动，不崩溃。|**Major**|
 
 ### Test Suite 2.2: 内存级代理沙箱 (janus-sh & Tool Guard)
 
@@ -48,7 +53,7 @@
 |---|---|---|---|---|---|---|
 |**UTC-03-01**|**Absurd 事务幂等**|验证工作流 Step 在发生多次重试时不会产生脏数据|数据库处于连接状态|调度 `gatemetric` 连续执行 3 次 `make compile` 工位。|1. Postgres 物理表中仅保留 1 条 Task 记录与最新 Step 状态。<br><br>  <br><br>2. `result_cache` JSON 数据根据最新的成功状态完成覆盖，未产生冗余记录。|**Critical**|
 |**UTC-03-02**|**跨主机进程保护**|验证网络断开/SSH 重启后，物理 tmux Session 完好不灭|任务在远程 SSH 编译主机运行|1. 以程序化方式切断到远程主机的网络（可自动化，无需物理拔线）：Linux `iptables -A OUTPUT -d <remote_host> -j DROP`，macOS `pfctl -e -f <(echo "block drop out to <remote_host>")`。<br><br>  <br><br>2. 等待 10 秒后删除规则恢复网络（`iptables -D OUTPUT -d <remote_host> -j DROP` / `pfctl -d`）并重新执行 `herdr-tether attach`。|1. 远程主机的编译进程没有被杀死（`remain-on-exit` 生效）。<br><br>  <br><br>2. 重新挂接后编译现场 100% 还原，数据不折损。|**Critical**|
-|**UTC-03-03**|**冷启动自愈**|模拟系统物理断电，验证开机后从最后一个 Step 断点接棒|本地宿主机运行重型编译，任务状态为 `RUNNING`|1. 强行物理杀死 `postgres` 容器和 `janus-daemon`。<br><br>  <br><br>2. 重启 PG 容器（`docker compose up -d`），并直接重启 `janus-daemon` 触发冷启动自愈（**不走 `make bootstrap`**，以免全量重编译掩盖真实的冷启动代码路径）。|1. Daemon 拒绝使用 `tmux-resurrect`。<br><br>  <br><br>2. 从 Absurd PG 读出最后一次 `COMPLETED` 的 Step Checkpoint，分配全新 UUID 在物理断点处重跑接力。|**Critical**|
+|**UTC-03-03**|**冷启动自愈**|模拟系统物理断电，验证开机后从最后一个 Step 断点接棒|本地宿主机运行重型编译，任务状态为 `RUNNING`|1. 强行物理杀死 `postgres` 容器和 `janus-daemon`。<br><br>  <br><br>2. 重启 PG 容器（`docker compose up -d`），并直接重启 `janus-daemon` 触发冷启动自愈（**不走 `make bootstrap`**，以免全量重编译掩盖真实的冷启动代码路径）。|1. Daemon 拒绝使用 `tmux-resurrect`。<br><br>  <br><br>2. 从 Absurd Postgres 读出最后一次 `COMPLETED` 的 Step Checkpoint，分配全新 UUID 在物理断点处重跑接力。|**Critical**|
 
 |**UTC-03-04**|**Daemon 崩溃恢复**|验证 Step 运行中 Daemon 崩溃后，tmux 现场存活且孤儿工位被正确处置|Step 处于 `RUNNING`，Daemon 为 tmux 会话父进程|`killall -9 janus-daemon`。|1. tmux 会话存活（remain-on-exit）。<br><br>  <br><br>2. `herdr-janus` 惰性重启 Daemon。<br><br>  <br><br>3. Daemon 扫描孤儿工位，置 `SUSPENDED` 并通知厂长。|**Critical**|
 |**UTC-03-05**|**并发工作流隔离**|验证多蓝图并发派单互不串扰|2 个蓝图均 `ACTIVE`|同时为两蓝图派发 `dev-flow`。|1. 创建 2 个独立 tmux 会话、2 条独立 `absurd_tasks` 记录。<br><br>  <br><br>2. UDS 请求正确按 `task_id` 归属，`result_cache` 无跨蓝图污染。|**Critical**|
@@ -59,6 +64,8 @@
 |---|---|---|---|---|---|---|
 |**UTC-04-01**|**非破坏性挂起**|验证编译中断或超权拦截时，物理现场保留，不杀进程|编译脚本故意写入一个语法错误使其失败|运行编译流水线并触发失败。|1. 数据库状态锁定为 `SUSPENDED`。<br><br>  <br><br>2. Tether 物理 tmux Session 挂起，错误现场、内存变量和控制台缓存不消失。|**Critical**|
 |**UTC-04-02**|**异步双向审批**|验证移动端（Teams）接收高密卡片并执行合闸 Resume|配置了合规的外网 Teams/TG Webhook 密钥|1. 触发任务挂起。<br><br>  <br><br>2. 在手机 Teams 端阅读报错明细并点击 **`[🔄 Resume]`**。|1. Teams 秒级发出 Payload 至 Daemon 轮询端口。<br><br>  <br><br>2. Daemon 验证 Correlation ID 签名无误后，将状态由 `SUSPENDED` 置回 `RUNNING` 并派发下一工位（不发 `Ctrl+C`、不重跑被拦命令），流水线无感接棒。|**Major**|
+
+|**UTC-04-03**|**Telegram 通知与合闸**|验证 Telegram Bot 通道接收卡片并 Resume（与 Teams 架构等价；每轮发布交替测一通道）|配置了 Telegram Bot Token 与 chat_id|1. 触发任务挂起。<br><br>  <br><br>2. 在 Telegram 端阅读卡片并点击 Inline Keyboard 的 **`[🔄 Resume]`**。|1. Telegram Bot 秒级发出 `sendMessage` + `inline_keyboard`。<br><br>  <br><br>2. 回调经 Webhook 投射至 Daemon，验证 Correlation ID 后派发下一工位。|**Major**|
 
 ### Test Suite 2.5: 联邦式生命周期熔炼器 (Onboard / Offboard & Auto-Pruning)
 
@@ -79,19 +86,30 @@
 |**UTC-06-03**|**`janus status` CLI 输出**|验证无 TUI 环境下 CLI 快照与大盘数据一致|至少一个在途任务存在|在 SSH 终端执行 `janus status` 与 `janus status --json`。|1. 纯文本输出列出所有在途任务的蓝图/工位/状态/耗时。<br><br>  <br><br>2. `--json` 输出符合 Contract 3.3 Payload 结构，与同时刻大盘显示一致。|**Major**|
 |**UTC-06-04**|**多蓝图隔离展示**|验证多蓝图并行时大盘按蓝图独立分组、互不串扰|`joyrobots` 与 `gatemetric` 均为 `ACTIVE` 且各自有在途任务|同时为两个蓝图派发流水线，打开进度大盘。|1. 大盘按蓝图分组列出两条独立工作流，各自的工位状态互不串扰。<br><br>  <br><br>2. 每条工作流的 `task_id` 唯一，`result_cache` 无跨蓝图污染。|**Major**|
 
+### Test Suite 2.7: 性能与压测基准 (Performance Benchmarks)
+
+|**用例编号**|**功能模块**|**测试目的**|**前置条件**|**测试输入与物理步骤**|**预期输出与物理表现**|**严重级别**|
+|---|---|---|---|---|---|---|
+|**UTC-07-01**|**Daemon 冷启动**|验证 Daemon 冷启动时延|系统干净未运行|启动 `janus-daemon`，测量至 `janus.sock` 就绪。|冷启动 ≤ 2s。|**Major**|
+|**UTC-07-02**|**UDS 往返时延**|验证命令裁决往返 p50/p99|Daemon 运行中|发送 1000 次 `janus-sh` 裁决请求，统计往返时延。|p50 ≤ 10ms，p99 ≤ 50ms。|**Major**|
+|**UTC-07-03**|**Popup 渲染时延**|验证 warm path 弹窗渲染|Daemon 已运行|按下 `prefix+j`，测量至 Popup 可交互。|≤ 100ms。|**Major**|
+|**UTC-07-04**|**Step 历史查询**|验证大历史下的查询时延|1000 条 Step 记录|`janus status` 查询在途/历史任务。|查询 ≤ 500ms。|**Major**|
+
 ## 3. 测试环境配置与自动化并网验证 (Testing Environment)
 
 ### 3.1 自动化测试依赖工具
 
 为执行上述系统级测试，车间宿主机必须安装并报备以下物理工具：
 
-- **Docker & Compose (v2.20+)**：用于一键拉起 Unified Postgres 测试容器。
+- **Docker & Compose (v2.20+)**：用于一键拉起 Absurd Postgres 测试容器。
     
 - **Rust (v1.88+)**：用于本地锁版本编译测试二进制。
     
 - **Tmux (v3.2+)**：Tether 维持会话不灭的底层依赖。
     
-- **ngrok / Cloudflare Tunnel**：用于映射本地 `janus-daemon` 端口，实现 Teams / Telegram 外网 Webhook 回调接收测试。
+- **ngrok / Cloudflare Tunnel**：用于映射本地 `janus-daemon` 端口，实现 Teams / Telegram 外网 Webhook 回调接收测试。**自动化 CI 优先使用本地 Webhook 接收器**（在 localhost 起一个简单 HTTP server 记录收到的 webhook，测试直接 POST 到 localhost），避免依赖第三方隧道与公网暴露；真实 Teams/TG 集成在单独的人工 UAT 阶段验证。
+    
+- **容器化测试环境**：CI 中整套用例须跑在 `docker-compose.test.yml` 内（`metamach-test` 容器含 Rust/tmux/编译产物 + `metamach-db-test` Postgres），通过 `make test-integration`（`docker compose -f docker-compose.test.yml up --abort-on-container-exit`）编排，确保无裸金属/宿主机状态依赖。
     
 
 ### 3.2 动静分离存储目录验证（UAT 物理对账）

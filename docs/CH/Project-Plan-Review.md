@@ -214,3 +214,11 @@ Each check-in unit is described as "可独立提交" but there's no mention of h
 > **Round 3 (🟠 items, 2026-07-15):**
 > - **#4 🟠 (move local Tether to M3)** ✅ RESOLVED - dependency inversion fixed: Tether integrated in M2 Task 2.4 (available before M3); M3 Task 3.1 now has explicit UAT in real Tether panes.
 > - **#6 🟠 (split M4 Task 4.2)** ✅ RESOLVED - Task 4.2 split into 4.2a (melt procedure, Unit 8a), 4.2b (offboard orchestrator + LLM, Unit 8b), 4.2c (git auto-commit, Unit 8c); Onboard renumbered to Unit 8d.
+>
+> **Round 4 (🟡 items, 2026-07-15):**
+> - **#7 🟡 (config management)** ✅ RESOLVED - M1 Task 1.3 (config templates + schema validation).
+> - **#8 🟡 (CI/CD setup)** ✅ RESOLVED - M1 Task 1.4 (GitHub Actions fmt+clippy+test).
+> - **#9 🟡 (integration test milestone)** ✅ RESOLVED - M4 Task 4.4 (`docker-compose.test.yml` + `make test-integration`).
+> - **#10 🟡 (documentation milestone)** ✅ RESOLVED - M4 Task 4.4 includes runbook + UDS protocol docs.
+> - **#12 🟡 (time estimates)** ✅ RESOLVED - timeline overview adds rough timeboxes (M0 3d, M1 2w, M2/M3 3w, M4 4w).
+> - **#13 🟡 (regression check)** ✅ RESOLVED - check-in gate #5 requires all prior UAT still pass.

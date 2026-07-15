@@ -183,3 +183,8 @@ The厂长 signs off on "生产业务与合闸审批核准" but the review items 
 > - **#4 🟠 (crash-secret hygiene)** ✅ RESOLVED - added 指标 1.4 + REV-SEC-04 (post-SIGKILL `/dev/shm`, reboot, swap).
 > - **#5 🟠 (network egress control)** ✅ RESOLVED - added 指标 1.5 + REV-SEC-05 (`curl`/`python3 urllib`/`/dev/tcp` blocked; control tier documented).
 > - **#6 🟠 (performance/stress)** ✅ RESOLVED - added 指标 2.4 + REV-STB-03 (5 concurrent pipelines, <256MB/24h, UDS p99 <10ms).
+>
+> **Round 4 (🟡 items, 2026-07-15):**
+> - **#7 🟡 (replace '100%' with SQL)** ✅ RESOLVED - 指标 4.1 + REV-EVO-01 now use SQL count check (rows DELETE'd, returns 0) + `absurd_audit_log`.
+> - **#8 🟡 (production_report.md quality gates)** ✅ RESOLVED - 指标 4.2 adds gates: >500 bytes, four sections by heading search, valid Markdown.
+> - **#9 🟡 (review dependency ordering)** ✅ RESOLVED - sign-off sheet prepended with dependency graph (REV-SEC-01 -> ... -> REV-OPS-01).

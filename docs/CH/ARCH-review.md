@@ -587,3 +587,14 @@ The deployment spec lists "macOS 13+" as supported, but:
 |------|------|------|
 | Architect | ___________ | 2026-07-15 |
 | Factory Director | ___________ | 2026-07-15 |
+
+> **Round 4 (🟡 items, 2026-07-15):** Remaining §6 🟡/⚪ items now RESOLVED:
+> - **#4.1 / #17 (Teams vs Telegram)** -> Telegram primary, Teams secondary, abstract payload + adapters (Feature-Spec §2.4).
+> - **#4.2 (SHELL absolute path)** -> Feature-Spec §2.2 uses `${HERDR_PLUGIN_ROOT}/bin/janus-sh`.
+> - **#4.5 (joyrobots janus.toml)** -> Contract 3.6 notes `[remote]` optional for local-only blueprints.
+> - **#4.7 (offboard requires Daemon)** -> ARCH §3 CLI note + Feature-Spec §2.5 execution-prerequisite note.
+> - **#4.8 / #22 (state machine)** -> Feature-Spec §2.3 state-machine diagram.
+> - **#4.9 / #23 (fallback.db schema)** -> Feature-Spec Contract 3.8.
+> - **#5.1 (DB naming)** -> standardized to 'Absurd Postgres' / 'Absurd DB' across all source docs.
+> - **#5.3 (CN/EN titles)** -> English subtitles added to all 7 spec docs.
+> Remaining open: **#5.2** (metamach_db canonical - already consistent), **PRD-Review #5** (matrix reprioritization - deferred as a product-priority call, not a spec gap).

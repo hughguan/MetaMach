@@ -1,6 +1,8 @@
 
 ### ── 围绕设计哲学、极致安全性、系统稳定性与多维灾备的核心架构走查与审计标准
 
+> **EN:** Review Spec — architecture audit standards across security, stability, disaster recovery, and evolution.
+
 > ⚠️ **安全审查红线**：本规范中所有安全审查项（尤其 REV-SEC-* 系列）**必须在隔离的容器或专用测试 VM 中执行，严禁在生产机或含个人数据的宿主机上运行**。所有“破坏性指令”测试一律使用 `/tmp/metamach-review-*` 哨兵目录等安全等价物，绝不执行真实系统级删除。
 
 ## 1. 宏观审查目标与设计哲学对账 (Philosophy Alignment)
@@ -186,9 +188,9 @@
             
         2. 执行 `janus offboard --blueprint <name>`。
             
-        3. 执行后，该 Blueprint 对应的所有 `result_cache` JSON 大字段物理值必须为 `NULL`（基础审计字段除外）。
+        3. 执行后，该 Blueprint 对应的所有 `absurd_steps` 行必须已被 **DELETE**（非 NULL 化）：`SELECT count(*) FROM absurd_steps WHERE task_id IN (SELECT id FROM absurd_tasks WHERE blueprint_id=<id>)` 须返回 `0`；同时 `absurd_audit_log` 须出现一行汇总元数据（Task ID、执行耗时）。
             
-        4. 调用 `VACUUM FULL absurd_steps`，磁盘物理占用必须出现断崖式收缩，证明空间成功回收。
+        4. 调用 `VACUUM FULL absurd_steps`，磁盘物理占用必须出现断崖式收缩，证明 TOAST 空间成功回收。
             
 - **指标 4.2：硅基知识遗传（Few-shot 避坑）审计**
     
@@ -196,7 +198,7 @@
         
     - _通过标准_：
         
-        1. 在 `production_report.md` 中，必须结构化包含上一代开发时的：**【编译报错历史】**、**【引脚冲突细节】**、**【Tool Guard 同步拦截日志】** 以及 **【成功通过的 Patch】**。
+        1. `production_report.md` 须通过质量闸门：(a) 文件大小 > 500 字节（非空）；(b) 结构化包含四个必备区块 **【编译报错历史】**、**【引脚冲突细节】**、**【Tool Guard 同步拦截日志】**、**【成功通过的 Patch】**（按标题检索命中）；(c) 为合法 Markdown（通过 `markdownlint` 或等价校验）。
             
         2. 重新 Onboard 该项目时，OpenWiki 必须优先索引并合并该质检白皮书。
             
@@ -218,6 +220,9 @@
 ## 3. 软件审查评审表 (Review Sign-Off Sheet)
 
 厂长与架构师在对账时，必须针对以下表格中的每一项进行物理核对与签字确认：
+
+> **审查项依赖顺序**（按此序自上而下执行，前置未通过不得进行后续）：
+> `REV-SEC-01`（/dev/shm）-> `REV-STB-01`（16KB 预算）-> `REV-SEC-02`（越权阻断）-> `REV-SEC-03`（UDS 完整性）-> `REV-SEC-04`（崩溃密钥卫生）-> `REV-SEC-05`（网络外联）-> `REV-STB-03`（负载压力）-> `REV-DIS-01`（冷启动自愈）-> `REV-EVO-01`（下线降解）-> `REV-EVO-02`（上线注册）-> `REV-OPS-01`（进度可视）。
 
 |**审查编号**|**审计项 (Audit Item)**|**验证手段**|**物理状态确认 (Sign-off)**|**风险判定**|
 |---|---|---|---|---|

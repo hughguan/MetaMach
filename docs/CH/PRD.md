@@ -1,6 +1,8 @@
 
 ### ── 面向新任厂长的硅基工业级生产调度中枢业务指南
 
+> **EN:** Product Requirements — business guide for the Factory Director (厂长): blueprint onboarding, workflow dispatch, HITL gates, and production reports.
+
 > **厂长视点 (Director's Note)**
 > 
 > 本规范书（Spec）专为新任“厂长”（业务最终用户）打造。作为厂长，您无需理解 Rust、UDS Socket 或 PostgreSQL 的底层代码。您的核心职责是：**注册新产品（Blueprint）、调度 SOP 工作流（Workflow）、审批高危操作（HITL Gate）以及查看产品最终交付的质检报告（Production Report）**。本文档将从业务视角为您全面拆解 MetaMach 2.0 的功能版图。
@@ -28,9 +30,9 @@
     
     1. **配方校验：** 读取 `blueprints/<name>/janus.toml`，校验产品名、默认流水线（`default_workflow`）、远程 SSH 靶机、OpenWiki 脑图索引范围；并确认 `workflows/<default_workflow>.toml` 工艺文件真实存在。
         
-    2. **点火前自检：** 探测 Unified DB 可达、tmux 引擎就位；针对跨主机蓝图（如 `gatemetric`）尽力探测远程编译靶机的 SSH 可达性（不可达仅告警，不阻断上线）。
+    2. **点火前自检：** 探测 Absurd DB 可达、tmux 引擎就位；针对跨主机蓝图（如 `gatemetric`）尽力探测远程编译靶机的 SSH 可达性（不可达仅告警，不阻断上线）。
         
-    3. **租户注册：** 在 Unified DB 中为该蓝图分配独立的逻辑租户隔离空间（以 `blueprint_id` 为分区键），写入一行 `ACTIVE` 状态的蓝图元数据。该操作**幂等**——重复执行不会产生脏数据，重新上线一个已下线的蓝图会将其由 `OFFBOARDED` 重新激活。
+    3. **租户注册：** 在 Absurd DB 中为该蓝图分配独立的逻辑租户隔离空间（以 `blueprint_id` 为分区键），写入一行 `ACTIVE` 状态的蓝图元数据。该操作**幂等**——重复执行不会产生脏数据，重新上线一个已下线的蓝图会将其由 `OFFBOARDED` 重新激活。
         
     4. **流水线绑定：** 绑定 `janus.toml` 声明的默认 SOP 工作流，使其立即可被派发。
         
@@ -80,14 +82,25 @@ MetaMach 2.0 奉行“安全第一”的原则，将 AI 关在安全的制度笼
     
 - **无界面环境兜底：** 在仅可 SSH 的无 TUI 环境（如 CI 或远程服务器），厂长可执行 `janus status` 获取同等信息的纯文本/JSON 快照，秒级掌握车间全局。
 
+### 2.6 工作流异常处置 (Workflow Error Handling)
+
+流水线并非只有“成功推进”与“HITL 挂起”两种结局。厂长须能从业务视角区分三类异常并知晓各自处置：
+
+- **瞬态异常（自动重试，无需厂长介入）：** SSH 超时、网络抖动、瞬时磁盘满等可恢复故障。Daemon 自动按指数退避重试 3 次；进度大盘该工位显示 `RETRYING (n/3)` 徽标。3 次内恢复即继续，厂长无需操作。
+    
+- **阻塞异常（HITL 卡片，厂长决策）：** 编译报错、安全超权、引脚冲突等需人工判断的故障。工位置 `SUSPENDED`，厂长收到带现场上下文的卡片，可选择 `[Resume]`（就地修复后派发下一工位）、`[Skip Step]`（跳过当前工位并记录）或 `[Abort]`（终止整条流水线）。
+    
+- **致命异常（终止并归档，厂长知会）：** 不可恢复故障（如蓝图配方损坏、OpenWiki 引擎彻底不可用且无降级）。Daemon 终止该 Task 为 `FAILED`，基于已完成的工位生成一份部分 `production_report.md`，并经 Popup + 通知后端告知厂长，等待人工介入。
+    
+
 ## 3. 业务功能矩阵与优先级 (Functional Matrix)
 
 |**功能模块**|**业务场景与用户价值**|**验收标准 (UAT)**|**优先级**|
 |---|---|---|---|
-|**Popup 派单控制台**|厂长在 Herdr 界面内通过模态弹窗，无需跳转视图，秒级派发工作流。|按下快捷键弹窗响应时间 < 100ms，且输入焦点自动锁定，支持键盘高亮选择。|**高 (P0)**|
+|**Popup 派单控制台**|厂长在 Herdr 界面内通过模态弹窗，无需跳转视图，秒级派发工作流。|Daemon 已运行（warm path）弹窗渲染 ≤100ms；Daemon 未运行（lazy-start path）≤3s；焦点自动锁定、支持键盘高亮。|**高 (P0)**|
 |**工作流进度大盘 (Workflow Monitor)**|厂长实时查看所有在途工作流的工位进度、当前工位、耗时与挂起原因，快速定位卡死任务。|进度大盘在 2s 内刷新；SUSPENDED 工位在 1s 内高亮提示并附带 Resume 入口；支持多蓝图并列展示。|**高 (P0)**|
-|**代理沙箱拦截 (janus-sh)**|拦截 AI 越权命令，防止意外删库、非法网络外联或引脚冲突。|运行高危或未授权命令时，100% 成功挂起任务，不向下传递至真 Shell。|**高 (P0)**|
-|**多端合闸 (HITL)**|厂长在移动端（Teams/TG）远程点击审批，生产线无缝 Resume 恢复运行。|移动端卡片推送延迟 < 2s，点击后原挂起终端现场在 1s 内接棒恢复。|**高 (P0)**|
+|**代理沙箱拦截 (janus-sh)**|拦截 AI 越权命令，防止意外删库、非法网络外联或引脚冲突。|测试套件（N=10,000）中 ≥99.9% 的未授权命令被拦截挂起，不向下传递至真 Shell。|**高 (P0)**|
+|**多端合闸 (HITL)**|厂长在移动端（Teams/TG）远程点击审批，生产线无缝 Resume 恢复运行。|Webhook POST 本地完成 ≤500ms（端到端送达取决于外部服务）；点击后原挂起终端现场 ≤1s 内接棒恢复。|**高 (P0)**|
 |**物理进程保护 (Tether)**|本地网络断开、SSH 重启后，物理会话依旧保持。|手动杀死 Herdr 前台进程，后台编译脚本不中断，再次 Attach 现场数据完好。|**中 (P1)**|
 |**蓝图一键上线 (Onboard)**|Day 0 注册新产品，分配独立租户空间，绑定默认流水线并载入专属脑图（含历史经验遗传）。|执行 `janus onboard` 后，Popup 菜单即时出现新产品并可立即派发；重复 Onboard 幂等无副作用。|**高 (P0)**|
 |**下线熔炼 (Offboard)**|研发结束，一键归档。生成质检报告并将知识回流至 OpenWiki 共享 RAG。|Offboard 触发后，自动在本地目录生成带有排错记录的 md 文档，数据库冗余清空。|**低 (P2)**|
@@ -104,7 +117,7 @@ MetaMach 2.0 奉行“安全第一”的原则，将 AI 关在安全的制度笼
     
 2. **一键上线：** 厂长执行 `janus onboard --blueprint gatemetric`（或在 Popup 中选择“上线新产品”）。
     
-3. **系统自动接管：** 系统校验配方 → 自检 DB 与 tmux → 在 Unified DB 注册 `ACTIVE` 租户 → 绑定 `firmware-deploy` 流水线 → 载入专属脑图（若存在上一代的 `production_report.md`，自动回收为免疫抗体）。
+3. **系统自动接管：** 系统校验配方 → 自检 DB 与 tmux → 在 Absurd DB 注册 `ACTIVE` 租户 → 绑定 `firmware-deploy` 流水线 → 载入专属脑图（若存在上一代的 `production_report.md`，自动回收为免疫抗体）。
     
 4. **即时可用：** 终端打印上线成功，`gatemetric` 随即出现在 Popup 派单菜单中。至此车间从零产品进入可生产状态。
 

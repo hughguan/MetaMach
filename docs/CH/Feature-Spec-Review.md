@@ -268,3 +268,9 @@ Feature §3.1 schema says valid statuses: `STARTING | COMPLETED | SUSPENDED`. Bu
 > - **#5 🟠 (remain-on-exit per-session)** ✅ RESOLVED - §2.3 uses a dedicated tmux server `tmux -L metamach-tether` + per-session `remain-on-exit on` (no `-g`); Review-Spec §2.1 aligned.
 > - **#6 🟠 (HITL resume redesign)** ✅ RESOLVED - §2.4 rewritten: SUSPENDED = pane idle (no `Ctrl+C`), human attaches+fixes+`metamach-resume`, Daemon dispatches NEXT step (no blind re-execute).
 > - **#7 🟠 (Offboard LLM spec)** ✅ RESOLVED - §2.5 adds full LLM spec: `configs/offboard.toml` endpoint/key/model, input budget, prompt template, 120s timeout + raw-JSON fallback, async execution.
+>
+> **Round 4 (🟡 items, 2026-07-15):**
+> - **#8 🟡 (Daemon PG-unreachable startup)** ✅ RESOLVED - §2.1 adds retry 5x/2s + degraded `fallback.db` mode + replay on recovery.
+> - **#9 🟡 (agent prompt assembly)** ✅ RESOLVED - §2.5 adds priority-concatenation spec + context-window truncation.
+> - **#11 🟡 (melt DELETE vs NULL)** ✅ RESOLVED - §2.5 step 3 + Task 4.2a: whole-row DELETE (not NULL) + `absurd_audit_log`, for TOAST reclamation.
+> - **Bonus:** §4 16KB enforcement point clarified; §2.2 SHELL absolute path; Contract 3.8 `fallback.db` schema; §2.3 state-machine diagram.

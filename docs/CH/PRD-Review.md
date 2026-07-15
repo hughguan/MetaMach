@@ -183,3 +183,8 @@ What if the厂长 has 5 active blueprints? How do they manage them? The Popup is
 >
 > **Round 3 (🟠 items, 2026-07-15):**
 > - **#3 🟠 (contradictory mobile/laptop scenario)** ✅ RESOLVED - PRD §4 step 4 split into Path A (mobile-only: mark-for-manual-fix -> return to desk -> attach -> `metamach-resume`) and Path B (desk: attach immediately -> resume), aligned with the redesigned HITL resume.
+>
+> **Round 4 (🟡 items, 2026-07-15):**
+> - **#7 🟡 (measurable UAT)** ✅ RESOLVED - PRD §3 matrix UAT cells now measurable (warm/lazy-start render times, ≥99.9% block rate N=10k, webhook POST ≤500ms local).
+> - **#8 🟡 (workflow error handling)** ✅ RESOLVED - PRD §2.6 adds three failure modes (transient auto-retry 3x, blocking HITL card, fatal abort + partial report).
+> - **#5 🟡 (reprioritize matrix)** ⏸️ DEFERRED - subjective product-priority call (Tether→P0 etc.), not a spec gap; left for product decision.

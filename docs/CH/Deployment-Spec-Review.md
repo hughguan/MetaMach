@@ -343,3 +343,11 @@ db-up:
 > - **#5 🟠 (macOS /dev/shm)** ✅ RESOLVED - §4 adds platform note: production Linux-only; macOS dev uses `$TMPDIR`/`hdiutil` RAM disk (secrets not memory-backed on macOS).
 > - **#6 🟠 (UDS path length validation)** ✅ RESOLVED - Makefile `symlinks` validates `janus.sock` path <100 chars (macOS 104-char UDS limit).
 > - **#7 🟠 (cp janus-sh -> target_sh)** ✅ RESOLVED - `compile` now installs binaries to `${HERDR_PLUGIN_ROOT}/bin/` absolute paths (also aids the absolute-`SHELL` path concern).
+>
+> **Round 4 (🟡 items, 2026-07-15):**
+> - **#8 🟡 (backup/restore)** ✅ RESOLVED - Makefile `db-backup` / `db-restore` / `db-migrate` targets.
+> - **#9 🟡 (make health)** ✅ RESOLVED - Makefile `health` target (pg_isready + socket + PID liveness).
+> - **#10 🟡 (log rotation)** ✅ RESOLVED - Makefile `logs` target + Daemon log to `janus.log` with logrotate 10MB×5.
+> - **#12 🟡 (make uninstall)** ✅ RESOLVED - Makefile `uninstall` target (interactive confirm, removes volumes/state/configs/binaries).
+> - **#13 🟡 (SOPS/Age optional)** ✅ RESOLVED - prereq table marks SOPS & Age optional (financial blueprints only).
+> - **#15 🟡 (db-up race)** ✅ RESOLVED - `db-up` waits for container `Up` before `exec`/`pg_isready`.

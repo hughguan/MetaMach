@@ -79,7 +79,7 @@ Full design specifications live directly under `docs/` (English) - this is the *
 ## ⚡ Quick Start
 
 ### Prerequisites
-- Ubuntu 21.04+ or macOS 13+
+- Linux or macOS
 - Rust 1.88+ (Edition 2024), Tmux 3.2+, Docker & Compose
 - Herdr with `metamach.janus` plugin installed
 

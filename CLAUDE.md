@@ -22,7 +22,7 @@ Per `docs/Deployment-Spec.md` §1 and `docs/Project-Plan.md` (Check-in Gates):
 
 - **Rust 1.88+ (Edition 2024)** — `cargo build --release --locked`; CI gates: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --workspace`.
 - **Docker Compose v2.20+** — `docker compose up -d` brings up the Absurd Postgres container (Unix socket only, no TCP).
-- **tmux 3.2+**, **Herdr v1** (plugin host).
+- **tmux 3.3+**, **Herdr v1** (plugin host).
 - **External dependencies** (separate repos, fetched/built by `make bootstrap`, NOT in this repo): `herdr-tether` (tmux/SSH execution engine), `absurd` (Postgres engine / `melt_blueprint_data`), `openwiki` (RAG knowledge engine).
 - The intended bootstrap entrypoint is `make bootstrap` (symlinks → compile → db-up). The intended binaries are `janus-daemon`, `herdr-janus`, `janus-sh`, `herdr-tether`.
 

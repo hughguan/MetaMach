@@ -34,7 +34,7 @@ No commands are runnable today (repo is docs-only). The intended toolchain, per 
 | `cargo test --workspace` | Run all tests |
 | `make bootstrap` | Full bootstrap: symlinks → compile → db-up |
 
-**Toolchain:** Rust 1.88+ (Edition 2024), Docker Compose v2.20+, tmux 3.2+, Herdr v1.
+**Toolchain:** Rust 1.88+ (Edition 2024), Docker Compose v2.20+, tmux 3.3+, Herdr v1.
 
 ## Coding Style & Naming
 

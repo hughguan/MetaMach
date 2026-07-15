@@ -61,7 +61,7 @@ metamach/
 
 ## 📚 Documentation
 
-Full design specifications live under `docs/CH/` (bilingual: Chinese body + English subtitle). Each spec has a paired `*-Review.md` deep-dive audit with resolution logs.
+Full design specifications live directly under `docs/` (English) - this is the **sole version-controlled spec source**. Chinese translations and the `*-Review.md` audit deep-dives live under `docs/CH/`, which is gitignored (local-only, non-authoritative); when the two disagree, `docs/` wins.
 
 | Doc | Scope |
 |-----|-------|

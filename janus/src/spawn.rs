@@ -8,19 +8,18 @@
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 
-/// Resolve the `janus-daemon` binary: explicit env > plugin bin/ > sibling of
-/// the current executable > PATH.
-fn resolve_daemon_exe() -> Result<PathBuf> {
+/// Resolve the `janus-daemon` binary path. Shared by [`spawn_daemon_detached`]
+/// (lazy-start) and the `janus daemon` CLI subcommand so both launch the same
+/// binary - divergent resolution risked a protocol/behavior mismatch.
+///
+/// Precedence: `JANUS_DAEMON_BIN` env > sibling of the current executable >
+/// `${HERDR_PLUGIN_ROOT}/bin` > error. Never falls back to a bare `$PATH`
+/// lookup: an unrelated `janus-daemon` on PATH could otherwise be exec'd.
+pub fn resolve_daemon_exe() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("JANUS_DAEMON_BIN") {
         return Ok(PathBuf::from(p));
-    }
-    if let Ok(root) = std::env::var("HERDR_PLUGIN_ROOT") {
-        let p = PathBuf::from(root).join("bin").join("janus-daemon");
-        if p.exists() {
-            return Ok(p);
-        }
     }
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
@@ -30,7 +29,13 @@ fn resolve_daemon_exe() -> Result<PathBuf> {
             return Ok(p);
         }
     }
-    Ok(PathBuf::from("janus-daemon"))
+    if let Ok(root) = std::env::var("HERDR_PLUGIN_ROOT") {
+        let p = PathBuf::from(root).join("bin").join("janus-daemon");
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    bail!("janus-daemon binary not found; run `make compile` or set JANUS_DAEMON_BIN");
 }
 
 /// Spawn the Daemon in the background, fully detached. Returns `Ok(())` on a

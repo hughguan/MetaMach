@@ -88,15 +88,21 @@ impl App {
 
     /// `Tab` toggles Dispatch <-> Progress, resetting selection and refreshing.
     fn toggle_view(&mut self) {
+        self.flip_view();
+        match self.view {
+            View::Progress => self.poll_progress(),
+            View::Dispatch => self.refresh_blueprints(),
+        }
+    }
+
+    /// Flip Dispatch <-> Progress and reset selection (pure; no I/O) - split out
+    /// so the flip+reset is unit-testable without a live `janus.sock` round-trip.
+    fn flip_view(&mut self) {
         self.view = match self.view {
             View::Dispatch => View::Progress,
             View::Progress => View::Dispatch,
         };
         self.selected = 0;
-        match self.view {
-            View::Progress => self.poll_progress(),
-            View::Dispatch => self.refresh_blueprints(),
-        }
     }
 
     /// Fetch ACTIVE blueprints from the Daemon (3s timeout).
@@ -436,16 +442,20 @@ mod tests {
     }
 
     #[test]
-    fn toggle_view_flips_view_and_resets_selection() {
+    fn flip_view_flips_and_resets_selection() {
         let mut app = sample_app();
         app.down();
         assert_eq!(app.selected, 1);
         assert_eq!(app.view, View::Dispatch);
-        // toggle_view hits the UDS; with no daemon running it fails gracefully
-        // (sets last_error) but must still flip the view + reset selection.
-        app.toggle_view();
+
+        app.flip_view();
         assert_eq!(app.view, View::Progress);
-        assert_eq!(app.selected, 0);
+        assert_eq!(app.selected, 0, "selection resets on flip to Progress");
+
+        app.selected = 1; // simulate navigation in the new view
+        app.flip_view();
+        assert_eq!(app.view, View::Dispatch);
+        assert_eq!(app.selected, 0, "selection resets on flip back to Dispatch");
     }
 
     #[test]

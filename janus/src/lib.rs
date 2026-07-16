@@ -17,3 +17,6 @@ pub mod protocol;
 pub mod spawn;
 pub mod tool_guard;
 pub mod uds;
+
+/// Shared `janus-daemon` binary resolver (used by `spawn` + the `janus daemon` CLI).
+pub use spawn::resolve_daemon_exe;

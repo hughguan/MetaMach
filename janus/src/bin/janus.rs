@@ -7,7 +7,6 @@
 //! `onboard` / `offboard` land in M4. All subcommands require the Daemon
 //! reachable; `status` lazy-starts it if absent (Feature-Spec §2.1 self-heal).
 
-use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
@@ -90,31 +89,10 @@ fn print_status_text(tasks: &[ActiveTask]) {
 }
 
 fn daemon() -> Result<()> {
-    let exe = resolve_daemon_exe()?;
+    let exe = spawn::resolve_daemon_exe()?;
     let status = Command::new(&exe).status()?;
     if !status.success() {
         bail!("janus-daemon exited with {status}");
     }
     Ok(())
-}
-
-fn resolve_daemon_exe() -> Result<PathBuf> {
-    if let Ok(p) = std::env::var("JANUS_DAEMON_BIN") {
-        return Ok(PathBuf::from(p));
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let p = dir.join("janus-daemon");
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-    if let Ok(root) = std::env::var("HERDR_PLUGIN_ROOT") {
-        let p = PathBuf::from(root).join("bin").join("janus-daemon");
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-    bail!("janus-daemon binary not found; run `make compile` or set JANUS_DAEMON_BIN");
 }

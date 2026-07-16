@@ -188,7 +188,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │       │
 │       ├── tool_guard/           # janus-sh in-memory interception & allowlist filtering
 │       ├── absurd/               # Exclusive sqlx Postgres connection pool, reconciliation & GC
-│       └── tui/                  # 80%-width Popup keyboard UI (Ratatui)
+│       └── tui/                  # Popup keyboard UI (Ratatui)
 │
 │   # ====================================================================
 │   # 2. CONFIG & EXTERNAL DEPENDENCIES

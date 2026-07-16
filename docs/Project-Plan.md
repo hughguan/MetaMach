@@ -60,7 +60,7 @@ This plan decomposes MetaMach 1.0's R&D and grid-connection process into **5 cor
 - **Implementation:**
     - Declare `[[panes]] id = "dispatcher" placement = "overlay" command = ["herdr-janus"]` in `herdr-plugin.toml` (no `width`/`height` - Herdr manages overlay sizing; see `docs/herdr-v1-contract.md`).
     - Use `ratatui` in `herdr_janus.rs` to render a static "production dispatch dashboard" interactive interface. Focus auto-locked; exit on `Esc`.
-- **UAT:** Execute `herdr plugin link` to mount the plugin; press `prefix+j` inside Herdr; an 80%-width floating Popup smoothly pops up at screen center.
+- **UAT:** Execute `herdr plugin link` to mount the plugin; press `prefix+j` inside Herdr; a floating overlay Popup appears at screen center (sized by Herdr's overlay defaults, not the manifest).
 
 ## Milestone 2: Twin-Process UDS Communication & Scheduling Brain (Daemon Core)
 

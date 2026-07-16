@@ -22,6 +22,7 @@ use tracing_subscriber::fmt::MakeWriter;
 use janus::absurd::AbsurdDb;
 use janus::paths;
 use janus::protocol::{Request, Response};
+use janus::tool_guard::Engine;
 use sqlx::postgres::PgConnectOptions;
 
 fn main() -> Result<()> {
@@ -47,13 +48,18 @@ async fn run() -> Result<()> {
     db.spawn_connect(pg_connect_options());
     info!("absurd db online: {}", db.pg_online().await);
 
+    let agents_path = paths::agents_toml_path();
+    let engine = Arc::new(Engine::load(&agents_path));
+    info!("tool guard rules: {}", agents_path.display());
+
     let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
             accept = listener.accept() => match accept {
                 Ok((stream, _)) => {
                     let db = db.clone();
-                    tokio::spawn(handle_conn(stream, db));
+                    let engine = engine.clone();
+                    tokio::spawn(handle_conn(stream, db, engine));
                 }
                 Err(e) => warn!("accept error: {e}"),
             },
@@ -66,7 +72,7 @@ async fn run() -> Result<()> {
 }
 
 /// Handle one request/response over a single connection (one line in, one out).
-async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>) {
+async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>, engine: Arc<Engine>) {
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
@@ -78,7 +84,7 @@ async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>) {
         return; // liveness probe / peer closed without sending - not an error
     }
     let resp = match serde_json::from_str::<Request>(trimmed) {
-        Ok(req) => handle_request(req, &db).await,
+        Ok(req) => handle_request(req, db, &engine).await,
         Err(e) => {
             warn!("bad request ({e}): {trimmed:?}");
             Response::Error {
@@ -92,7 +98,7 @@ async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>) {
     let _ = write_half.write_all(b"\n").await;
 }
 
-async fn handle_request(req: Request, db: &AbsurdDb) -> Response {
+async fn handle_request(req: Request, db: Arc<AbsurdDb>, engine: &Engine) -> Response {
     match req {
         Request::Ping => Response::Pong,
         Request::Blueprints => match db.active_blueprints().await {
@@ -109,6 +115,55 @@ async fn handle_request(req: Request, db: &AbsurdDb) -> Response {
                 message: e.to_string(),
             },
         },
+        // janus-sh -> Daemon: synchronous Tool Guard verdict (Contract 3.2/3.4).
+        Request::GuardCheck {
+            execution_id,
+            task_id,
+            step_name,
+            argv,
+            env_snapshot,
+            ..
+        } => {
+            let verdict = engine.evaluate(&execution_id, &argv, &env_snapshot);
+            // Non-destructive HITL suspension + webhook for dangerous blocks
+            // (Feature-Spec §2.4). Fired in the background so the BLOCK verdict
+            // returns to janus-sh immediately (fail-closed, no PTY kill).
+            if matches!(
+                verdict.cause.as_deref(),
+                Some("blacklist") | Some("require_approval")
+            ) {
+                let cmd = argv.join(" ");
+                let payload = janus::tool_guard::webhook::WebhookPayload::build(
+                    task_id,
+                    &execution_id,
+                    &verdict.correlation_id,
+                    verdict.cause.as_deref().unwrap_or(""),
+                    &cmd,
+                    &verdict.reason.clone().unwrap_or_default(),
+                );
+                let reason = verdict.reason.clone().unwrap_or_default();
+                let sn = step_name;
+                let tid = task_id;
+                tokio::spawn(async move {
+                    if let (Some(tid), Some(sn)) = (tid, sn.as_deref())
+                        && let Err(e) = db.suspend_step(tid, sn, &reason).await
+                    {
+                        warn!("suspend_step failed: {e}");
+                    }
+                    let _ = tokio::task::spawn_blocking(move || {
+                        janus::tool_guard::webhook::dispatch(&payload);
+                    })
+                    .await;
+                });
+            }
+            Response::GuardVerdict {
+                execution_id,
+                verdict: verdict.kind.as_str().to_string(),
+                reason: verdict.reason,
+                rewritten_argv: verdict.rewritten_argv,
+                correlation_id: verdict.correlation_id,
+            }
+        }
     }
 }
 
@@ -198,14 +253,28 @@ fn init_logging() {
     {
         Ok(f) => {
             let maker = SharedFile(Arc::new(Mutex::new(f)));
-            let _ = tracing::subscriber::set_global_default(builder.with_writer(maker).finish());
+            install_subscriber(builder.with_writer(maker).finish());
         }
         Err(e) => {
             eprintln!(
                 "janus-daemon: can't open {} ({e}); logging to stderr",
                 paths::log_path().display()
             );
-            let _ = tracing::subscriber::set_global_default(builder.finish());
+            install_subscriber(builder.finish());
         }
+    }
+}
+
+/// Install `subscriber` as the global default. If a global subscriber is already
+/// set (test harness, parent process, or double-init) it cannot be replaced, so
+/// logs go wherever that one directs - surface the failure so it isn't silent.
+/// Generic so the file-writer and stderr-writer subscriber types both apply.
+fn install_subscriber<S: tracing::Subscriber + Send + Sync + 'static>(subscriber: S) {
+    if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
+        eprintln!(
+            "janus-daemon: could not install tracing subscriber ({e}); a global \
+             subscriber is already set - logs may not reach {}",
+            paths::log_path().display()
+        );
     }
 }

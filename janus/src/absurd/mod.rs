@@ -107,16 +107,30 @@ impl AbsurdDb {
         .fetch_all(&pg)
         .await?;
 
+        if tasks.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Batch-fetch all steps for the task set in one query (avoids N+1
+        // round-trips - one SELECT per task under load). Ordered by task_id,
+        // step_name so each task's steps stay in step_name order after partition.
+        let task_ids: Vec<i64> = tasks.iter().map(|t| t.id).collect();
+        let all_steps: Vec<StepRow> = sqlx::query_as(
+            "SELECT task_id, step_name, status, result_cache FROM absurd_steps \
+             WHERE task_id = ANY($1) ORDER BY task_id, step_name",
+        )
+        .bind(task_ids)
+        .fetch_all(&pg)
+        .await?;
+        let mut steps_by_task: std::collections::HashMap<i64, Vec<StepRow>> =
+            std::collections::HashMap::new();
+        for s in all_steps {
+            steps_by_task.entry(s.task_id).or_default().push(s);
+        }
+
         let mut active = Vec::with_capacity(tasks.len());
         for t in tasks {
-            let steps: Vec<StepRow> = sqlx::query_as(
-                "SELECT step_name, status, result_cache FROM absurd_steps \
-                 WHERE task_id = $1 ORDER BY step_name",
-            )
-            .bind(t.id)
-            .fetch_all(&pg)
-            .await?;
-
+            let steps = steps_by_task.remove(&t.id).unwrap_or_default();
             let current_step = steps
                 .iter()
                 .rev()
@@ -171,6 +185,28 @@ impl AbsurdDb {
             .expect("fallback mutex poisoned")
             .record(task_id, step_name, status, result_cache)
     }
+
+    /// Mark a Step `SUSPENDED` (non-destructive HITL - Feature-Spec §2.4). If PG
+    /// is online, UPDATEs the step row (no-op if the step doesn't exist yet, e.g.
+    /// M3 with no running workflow); in degraded mode, records a fallback event.
+    pub async fn suspend_step(&self, task_id: i64, step_name: &str, reason: &str) -> Result<()> {
+        if let Some(pg) = self.pool().await {
+            sqlx::query(
+                "UPDATE absurd_steps SET status = 'SUSPENDED', \
+                 result_cache = COALESCE(result_cache, $1) \
+                 WHERE task_id = $2 AND step_name = $3",
+            )
+            .bind(serde_json::json!({ "suspended_reason": reason }))
+            .bind(task_id)
+            .bind(step_name)
+            .execute(&pg)
+            .await?;
+            Ok(())
+        } else {
+            let cache = serde_json::json!({ "suspended_reason": reason }).to_string();
+            self.record_fallback_event(task_id, step_name, "SUSPENDED", Some(&cache))
+        }
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -203,6 +239,7 @@ struct TaskRow {
 
 #[derive(sqlx::FromRow)]
 struct StepRow {
+    task_id: i64,
     step_name: String,
     status: String,
     result_cache: Option<serde_json::Value>,

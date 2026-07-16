@@ -11,6 +11,8 @@
 #    herdr-v1-contract §6); Herdr injects the real value when opening a pane.
 HERDR_PLUGIN_ROOT ?= $(CURDIR)
 HERDR_PLUGIN_STATE_DIR ?= $(HOME)/.local/state/herdr/plugins/metamach.janus
+# Mutable Config dir (herdr-v1-contract §6: note the /config/ segment).
+HERDR_PLUGIN_CONFIG_DIR ?= $(HOME)/.config/herdr/plugins/config/metamach.janus
 # Exported so docker-compose.yml's bind mount (${METAMACH_PG_SOCKET_DIR}) agrees
 # with the mkdir below - otherwise Compose falls back to its /tmp default and the
 # socket lands in the wrong place (M2's daemon wouldn't find it).
@@ -30,17 +32,13 @@ bootstrap: symlinks compile db-up
 # 3. Establish Immutable/Mutable physical directories & symlinks.
 symlinks:
 	@echo "📁 Creating mutable state and config directories..."
-	@mkdir -p $(HOME)/.config/herdr/plugins/metamach.janus
+	@mkdir -p $(HERDR_PLUGIN_CONFIG_DIR)
 	@mkdir -p $(HERDR_PLUGIN_STATE_DIR)
 	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
 	@printf '%s' "$(METAMACH_DB_PASSWORD)" > $(HERDR_PLUGIN_STATE_DIR)/.db_password && chmod 600 $(HERDR_PLUGIN_STATE_DIR)/.db_password
 	@echo "🔑 DB password persisted to $(HERDR_PLUGIN_STATE_DIR)/.db_password (chmod 600, gitignored). Save it now."
 	@echo "🔗 Linking agents config into Herdr Config Directory..."
-	@if [ -f $(CURDIR)/configs/agents.toml ]; then \
-		ln -sf $(CURDIR)/configs/agents.toml $(HOME)/.config/herdr/plugins/metamach.janus/agents.toml; \
-	else \
-		echo "   (configs/agents.toml not yet present; skipping link - lands in M3 Tool Guard)"; \
-	fi
+	@ln -sf $(CURDIR)/configs/agents.toml $(HERDR_PLUGIN_CONFIG_DIR)/agents.toml
 
 # 4. Local-compile Janus binaries; install only those built in this milestone.
 compile:
@@ -109,7 +107,7 @@ uninstall:
 	@echo "⚠️  This will DELETE all MetaMach data. Continue? [y/N]" && read -r REPLY && [ "$$REPLY" = "y" ]
 	@$(MAKE) --no-print-directory clean
 	@docker compose down -v
-	@rm -rf $(HOME)/.config/herdr/plugins/metamach.janus
+	@rm -rf $(HERDR_PLUGIN_CONFIG_DIR)
 	@rm -rf $(HERDR_PLUGIN_STATE_DIR)
 	@rm -f $(HERDR_PLUGIN_ROOT)/bin/janus-daemon $(HERDR_PLUGIN_ROOT)/bin/herdr-janus $(HERDR_PLUGIN_ROOT)/bin/janus-sh
 	@echo "🗑️  MetaMach fully uninstalled."

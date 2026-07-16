@@ -1,15 +1,14 @@
 [package]
 name = "janus"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 description = "MetaMach 1.0 Janus core: daemon, Herdr shadow client, proxy shell"
 license = "MIT"
 publish = false
 
-# M2 adds the resident janus-daemon + UDS protocol + Absurd DB layer, and turns
-# herdr-janus into a live client. The shared library (src/lib.rs) backs all bins.
-# janus-sh (M3) is added as a further [[bin]] target later.
+# M3 adds the janus-sh proxy shell + tool_guard rule engine (Contracts 3.2/3.4/3.5).
+# The shared library (src/lib.rs) backs all four binaries.
 
 [[bin]]
 name = "herdr-janus"
@@ -22,6 +21,10 @@ path = "src/bin/janus_daemon.rs"
 [[bin]]
 name = "janus"
 path = "src/bin/janus.rs"
+
+[[bin]]
+name = "janus-sh"
+path = "src/bin/janus_sh.rs"
 
 [dependencies]
 ratatui = "0.29"
@@ -37,6 +40,10 @@ libc = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# M3: Tool Guard rule engine + proxy shell
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"

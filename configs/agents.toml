@@ -1,0 +1,34 @@
+# MetaMach 1.0 - Agent Pool qualification & Tool Guard decision matrix
+# (Feature-Spec Contract 3.5). Loaded by the Daemon on startup (hot-reload on
+# mtime change). Symlinked into ${HERDR_PLUGIN_CONFIG_DIR} by `make symlinks`.
+#
+# Decision priority (Feature-Spec §3.5 note), evaluated per janus-sh command:
+#   1. bash_blacklist hit        -> BLOCK  (SUSPENDED + HITL card)
+#   2. require_approval hit      -> BLOCK  (SUSPENDED + HITL card)
+#   3. capability not permitted  -> BLOCK  (denied, no HITL)
+#   4. financial-class command   -> REWRITE to dry-run (Contract 3.4)
+#   5. otherwise                 -> ALLOW
+
+[agent.scout]
+permissions   = ["read", "grep", "find", "git-log"]
+allow_network = false
+bash_safe     = false
+
+[agent.coder]
+permissions   = ["read", "write", "edit", "bash-safe", "git-commit"]
+allow_network = false
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*", "mkfs.*", "dd if=* of=/dev/*"]
+
+[agent.deployer]
+permissions     = ["read", "write", "bash-full", "ssh", "git-push"]
+allow_network   = true
+require_approval = ["esptool.py write_flash", "make flash", "*production*"]
+# M3 extension: financial-class orders are rewritten to dry-run before approval.
+financial       = ["hi5bot --action execute"]
+
+# Fallback profile for panes without a declared JANUS_AGENT (e.g. a raw shell
+# opened before workflow dispatch). Baseline blacklist keeps root-wipes fatal.
+[agent.default]
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*", "mkfs.*", "dd if=* of=/dev/*"]

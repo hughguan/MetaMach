@@ -3,6 +3,8 @@
 //! The Daemon owns the DB; clients send [`Request`]s and receive [`Response`]s.
 //! Progress responses conform to Feature-Spec Contract 3.3.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Client -> Daemon request.
@@ -15,6 +17,19 @@ pub enum Request {
     Blueprints,
     /// Workflow progress snapshot (Contract 3.3). `blueprint` filters by name.
     Progress { blueprint: Option<String> },
+    /// `janus-sh` -> Daemon: ask for a verdict on a command (Contract 3.2).
+    /// `task_id`/`step_name` are `Option` because M3 has no running workflow
+    /// context yet (Tether/Onboard land in M2.4/M4); they carry the SUSPENDED
+    /// target when present.
+    GuardCheck {
+        execution_id: String,
+        blueprint_id: Option<String>,
+        task_id: Option<i64>,
+        step_name: Option<String>,
+        cwd: Option<String>,
+        argv: Vec<String>,
+        env_snapshot: HashMap<String, String>,
+    },
 }
 
 /// Daemon -> client response.
@@ -22,9 +37,24 @@ pub enum Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
     Pong,
-    Blueprints { blueprints: Vec<BlueprintInfo> },
-    Progress { active_tasks: Vec<ActiveTask> },
-    Error { message: String },
+    Blueprints {
+        blueprints: Vec<BlueprintInfo>,
+    },
+    Progress {
+        active_tasks: Vec<ActiveTask>,
+    },
+    /// Daemon -> `janus-sh`: verdict (Contract 3.4). `verdict` is
+    /// `"ALLOW"` | `"BLOCK"` | `"REWRITE"`; `rewritten_argv` is set on REWRITE.
+    GuardVerdict {
+        execution_id: String,
+        verdict: String,
+        reason: Option<String>,
+        rewritten_argv: Option<Vec<String>>,
+        correlation_id: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// A dispatchable blueprint (Dispatch view + `janus onboard` target).

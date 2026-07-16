@@ -4,7 +4,7 @@
 
 ## 1. Module Architecture Overview
 
-Following Herdr v1 plugin specifications and the system's independent resident process design, MetaMach 1.0 software is composed of four core functional layers. This specification strictly adheres to the Immutable ROOT vs. Mutable State separation and pixel-level defines behavioral boundaries, data flows, and exception handling for each feature.
+Following Herdr 0.7.3 plugin specifications and the system's independent resident process design, MetaMach 1.0 software is composed of four core functional layers. This specification strictly adheres to the Immutable ROOT vs. Mutable State separation and pixel-level defines behavioral boundaries, data flows, and exception handling for each feature.
 
 ```
 +-----------------------------------------------------------------------------------------+
@@ -26,7 +26,7 @@ Following Herdr v1 plugin specifications and the system's independent resident p
 - **Technical Spec:**
     - `janus-daemon` binds a unique Unix Domain Socket listener at `${HERDR_PLUGIN_STATE_DIR}/janus.sock` on startup.
     - **Lazy-Start Self-Healing:** When `herdr-janus` is awakened, if `janus.sock` is absent or connection times out, it must seamlessly auto-launch the background daemon. **Use `std::process::Command::spawn()` with explicit detach** (`stdin/stdout/stderr` redirected to `/dev/null`, `pre_exec` calls `setsid` to detach from controlling terminal)—not raw `fork()`+`exec()`, which is explicitly discouraged on macOS (see `man fork`) and not cross-platform. On spawn failure (resource exhaustion, etc.), report error to the Factory Director rather than silently crashing.
-    - **UI Popup Constraints:** Via `herdr-plugin.toml`'s `placement = "popup"`, lock 80% width and 20-row height. Use `ratatui` as pure keyboard UI rendering engine; input focus auto-locked; pressing `Esc` reports to Daemon via the shadow client then safely pops the stack.
+    - **UI Popup Constraints:** Via `herdr-plugin.toml`'s `[[panes]] placement = "overlay"` (validated Herdr 0.7.3 directive; `popup`/`width`/`height` are **not** valid manifest fields - see `docs/herdr-v1-contract.md`), open the `herdr-janus` shadow client in a Herdr overlay pane. Pane sizing is managed by Herdr; the ratatui app renders within it. Use `ratatui` as pure keyboard UI rendering engine; input focus auto-locked; pressing `Esc` reports to Daemon via the shadow client then safely pops the stack.
     - **PG-Unreachable Startup Self-Healing:** Daemon retries Absurd Postgres connection with exponential backoff on startup (5 attempts, 2s interval). If still unreachable, enters **degraded mode**: writes only to local `fallback.db` (ring buffer), logs `WARN`, and notifies the Factory Director via Popup: "DB offline, running degraded." All Step state changes during this period land in `fallback.db`; upon detecting PG recovery, auto-triggers batch Log Replay merging into the primary database (consistent with §4 fault matrix), keeping the workshop running.
 
 ### Feature 2.2: In-Memory Agent Sandbox (janus-sh & Tool Guard)

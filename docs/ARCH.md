@@ -63,7 +63,7 @@ MetaMach 1.0 implements an industrial-grade isolation scheme of "independent bra
 
 - **Control Plane:**
     - **`janus-daemon` (resident process):** Responsible for core logic scheduling, maintaining a persistent connection to Absurd Postgres, listening for external Teams/TG async messages. Also exposes the `progress` query primitive: aggregating real-time status from `absurd_tasks` JOIN `absurd_steps` plus Tether physical session liveness signals, serving as the sole authoritative data source for the workflow progress dashboard.
-    - **`herdr-janus` (shadow plugin):** Passive execution. Declared in `herdr-plugin.toml`, dedicated to launching `placement = "popup"` session-modal interaction popups, sending commands to the Daemon via UDS socket. The Popup has two built-in views: **Dispatch** and **Progress**, switchable by the Factory Director with one key. The Progress view polls the Daemon's `progress` primitive at a fixed cadence (1–2s) to render the workflow progress dashboard.
+    - **`herdr-janus` (shadow plugin):** Passive execution. Declared in `herdr-plugin.toml` as a `[[panes]]` entrypoint with `placement = "overlay"` (validated Herdr 0.7.3 directive; see `docs/herdr-v1-contract.md`), dedicated to launching session-modal interaction popups, sending commands to the Daemon via UDS socket. The Popup has two built-in views: **Dispatch** and **Progress**, switchable by the Factory Director with one key. The Progress view polls the Daemon's `progress` primitive at a fixed cadence (1–2s) to render the workflow progress dashboard.
 
 - **Physical Execution Plane:**
     - **`herdr-tether` (physical engine):** A standalone CLI binary, leveraging tmux's `remain-on-exit` feature to manage cross-host physical Sessions (format: `tether-janus-task-<uuid>`).
@@ -159,7 +159,7 @@ sequenceDiagram
 
 ## 5. GitHub Monorepo Directory Structure
 
-To fully comply with Herdr v1's **"Immutable ROOT vs. Mutable State"** physical isolation boundary, the entire `metamach` repository uses the following organizational topology:
+To fully comply with Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** physical isolation boundary, the entire `metamach` repository uses the following organizational topology:
 
 ```
 metamach/ (Single monorepo — silicon factory headquarters)
@@ -177,7 +177,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │   # ====================================================================
 ├── janus/
 │   ├── Cargo.toml                # Rust workspace config
-│   ├── herdr-plugin.toml         # Herdr v1 plugin contract (popup declaration & event hooks)
+│   ├── herdr-plugin.toml         # Herdr 0.7.3 plugin contract (popup declaration & event hooks)
 │   ├── migrations/               # Postgres init migration scripts
 │   │   └── 001_init_absurd.sql
 │   └── src/
@@ -242,7 +242,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 
 > **External Dependencies & Mutable Configuration:**
 > - `herdr-tether`, `absurd`, and `openwiki` are independent external repositories, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking these dependencies.
-> - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). This ensures that updating plugin source via GitHub **never accidentally wipes any local financial or development state data**.
+> - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/config/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). This ensures that updating plugin source via GitHub **never accidentally wipes any local financial or development state data**.
 
 ## 6. Resilience Invariants
 

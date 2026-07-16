@@ -39,7 +39,7 @@ metamach/
 ├── docs/                     # Full design specs, PRD, test, deployment
 ├── janus/                    # 🛡️ Janus Core (Rust)
 │   ├── Cargo.toml            #   Rust workspace
-│   ├── herdr-plugin.toml     #   Herdr v1 plugin manifest
+│   ├── herdr-plugin.toml     #   Herdr 0.7.3 plugin manifest
 │   └── src/
 │       ├── bin/
 │       │   ├── janus_daemon.rs  # 🪐 Control-plane daemon

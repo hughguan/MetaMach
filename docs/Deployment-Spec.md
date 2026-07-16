@@ -4,15 +4,15 @@
 
 This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 1.0** production base on a local physical compute node (e.g., the Richmond Hill workshop server).
 
-This specification strictly follows Herdr v1's **"Immutable ROOT vs. Mutable State"** separation and security red lines, providing system-level definition of physical directories, RAM disk mounting, database containers, and the one-click bootstrap process.
+This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** separation and security red lines, providing system-level definition of physical directories, RAM disk mounting, database containers, and the one-click bootstrap process.
 
 ## 1. Prerequisites
 
 | Component | Minimum Version | Purpose | Verify |
 |-----------|----------------|---------|--------|
-| **OS** | Ubuntu 22.04+ / macOS 13+ | POSIX-compatible environment & UDS support | `uname -a` |
+| **OS** | Linux / macOS | POSIX-compatible environment & UDS support | `uname -a` |
 | **Rust Toolchain** | Rust 1.88+ (Edition 2024) | Compile `janus-daemon`, `herdr-janus`, `janus-sh` | `rustc --version` |
-| **Tmux** | Tmux 3.2+ | Physical carrier for Tether PTY session immortality | `tmux -V` |
+| **Tmux** | Tmux 3.3+ | Physical carrier for Tether PTY session immortality | `tmux -V` |
 | **Docker & Compose** | Docker v24.0+ / Compose v2.20+ | One-click Absurd Postgres container | `docker compose version` |
 | **SOPS & Age** _(optional)_ | SOPS v3.8+ / Age v1.1+ | Strong encrypted storage of local sensitive keys in Git monorepo | `sops --version` |
 
@@ -23,11 +23,11 @@ This specification strictly follows Herdr v1's **"Immutable ROOT vs. Mutable Sta
 To prevent GitHub plugin updates from accidentally wiping the Factory Director's local financial data, personalized config, and database credentials, strict Immutable/Mutable separation must be enforced. The deployment scripts auto-create and establish symlinks:
 
 ```
-[Immutable ROOT (Git Checkout)]       -->  ${HERDR_PLUGIN_ROOT} (~/.local/share/herdr/plugins/metamach.janus)
+[Immutable ROOT (Git Checkout)]       -->  ${HERDR_PLUGIN_ROOT} (plugin source checkout dir, where herdr-plugin.toml + target/ live)
                                            ├── target/release/ (read-only binaries)
                                            └── workflows/ (read-only standard SOPs)
 
-[Mutable Config (user config zone)]  -->  ${HERDR_PLUGIN_CONFIG_DIR} (~/.config/herdr/plugins/metamach.janus)
+[Mutable Config (user config zone)]  -->  ${HERDR_PLUGIN_CONFIG_DIR} (~/.config/herdr/plugins/config/metamach.janus)
                                            └── agents.toml (sensitive key injection point)
 
 [Mutable State (runtime state zone)] -->  ${HERDR_PLUGIN_STATE_DIR} (~/.local/state/herdr/plugins/metamach.janus)
@@ -36,6 +36,8 @@ To prevent GitHub plugin updates from accidentally wiping the Factory Director's
                                            ├── janus.log (Daemon operational log; 10MB rotation × 5 files)
                                            └── fallback.db (local disaster recovery SQLite)
 ```
+
+> **Herdr 0.7.3 provides these dirs automatically** (validated in M0; see `docs/herdr-v1-contract.md`). When Herdr opens a plugin pane it injects `HERDR_PLUGIN_ROOT` (the plugin source checkout), `HERDR_PLUGIN_CONFIG_DIR` (`~/.config/herdr/plugins/config/<id>`), and `HERDR_PLUGIN_STATE_DIR` (`~/.local/state/herdr/plugins/<id>`) as env vars. Herdr creates the config/state dirs on first plugin run, so `make bootstrap` need not `mkdir` them; the Makefile's config-dir `ln -sf agents.toml` should target `${HERDR_PLUGIN_CONFIG_DIR}` (resolved, e.g. `~/.config/herdr/plugins/config/metamach.janus`) - to be reconciled in M1 Task 1.3 (config management).
 
 ## 3. Absurd Postgres Database Setup
 

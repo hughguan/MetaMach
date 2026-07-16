@@ -8,34 +8,36 @@ This plan decomposes MetaMach 1.0's R&D and grid-connection process into **5 cor
 
 ```
 [Milestone 0] ──> [Milestone 1] ──> [Milestone 2] ──> [Milestone 3] ──> [Milestone 4]
- Herdr v1 Validate    Infra & Shell       Daemon Core         Shield Layer        Lifecycle & Self-Heal
+ Herdr 0.7.3 Validate    Infra & Shell       Daemon Core         Shield Layer        Lifecycle & Self-Heal
 ```
 
-> **M0 is a prerequisite gate:** All Popup/plugin tasks from M1 onward depend on the Herdr v1 plugin SDK being available. M0 must first validate this external contract; otherwise M1 Task 1.2 is blocked.
+> **M0 is a prerequisite gate:** All Popup/plugin tasks from M1 onward depend on the Herdr 0.7.3 plugin SDK being available. M0 must first validate this external contract; otherwise M1 Task 1.2 is blocked.
 
-## Milestone 0: Herdr v1 Plugin Contract Validation (External SDK Validation)
+## Milestone 0: Herdr 0.7.3 Plugin Contract Validation (External SDK Validation) - ✅ VALIDATED 2026-07-15
 
-- **Goal:** Before investing any MetaMach self-developed code, first verify that the Herdr v1 plugin SDK is genuinely usable, eliminating M1's largest unknown external dependency. M0 produces no MetaMach business code—only "contract validation evidence + minimal PoC plugin + Herdr v1 API interface memo."
+- **Status:** Complete. Validated against installed Herdr 0.7.3; contract documented in `docs/herdr-v1-contract.md` (version-controlled English source; `docs/CH/` is gitignored). PoC at `spike/herdr-hello-plugin/` (gitignored). **M1 Task 1.2 (Popup) green-lit.** Key corrections: popup placement is `overlay` (not `popup`); manifest has no `width`/`height`; Herdr injects `HERDR_PLUGIN_ROOT/CONFIG_DIR/STATE_DIR` + `HERDR_SOCKET_PATH`.
+
+- **Goal:** Before investing any MetaMach self-developed code, first verify that the Herdr 0.7.3 plugin SDK is genuinely usable, eliminating M1's largest unknown external dependency. M0 produces no MetaMach business code—only "contract validation evidence + minimal PoC plugin + Herdr 0.7.3 API interface memo."
 
 - **Check-in-able directory structure:**
-    `docs/CH/herdr-v1-contract.md` (interface memo), `spike/herdr-hello-plugin/` (PoC plugin, gitignored)
+    `docs/herdr-v1-contract.md` (interface memo), `spike/herdr-hello-plugin/` (PoC plugin, gitignored)
 
 ### Tasks
 
-#### Task 0.1: Herdr v1 Installation & Plugin SDK Availability Verification (Check-in Unit 0a)
-- **Description:** Install Herdr v1 and validate the plugin loading chain end-to-end.
+#### Task 0.1: Herdr 0.7.3 Installation & Plugin SDK Availability Verification (Check-in Unit 0a)
+- **Description:** Install Herdr 0.7.3 and validate the plugin loading chain end-to-end.
 - **Implementation:**
-    - Install Herdr v1; `herdr plugin link` can successfully mount a plugin directory.
+    - Install Herdr 0.7.3; `herdr plugin link` can successfully mount a plugin directory.
     - Verify `prefix+j` keybinding can dispatch to a mounted plugin and `herdr-plugin.toml` is parseable.
-    - Verify `placement = "popup"`, `width`, `height` are valid Herdr v1 directives and take real effect.
-- **UAT:** Mount a skeleton plugin; pressing `prefix+j` causes Herdr to actually pop up a Popup of the specified dimensions. Record the actual Herdr v1 API surface (event hooks, UDS conventions, lifecycle callbacks) into `docs/CH/herdr-v1-contract.md`.
+    - Verify `placement = "overlay"` is the valid Herdr 0.7.3 pane directive (`popup`/`width`/`height` are NOT valid manifest fields - see `docs/herdr-v1-contract.md`).
+- **UAT:** Mount a skeleton plugin; pressing `prefix+j` causes Herdr to actually pop up a Popup of the specified dimensions. Record the actual Herdr 0.7.3 API surface (event hooks, UDS conventions, lifecycle callbacks) into `docs/herdr-v1-contract.md`.
 
 #### Task 0.2: Minimal Popup PoC Plugin (Check-in Unit 0b)
-- **Description:** Implement a "Hello World" Popup plugin with the Herdr v1 SDK, validating all interaction primitives MetaMach will subsequently need.
+- **Description:** Implement a "Hello World" Popup plugin with the Herdr 0.7.3 SDK, validating all interaction primitives MetaMach will subsequently need.
 - **Implementation:**
     - PoC plugin renders a `ratatui` Popup, captures keyboard focus, safely pops the stack on `Esc`.
     - Verify the Popup can communicate with a background process via UDS (proving the M2 `herdr-janus` ↔ `janus-daemon` pathway).
-- **UAT:** PoC plugin pops up on `prefix+j`, keyboard focus does not escape, `Esc` closes, UDS communication round-trip succeeds. If any item fails, M1 does not start—align contract with Herdr v1 upstream first.
+- **UAT:** PoC plugin pops up on `prefix+j`, keyboard focus does not escape, `Esc` closes, UDS communication round-trip succeeds. If any item fails, M1 does not start—align contract with Herdr 0.7.3 upstream first.
 
 ## Milestone 1: Infrastructure Grid-Connection & Shadow Shell (Immutable & Base)
 
@@ -56,7 +58,7 @@ This plan decomposes MetaMach 1.0's R&D and grid-connection process into **5 cor
 #### Task 1.2: Shadow Shell Popup & TUI Rendering (Check-in Unit 2)
 - **Description:** Write `herdr-plugin.toml` and implement `herdr_janus.rs` shadow client.
 - **Implementation:**
-    - Declare `placement = "popup"`, `width = "80%"`, `height = 20` in plugin config.
+    - Declare `[[panes]] id = "dispatcher" placement = "overlay" command = ["herdr-janus"]` in `herdr-plugin.toml` (no `width`/`height` - Herdr manages overlay sizing; see `docs/herdr-v1-contract.md`).
     - Use `ratatui` in `herdr_janus.rs` to render a static "production dispatch dashboard" interactive interface. Focus auto-locked; exit on `Esc`.
 - **UAT:** Execute `herdr plugin link` to mount the plugin; press `prefix+j` inside Herdr; an 80%-width floating Popup smoothly pops up at screen center.
 

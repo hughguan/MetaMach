@@ -22,7 +22,7 @@ Per `docs/Deployment-Spec.md` §1 and `docs/Project-Plan.md` (Check-in Gates):
 
 - **Rust 1.88+ (Edition 2024)** — `cargo build --release --locked`; CI gates: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --workspace`.
 - **Docker Compose v2.20+** — `docker compose up -d` brings up the Absurd Postgres container (Unix socket only, no TCP).
-- **tmux 3.3+**, **Herdr v1** (plugin host).
+- **tmux 3.3+**, **Herdr 0.7.3** (plugin host; M0-validated contract in `docs/herdr-v1-contract.md`).
 - **External dependencies** (separate repos, fetched/built by `make bootstrap`, NOT in this repo): `herdr-tether` (tmux/SSH execution engine), `absurd` (Postgres engine / `melt_blueprint_data`), `openwiki` (RAG knowledge engine).
 - The intended bootstrap entrypoint is `make bootstrap` (symlinks → compile → db-up). The intended binaries are `janus-daemon`, `herdr-janus`, `janus-sh`, `herdr-tether`.
 
@@ -50,10 +50,11 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml`), **Workfl
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
 | `PRD.md` | Product requirements, director journey, functional matrix | §3 matrix (priorities + measurable UAT); §4 Day-0 Onboard + user journey |
 | `Feature-Spec.md` | Feature specs + data contracts + fault matrix | **Contracts 3.1–3.8**; §2.4 HITL; §2.5 Onboard/Offboard+LLM; §4 fault matrix |
-| `Project-Plan.md` | Milestones M0–M4 + check-in units + CI gates | M0 Herdr validation; M2 Tasks 2.3/2.4/2.5; M4 Task 4.2a/b/c split; Check-in Gates |
+| `Project-Plan.md` | Milestones M0–M4 + check-in units + CI gates | M0 Herdr validation (✅ done); M2 Tasks 2.3/2.4/2.5; M4 Task 4.2a/b/c split; Check-in Gates |
 | `Review-Spec.md` | Audit domains + sign-off sheet | `REV-SEC/STB/DIS/EVO/OPS-NN` items; §3 dependency ordering |
 | `Test-Spec.md` | Test cases + environment | `UTC-XX-YY` IDs (Suites 2.1–2.7); §1 severity gates |
 | `Deployment-Spec.md` | Directory topology, docker-compose, Makefile, secrets | §3 compose (Unix socket); §5 Makefile (bootstrap/db-backup/health/uninstall); §4 RAM-disk secrets |
+| `herdr-v1-contract.md` | **M0-validated** Herdr 0.7.3 plugin contract (authoritative for Herdr integration; supersedes "Herdr v1" assumptions) | manifest schema; `overlay` placement (not `popup`); injected `HERDR_PLUGIN_ROOT/CONFIG_DIR/STATE_DIR` + `HERDR_SOCKET_PATH`; dir mapping |
 
 Cross-doc identifiers to keep consistent when editing:
 - **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (Feature-Spec Contract 3.1); `fallback_events` SQLite ring buffer (Contract 3.8).

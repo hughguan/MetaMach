@@ -11,8 +11,11 @@
 #    herdr-v1-contract §6); Herdr injects the real value when opening a pane.
 HERDR_PLUGIN_ROOT ?= $(CURDIR)
 HERDR_PLUGIN_STATE_DIR ?= $(HOME)/.local/state/herdr/plugins/metamach.janus
-METAMACH_PG_SOCKET_DIR ?= $(HERDR_PLUGIN_STATE_DIR)/pg_socket
-# If password not explicitly set, first read from Mutable State; if absent, generate.
+# Exported so docker-compose.yml's bind mount (${METAMACH_PG_SOCKET_DIR}) agrees
+# with the mkdir below - otherwise Compose falls back to its /tmp default and the
+# socket lands in the wrong place (M2's daemon wouldn't find it).
+export METAMACH_PG_SOCKET_DIR ?= $(HERDR_PLUGIN_STATE_DIR)/pg_socket
+# Exported; if password not explicitly set, first read from Mutable State, else generate.
 export METAMACH_DB_PASSWORD ?= $(shell [ -f $(HERDR_PLUGIN_STATE_DIR)/.db_password ] && cat $(HERDR_PLUGIN_STATE_DIR)/.db_password || openssl rand -hex 16)
 
 all: bootstrap
@@ -99,9 +102,12 @@ health:
 logs:
 	@tail -n 200 $(HERDR_PLUGIN_STATE_DIR)/janus.log 2>/dev/null || echo "(no janus.log yet; Daemon lands in M2)"
 
-# 12. Full uninstall (teardown everything).
-uninstall: clean db-down
+# 12. Full uninstall (teardown everything). The confirmation prompt runs FIRST;
+#     clean is invoked from the recipe body only after the user confirms, so
+#     declining leaves build artifacts and the DB container untouched.
+uninstall:
 	@echo "⚠️  This will DELETE all MetaMach data. Continue? [y/N]" && read -r REPLY && [ "$$REPLY" = "y" ]
+	@$(MAKE) --no-print-directory clean
 	@docker compose down -v
 	@rm -rf $(HOME)/.config/herdr/plugins/metamach.janus
 	@rm -rf $(HERDR_PLUGIN_STATE_DIR)

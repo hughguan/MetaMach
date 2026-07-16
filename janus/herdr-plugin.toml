@@ -1,0 +1,19 @@
+# MetaMach Janus - Herdr 0.7.3 plugin manifest (herdr-v1-contract §2)
+#
+# Flat at the top level (no [plugin] table). `placement = "overlay"` is the
+# validated 0.7.3 popup directive; `popup`/`width`/`height` are NOT valid
+# manifest fields - Herdr manages overlay sizing. See docs/herdr-v1-contract.md.
+#
+# Follow-up (non-blocking, carried from M0 §10): wire the actual `prefix+j`
+# keybinding in ~/.config/herdr/config.toml to open this `dispatcher` pane, and
+# ensure `herdr-janus` is resolvable on PATH (installed to bin/ by `make compile`).
+id = "metamach.janus"
+name = "MetaMach Janus"
+version = "0.1.0"
+min_herdr_version = "0.7.3"
+
+[[panes]]
+id = "dispatcher"
+title = "MetaMach Dispatcher"
+placement = "overlay"
+command = ["herdr-janus"]

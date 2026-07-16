@@ -4,3 +4,12 @@
 *~
 docs/CH/
 spike/
+
+# M1: build artifacts & local runtime state
+# (Check-in Gate #4 - never commit sockets, PIDs, or secrets)
+janus/target/
+/bin/
+metamach_backup_*.sql
+*.sock
+*.pid
+.db_password

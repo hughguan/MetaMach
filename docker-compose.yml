@@ -1,0 +1,40 @@
+# MetaMach 1.0 - Absurd Postgres container (Deployment-Spec §3.1)
+#
+# Single-database, multi-tenant by blueprint_id. Unix-socket-only (no TCP):
+# `listen_addresses=''` removes the network surface entirely; host processes
+# (janus-daemon, M2) connect via the bind-mounted socket dir.
+#
+# Migrations under janus/migrations/ auto-run on first container init via
+# /docker-entrypoint-initdb.d. `make db-up` exports the real socket dir +
+# random password; the inline dev defaults below only cover the bare
+# `docker compose up -d` UAT (Task 1.1) when make is not used.
+#
+# TODO(M1-UAT): Docker is not installed on this host yet (flagged in M0
+# follow-ups). The live `docker compose up -d` + `\dt` UAT is deferred until
+# Docker/Colima is available; the schema itself is validated against
+# Feature-Spec Contract 3.1.
+services:
+  metamach-db:
+    image: postgres:15.8-alpine               # Pinned minor version; no floating tag drift
+    container_name: metamach-postgres-db
+    command: postgres -c listen_addresses=''   # Disable TCP; Unix Socket only
+    environment:
+      POSTGRES_DB: metamach_db
+      POSTGRES_USER: metamach_admin
+      # `make bootstrap` generates a random secret into Mutable State and
+      # exports METAMACH_DB_PASSWORD; the dev default covers the bare UAT only.
+      POSTGRES_PASSWORD: ${METAMACH_DB_PASSWORD:-metamach_dev}
+    volumes:
+      - metamach_pgdata:/var/lib/postgresql/data
+      - ./janus/migrations:/docker-entrypoint-initdb.d  # Auto-execute migrations on container init
+      - ${METAMACH_PG_SOCKET_DIR:-/tmp/metamach-pg_socket}:/var/run/postgresql  # Unix Socket exposed to host
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metamach_admin -d metamach_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  metamach_pgdata:
+    driver: local

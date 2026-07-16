@@ -1,0 +1,26 @@
+[package]
+name = "janus"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "MetaMach 1.0 Janus core: daemon, Herdr shadow client, proxy shell"
+license = "MIT"
+publish = false
+
+# M1 ships only the herdr-janus shadow-client binary. janus-daemon (M2) and
+# janus-sh (M3) are added as further [[bin]] targets in later milestones; the
+# shared absurd/ / tool_guard/ / tui/ modules (ARCH §5) become a src/lib.rs then.
+
+[[bin]]
+name = "herdr-janus"
+path = "src/bin/herdr_janus.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+
+[profile.release]
+# Durable factory binaries: favor fast startup and small size.
+lto = true
+codegen-units = 1
+strip = true

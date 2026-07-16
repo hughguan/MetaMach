@@ -1,23 +1,45 @@
 [package]
 name = "janus"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "MetaMach 1.0 Janus core: daemon, Herdr shadow client, proxy shell"
 license = "MIT"
 publish = false
 
-# M1 ships only the herdr-janus shadow-client binary. janus-daemon (M2) and
-# janus-sh (M3) are added as further [[bin]] targets in later milestones; the
-# shared absurd/ / tool_guard/ / tui/ modules (ARCH §5) become a src/lib.rs then.
+# M2 adds the resident janus-daemon + UDS protocol + Absurd DB layer, and turns
+# herdr-janus into a live client. The shared library (src/lib.rs) backs all bins.
+# janus-sh (M3) is added as a further [[bin]] target later.
 
 [[bin]]
 name = "herdr-janus"
 path = "src/bin/herdr_janus.rs"
 
+[[bin]]
+name = "janus-daemon"
+path = "src/bin/janus_daemon.rs"
+
+[[bin]]
+name = "janus"
+path = "src/bin/janus.rs"
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+libc = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 # Durable factory binaries: favor fast startup and small size.

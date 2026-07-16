@@ -1,21 +1,15 @@
-//! `herdr-janus` - MetaMach Herdr shadow client (Project-Plan M1, Task 1.2).
+//! `herdr-janus` - MetaMach Herdr shadow client (Project-Plan M2 Tasks 2.2/2.3).
 //!
-//! Renders a static "production dispatch dashboard" inside the Herdr `overlay`
-//! pane declared by `herdr-plugin.toml`. M1 is deliberately stateless: there is
-//! no `janus-daemon` UDS connection yet (that lands in M2 Task 2.2), so the
-//! dashboard shows placeholder dispatch rows and reports the Daemon as offline.
+//! Rendered inside the Herdr `overlay` pane. On wake it probes `janus.sock`;
+//! if absent it lazy-starts `janus-daemon` detached (Feature-Spec §2.1), then
+//! fetches live data. Two views toggled with `Tab`:
+//!   - **Dispatch** - ACTIVE blueprints (selectable; dispatch lands in M4).
+//!   - **Progress** - in-flight workflow tasks (Contract 3.3), polled at ~1s.
 //!
-//! Behavioral contract (docs/herdr-v1-contract.md §8, docs/Feature-Spec.md §2.1,
-//! Test-Spec UTC-01-03):
-//!   - opened by Herdr as an `overlay` pane running this binary;
-//!   - input focus is auto-locked (raw mode + own event loop swallows every key
-//!     so nothing reaches the background pane);
-//!   - `Esc` restores the terminal and exits (the M1 "pop the stack").
-//!
-//! Runs standalone (`cargo run --bin herdr-janus`) for a smoke test without Herdr.
+//! `Esc`/`q` exits; `r` retries the Daemon. Focus stays locked inside the popup.
 
 use std::io::{self, stdout};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
@@ -27,87 +21,137 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 
-/// A blueprint the Factory Director can dispatch from the Popup.
-///
-/// M1 serves static placeholder rows; M2 replaces this with a live
-/// `SELECT ... FROM blueprints WHERE status = 'ACTIVE'` snapshot fetched from
-/// `janus-daemon` over `janus.sock`.
-#[derive(Clone)]
-struct DispatchEntry {
-    name: &'static str,
-    workflow: &'static str,
-    host: &'static str,
-    status: &'static str,
-}
+use janus::paths;
+use janus::protocol::{ActiveTask, BlueprintInfo, Request, Response};
+use janus::{spawn, uds};
 
-fn dispatch_entries() -> Vec<DispatchEntry> {
-    vec![
-        DispatchEntry {
-            name: "joyrobots",
-            workflow: "dev-flow",
-            host: "local",
-            status: "ACTIVE",
-        },
-        DispatchEntry {
-            name: "gatemetric",
-            workflow: "firmware-deploy",
-            host: "remote",
-            status: "ACTIVE",
-        },
-    ]
-}
-
-/// Daemon connection state shown in the footer. M1 is always offline (no UDS
-/// yet); M2 flips this to `Online` once `janus.sock` answers.
-fn daemon_state() -> &'static str {
-    "Offline (live data in M2)"
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum View {
+    Dispatch,
+    Progress,
 }
 
 struct App {
-    entries: Vec<DispatchEntry>,
+    view: View,
     selected: usize,
-    daemon: &'static str,
-}
-
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            entries: dispatch_entries(),
-            selected: 0,
-            daemon: daemon_state(),
-        }
-    }
+    blueprints: Vec<BlueprintInfo>,
+    tasks: Vec<ActiveTask>,
+    daemon_online: bool,
+    last_error: Option<String>,
+    last_progress: Instant,
 }
 
 impl App {
-    /// Move selection down, wrapping to the top at the end (UTC-01-03 wrap test).
-    fn down(&mut self) {
-        if self.entries.is_empty() {
-            return;
+    fn new() -> Self {
+        Self {
+            view: View::Dispatch,
+            selected: 0,
+            blueprints: Vec::new(),
+            tasks: Vec::new(),
+            daemon_online: false,
+            last_error: None,
+            last_progress: Instant::now(),
         }
-        self.selected = (self.selected + 1) % self.entries.len();
     }
 
-    /// Move selection up, wrapping to the bottom at the top.
-    fn up(&mut self) {
-        if self.entries.is_empty() {
+    fn list_len(&self) -> usize {
+        match self.view {
+            View::Dispatch => self.blueprints.len(),
+            View::Progress => self.tasks.len(),
+        }
+    }
+
+    /// Move selection down, wrapping (UTC-01-03 wrap test).
+    fn down(&mut self) {
+        let n = self.list_len();
+        if n == 0 {
             return;
         }
-        let last = self.entries.len() - 1;
+        self.selected = (self.selected + 1) % n;
+    }
+
+    /// Move selection up, wrapping.
+    fn up(&mut self) {
+        let n = self.list_len();
+        if n == 0 {
+            return;
+        }
+        let last = n - 1;
         self.selected = if self.selected == 0 {
             last
         } else {
             self.selected - 1
         };
     }
+
+    /// `Tab` toggles Dispatch <-> Progress, resetting selection and refreshing.
+    fn toggle_view(&mut self) {
+        self.view = match self.view {
+            View::Dispatch => View::Progress,
+            View::Progress => View::Dispatch,
+        };
+        self.selected = 0;
+        match self.view {
+            View::Progress => self.poll_progress(),
+            View::Dispatch => self.refresh_blueprints(),
+        }
+    }
+
+    /// Fetch ACTIVE blueprints from the Daemon (3s timeout).
+    fn refresh_blueprints(&mut self) {
+        match uds::request(&Request::Blueprints) {
+            Ok(Response::Blueprints { blueprints }) => {
+                self.blueprints = blueprints;
+                self.daemon_online = true;
+                self.last_error = None;
+            }
+            Ok(_) => self.daemon_online = true,
+            Err(e) => {
+                self.daemon_online = false;
+                self.last_error = Some(e.to_string());
+            }
+        }
+    }
+
+    /// Poll the in-flight task snapshot (1s timeout; never blocks the TUI long).
+    fn poll_progress(&mut self) {
+        let req = Request::Progress { blueprint: None };
+        match uds::request_to(&paths::sock_path(), &req, Duration::from_millis(1000)) {
+            Ok(Response::Progress { active_tasks }) => {
+                self.tasks = active_tasks;
+                self.daemon_online = true;
+                self.last_error = None;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                self.daemon_online = false;
+                self.last_error = Some(e.to_string());
+            }
+        }
+        self.last_progress = Instant::now();
+    }
+
+    /// `r` - retry Daemon lazy-start + refresh.
+    fn retry_daemon(&mut self) {
+        if spawn::ensure_daemon(Duration::from_secs(5)).is_ok() {
+            self.refresh_blueprints();
+        } else {
+            self.daemon_online = false;
+            self.last_error = Some("daemon not reachable".to_string());
+        }
+    }
 }
 
 fn main() -> io::Result<()> {
-    let mut app = App::default();
+    let mut app = App::new();
+    if spawn::ensure_daemon(Duration::from_secs(5)).is_ok() {
+        app.refresh_blueprints();
+    } else {
+        app.last_error = Some("daemon not reachable (press r to retry)".to_string());
+    }
     let result = run(&mut app);
-    // Always restore the terminal, even on error - never leave raw mode on.
     restore_terminal();
     result
 }
@@ -119,21 +163,25 @@ fn run(app: &mut App) -> io::Result<()> {
 
     loop {
         terminal.draw(|f| ui(f, app))?;
-        // Poll so we don't spin; 250ms is well under any noticeable render lag.
-        if !event::poll(Duration::from_millis(250))? {
+        if !event::poll(Duration::from_millis(200))? {
+            // idle window: poll progress if the Progress view is due
+            if app.view == View::Progress && app.last_progress.elapsed() >= Duration::from_secs(1) {
+                app.poll_progress();
+            }
             continue;
         }
-        match event::read()? {
-            Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
+        if let Event::Key(k) = event::read()? {
+            if k.kind != KeyEventKind::Press {
+                continue;
+            }
+            match k.code {
                 KeyCode::Esc | KeyCode::Char('q') => break,
+                KeyCode::Tab => app.toggle_view(),
                 KeyCode::Down | KeyCode::Char('j') => app.down(),
                 KeyCode::Up | KeyCode::Char('k') => app.up(),
-                // Swallow every other key: focus stays locked inside the popup
-                // (UTC-01-03) - no keystroke reaches the background tiled pane.
-                _ => {}
-            },
-            // Swallow mouse/resize/other events; focus stays locked.
-            _ => {}
+                KeyCode::Char('r') => app.retry_daemon(),
+                _ => {} // swallow: focus stays locked inside the popup
+            }
         }
     }
     Ok(())
@@ -147,13 +195,20 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
         Constraint::Length(3),
     ])
     .split(area);
-    render_title(f, chunks[0]);
-    render_dispatch(f, chunks[1], app);
+    render_title(f, chunks[0], app);
+    match app.view {
+        View::Dispatch => render_dispatch(f, chunks[1], app),
+        View::Progress => render_progress(f, chunks[1], app),
+    }
     render_footer(f, chunks[2], app);
 }
 
-fn render_title(f: &mut ratatui::Frame, area: Rect) {
-    let title = Paragraph::new("MetaMach 1.0 - Production Dispatch Dashboard")
+fn render_title(f: &mut ratatui::Frame, area: Rect, app: &App) {
+    let view = match app.view {
+        View::Dispatch => "Dispatch",
+        View::Progress => "Progress",
+    };
+    let title = Paragraph::new(format!("MetaMach 1.0 · {view}"))
         .alignment(Alignment::Center)
         .style(
             Style::default()
@@ -165,19 +220,39 @@ fn render_title(f: &mut ratatui::Frame, area: Rect) {
 }
 
 fn render_dispatch(f: &mut ratatui::Frame, area: Rect, app: &App) {
-    let header = ["Blueprint", "Workflow", "Host", "Status"];
-    let rows = app.entries.iter().enumerate().map(|(i, e)| {
-        let selected = i == app.selected;
-        let style = if selected {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Dispatch (\u{2191}/\u{2193} select · Tab progress · r retry)");
+    if app.blueprints.is_empty() {
+        let msg = if app.daemon_online {
+            "No ACTIVE blueprints. Onboard one: `janus onboard --blueprint <name>`"
+        } else {
+            "Daemon offline \u{2014} press r to retry / ensure `janus daemon` is running"
+        };
+        f.render_widget(
+            Paragraph::new(msg)
+                .style(Style::default().fg(Color::Yellow))
+                .block(block),
+            area,
+        );
+        return;
+    }
+    let rows = app.blueprints.iter().enumerate().map(|(i, b)| {
+        let style = if i == app.selected {
             Style::default()
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        Row::new([e.name, e.workflow, e.host, e.status]).style(style)
+        Row::new([
+            Cell::from(b.name.as_str()),
+            Cell::from(b.default_workflow.as_str()),
+            Cell::from(b.remote_host.as_deref().unwrap_or("local")),
+            Cell::from(b.status.as_str()),
+        ])
+        .style(style)
     });
-
     let table = Table::new(
         rows,
         [
@@ -188,25 +263,102 @@ fn render_dispatch(f: &mut ratatui::Frame, area: Rect, app: &App) {
         ],
     )
     .header(
-        Row::new(header).style(
+        Row::new(["Blueprint", "Workflow", "Host", "Status"]).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
     )
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Dispatch (\u{2191}/\u{2193} select · Enter dispatches in M2)"),
-    );
+    .block(block);
+    f.render_widget(table, area);
+}
+
+fn render_progress(f: &mut ratatui::Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Progress (Tab dispatch · 1s poll)");
+    if app.tasks.is_empty() {
+        let msg = if app.daemon_online {
+            "No in-flight tasks."
+        } else {
+            "Daemon offline \u{2014} press r to retry"
+        };
+        f.render_widget(
+            Paragraph::new(msg)
+                .style(Style::default().fg(Color::Yellow))
+                .block(block),
+            area,
+        );
+        return;
+    }
+    let rows = app.tasks.iter().enumerate().map(|(i, t)| {
+        let style = if i == app.selected {
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD)
+        } else if t.status == "SUSPENDED" {
+            Style::default().fg(Color::Red)
+        } else {
+            Style::default()
+        };
+        let step = t.current_step.as_deref().unwrap_or("-");
+        let elapsed = t
+            .elapsed_seconds
+            .map(|s| format!("{s}s"))
+            .unwrap_or_else(|| "?".to_string());
+        Row::new([
+            Cell::from(t.blueprint_id.as_str()),
+            Cell::from(t.workflow_name.as_str()),
+            Cell::from(step),
+            Cell::from(t.status.as_str()),
+            Cell::from(elapsed),
+        ])
+        .style(style)
+    });
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(20),
+            Constraint::Percentage(15),
+            Constraint::Percentage(15),
+        ],
+    )
+    .header(
+        Row::new(["Blueprint", "Workflow", "Step", "Status", "Elapsed"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    )
+    .block(block);
     f.render_widget(table, area);
 }
 
 fn render_footer(f: &mut ratatui::Frame, area: Rect, app: &App) {
+    let status = if app.daemon_online {
+        Span::styled("online", Style::default().fg(Color::Green))
+    } else {
+        Span::styled("offline", Style::default().fg(Color::Red))
+    };
+    let err = app
+        .last_error
+        .as_deref()
+        .map(|e| format!(" \u{2014} {e}"))
+        .unwrap_or_default();
     let line = Line::from(vec![
-        Span::styled("Daemon: ", Style::default().fg(Color::Gray)),
-        Span::styled(app.daemon, Style::default().fg(Color::Red)),
+        Span::raw("Daemon "),
+        status,
+        Span::raw(err),
         Span::raw("   "),
+        Span::styled(
+            "Tab",
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Green),
+        ),
+        Span::raw(" view   "),
         Span::styled(
             "Esc",
             Style::default()
@@ -215,20 +367,20 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, app: &App) {
         ),
         Span::raw(" close   "),
         Span::styled(
-            "\u{2191}/\u{2193}",
+            "r",
             Style::default()
                 .add_modifier(Modifier::BOLD)
                 .fg(Color::Green),
         ),
-        Span::raw(" navigate"),
+        Span::raw(" retry"),
     ]);
-    let footer = Paragraph::new(line).block(Block::default().borders(Borders::ALL));
-    f.render_widget(footer, area);
+    f.render_widget(
+        Paragraph::new(line).block(Block::default().borders(Borders::ALL)),
+        area,
+    );
 }
 
 fn setup_terminal() -> io::Result<()> {
-    // Install the panic hook first so the terminal is restored even if a later
-    // step panics before the main loop's own restore runs.
     install_panic_hook();
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -251,48 +403,57 @@ fn install_panic_hook() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use janus::protocol::BlueprintInfo;
 
-    #[test]
-    fn dispatch_entries_are_all_active() {
-        let entries = dispatch_entries();
-        assert!(
-            !entries.is_empty(),
-            "dispatch table must show at least one blueprint"
-        );
-        assert!(
-            entries.iter().all(|e| e.status == "ACTIVE"),
-            "M1 placeholder rows should all be ACTIVE (Onboard sets this in M4)"
-        );
+    fn sample_app() -> App {
+        let mut app = App::new();
+        app.blueprints = vec![
+            BlueprintInfo {
+                name: "joyrobots".into(),
+                default_workflow: "dev-flow".into(),
+                remote_host: None,
+                status: "ACTIVE".into(),
+            },
+            BlueprintInfo {
+                name: "gatemetric".into(),
+                default_workflow: "firmware-deploy".into(),
+                remote_host: Some("192.168.1.100".into()),
+                status: "ACTIVE".into(),
+            },
+        ];
+        app
     }
 
     #[test]
-    fn selection_wraps_top_and_bottom() {
-        let mut app = App::default();
-        let n = app.entries.len();
-        assert!(n >= 2, "test assumes at least two entries");
+    fn selection_wraps_in_dispatch() {
+        let mut app = sample_app();
+        assert_eq!(app.list_len(), 2);
+        app.down();
+        app.down();
+        assert_eq!(app.selected, 0, "should wrap to top");
+        app.up();
+        assert_eq!(app.selected, 1, "should wrap to bottom");
+    }
 
-        // Pressing down n times returns to the original selection (wrap).
-        for _ in 0..n {
-            app.down();
-        }
-        assert_eq!(app.selected, 0);
-
-        // One more wraps to index 1.
+    #[test]
+    fn toggle_view_flips_view_and_resets_selection() {
+        let mut app = sample_app();
         app.down();
         assert_eq!(app.selected, 1);
-
-        // Up from 0 wraps to the last index.
-        app.selected = 0;
-        app.up();
-        assert_eq!(app.selected, n - 1);
+        assert_eq!(app.view, View::Dispatch);
+        // toggle_view hits the UDS; with no daemon running it fails gracefully
+        // (sets last_error) but must still flip the view + reset selection.
+        app.toggle_view();
+        assert_eq!(app.view, View::Progress);
+        assert_eq!(app.selected, 0);
     }
 
     #[test]
-    fn ui_renders_without_panic() {
+    fn ui_renders_dispatch_view() {
         use ratatui::backend::TestBackend;
 
-        let app = App::default();
-        let backend = TestBackend::new(80, 24);
+        let app = sample_app();
+        let backend = TestBackend::new(90, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| ui(f, &app)).unwrap();
 
@@ -302,17 +463,9 @@ mod tests {
             .iter()
             .map(|c| c.symbol().to_string())
             .collect();
-        assert!(
-            text.contains("Dispatch"),
-            "dispatch table title should render"
-        );
-        assert!(
-            text.contains("joyrobots"),
-            "placeholder blueprint row should render"
-        );
-        assert!(
-            text.contains("Daemon"),
-            "daemon status footer should render"
-        );
+        assert!(text.contains("Dispatch"));
+        assert!(text.contains("joyrobots"));
+        assert!(text.contains("gatemetric"));
+        assert!(text.contains("Daemon"));
     }
 }

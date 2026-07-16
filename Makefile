@@ -48,7 +48,7 @@ compile:
 	@cd janus && cargo build --release --locked
 	@echo "🛡️ Installing built binaries to $(HERDR_PLUGIN_ROOT)/bin/..."
 	@mkdir -p $(HERDR_PLUGIN_ROOT)/bin
-	@for bin in janus-daemon herdr-janus janus-sh; do \
+	@for bin in janus janus-daemon herdr-janus janus-sh; do \
 		if [ -f janus/target/release/$$bin ]; then \
 			cp janus/target/release/$$bin $(HERDR_PLUGIN_ROOT)/bin/$$bin; \
 			echo "   installed $$bin"; \

@@ -388,10 +388,13 @@ fn git_commit_report(repo_root: &Path, name: &str, report: &Path) -> Option<Stri
         return None;
     }
     let msg = format!("feat(blueprint): {name} offboard production_report.md");
-    let out = run(&["commit", "-m", &msg])?;
+    // None (early return) if commit failed - e.g. nothing to commit.
+    let _commit = run(&["commit", "-m", &msg])?;
     let _ = run(&["push"]); // best-effort; a missing remote is fine
+    // `git commit`'s stdout is the summary line "[<branch> <hash>] <subject>",
+    // not the hash alone - resolve the short hash of HEAD explicitly.
+    let out = run(&["rev-parse", "--short", "HEAD"])?;
     let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let hash = hash.lines().next().unwrap_or("").to_string();
     info!(%name, git = %hash, "offboard: committed production_report.md");
     Some(hash)
 }
@@ -511,5 +514,51 @@ recent_steps = 7
         assert_eq!(cfg.llm.model, "gpt-4o-mini");
         assert_eq!(cfg.input.recent_steps, 7);
         assert_eq!(cfg.input.per_step_truncate_bytes, 16 * 1024); // default kept
+    }
+
+    #[test]
+    fn git_commit_report_returns_short_hash() {
+        // `git commit`'s stdout is the "[<branch> <hash>] <subject>" summary line,
+        // not the hash - git_commit_report must resolve the short hash explicitly.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let sh = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        // Skip (don't fail) if git isn't usable in this environment.
+        if !sh(&["init"])
+            || !sh(&["config", "user.email", "ci@example.com"])
+            || !sh(&["config", "user.name", "ci"])
+        {
+            eprintln!("git unavailable; skipping git_commit_report_returns_short_hash");
+            return;
+        }
+        let report = repo.join("production_report.md");
+        std::fs::write(&report, "# report\n").unwrap();
+        let hash =
+            git_commit_report(repo, "gatemetric", &report).expect("git commit should succeed");
+        assert!(!hash.is_empty(), "hash should not be empty");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "expected a short hash, got: {hash}"
+        );
+        // Must match `git rev-parse --short HEAD` exactly (not the summary line).
+        let expect = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", "--short", "HEAD"])
+                .current_dir(repo)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        assert_eq!(hash, expect.trim());
     }
 }

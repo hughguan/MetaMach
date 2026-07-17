@@ -219,8 +219,11 @@ impl AbsurdDb {
             bail!("pg offline");
         };
         let scope_json = serde_json::to_value(&recipe.openwiki_scope)?;
-        let config_json: serde_json::Value =
-            serde_json::from_str(&recipe.config_text).unwrap_or(serde_json::Value::Null);
+        // config_text is the raw janus.toml (TOML, not JSON) - preserve it verbatim
+        // as a JSON string so blueprints.config holds the recipe text. (Previously
+        // `serde_json::from_str` on TOML always failed and the `unwrap_or(Null)`
+        // silently stored null, losing the blueprint configuration.)
+        let config_json = serde_json::Value::String(recipe.config_text.clone());
         // `(xmax = 0)` is true for a freshly INSERTed row, false for one touched
         // by ON CONFLICT DO UPDATE (i.e. a reactivation of an existing row).
         let row: (bool,) = sqlx::query_as(

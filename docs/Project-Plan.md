@@ -9,13 +9,15 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 ## Milestone Timeline
 
 ```
-[Milestone 0] ──> [Milestone 1] ──> [Milestone 2] ──> [Milestone 3] ──> [Milestone 4]
- Herdr 0.7.3 Validate    Infra & Shell       Daemon Core         Shield Layer        Lifecycle & Self-Heal
+[Milestone 0] ──> [Milestone 1] ──> [Milestone 2] ──> [Milestone 3] ──> [Milestone 4] ──> [Milestone 5]
+ Herdr 0.7.3 Validate    Infra & Shell       Daemon Core         Shield Layer        Lifecycle & Self-Heal   Integration & Release
 ```
 
 > **M0 is a prerequisite gate:** All Popup/plugin tasks from M1 onward depend on the Herdr 0.7.3 plugin SDK being available. M0 must first validate this external contract; otherwise M1 Task 1.2 is blocked.
 
 ## Milestone 0: Herdr 0.7.3 Plugin Contract Validation (External SDK Validation) - ✅ VALIDATED 2026-07-15
+
+> **Timebox:** ~3 days (completed)
 
 - **Status:** Complete. Validated against installed Herdr 0.7.3; contract documented in `docs/herdr-v1-contract.md` (version-controlled English source; `docs/CH/` is gitignored). PoC at `spike/herdr-hello-plugin/` (gitignored). **M1 Task 1.2 (Popup) green-lit.** Key corrections: popup placement is `overlay` (not `popup`); manifest has no `width`/`height`; Herdr injects `HERDR_PLUGIN_ROOT/CONFIG_DIR/STATE_DIR` + `HERDR_SOCKET_PATH`.
 
@@ -43,6 +45,8 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 ## Milestone 1: Infrastructure Grid-Connection & Shadow Shell (Immutable & Base)
 
+> **Timebox:** ~2 weeks
+
 - **Goal:** Establish Immutable/Mutable directory separation, stand up the **host-native** Absurd Postgres cluster + global catalog DB (no Docker), and get the lightweight shadow client Popup rendering.
 
 - **Check-in-able directory structure:**
@@ -66,7 +70,26 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - Use `ratatui` in `herdr_janus.rs` to render a static "production dispatch dashboard" interactive interface. Focus auto-locked; exit on `Esc`.
 - **UAT:** Execute `herdr plugin link` to mount the plugin; press `prefix+j` inside Herdr; a floating overlay Popup appears at screen center (sized by Herdr's overlay defaults, not the manifest).
 
+#### Task 1.3: Scaffold Config Files (Check-in Unit 3)
+- **Description:** Create the three required config files in `configs/` that the daemon, tether, and agents depend on.
+- **Implementation:**
+    - `configs/agents.toml`: Agent Pool registration with role permissions, bash blacklists, and network allowlists per Contract 3.6. Include default `scout`, `coder`, and `deployer` roles.
+    - `configs/tmux.conf`: Tether tmux init config with `remain-on-exit on` per ARCH §6.1, bound to socket `metamach-tether`.
+    - `configs/global_rules.md`: Factory-wide developer rules loaded into Agent System Prompts on onboarding.
+- **UAT:** `configs/agents.toml` is valid TOML and parseable by the daemon; `configs/tmux.conf` sets `remain-on-exit on`; `configs/global_rules.md` is non-empty Markdown.
+
+#### Task 1.4: CI/CD Pipeline (Check-in Unit 4)
+- **Description:** Create `.github/workflows/ci.yml` with native PG service, tmux, and full test suite.
+- **Implementation:**
+    - CI runs on `ubuntu-24.04` with `postgres:16` service container (health check: `pg_isready`).
+    - Steps: `apt-get install -y tmux postgresql-client`, `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo build --release --locked`, `cargo test --workspace`.
+    - SSH-gated tether tests run with `-- --ignored` and `continue-on-error: true`.
+    - Cache cargo registry and target directory for faster builds.
+- **UAT:** Push to `main` triggers CI; all gates pass (fmt, clippy, test); SSH-gated tests are skipped gracefully.
+
 ## Milestone 2: Twin-Process UDS Communication & Scheduling Brain (Daemon Core)
+
+> **Timebox:** ~3 weeks
 
 - **Goal:** Implement the resident background daemon `janus-daemon`, establish UDS socket highway between the twin processes, achieve lazy-start self-healing and singleton lock.
 
@@ -118,6 +141,8 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 ## Milestone 3: Physical Sandbox, Proxy Shell & Security Guard (Shield Layer)
 
+> **Timebox:** ~2 weeks
+
 - **Goal:** Push the security gate from outside the Herdr process down into the physical boundary of tmux, implementing `janus-sh` synchronous interception and Tool Guard allowlist filtering.
 
 - **Check-in-able directory structure:**
@@ -140,6 +165,8 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **UAT:** In an Agent pane, first create a sentinel: `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`, then force-execute a blacklisted `rm -rf /tmp/metamach-test-guard-$(uuidgen)`; the terminal should instantly synchronously suspend (Remain-on-Exit), the sentinel survives, and the phone receives the approval card.
 
 ## Milestone 4: Cross-Host Durability, Cold Self-Heal & Offboard Archive (Advanced & Prune)
+
+> **Timebox:** ~4 weeks
 
 - **Goal:** Grid-connect `janus::tether` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
 
@@ -182,6 +209,43 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - On report return, compare `report.dispatch_sha == current HEAD`; mismatch => discard the stale report, mark the step `SUSPENDED`, emit `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule by writing a **new** `absurd_tasks` row against the new `HEAD` (the `UPDATE ... WHERE target_sha = $4` guard zeroes out for stale pre-reschedule reports).
 - **UAT:** Dispatch a step with `target_sha=X`; mutate the underlying git ref to `Y`; submit a report with stale `dispatch_sha=X`; the Daemon rejects it (SHA-mismatch), marks `SUSPENDED`, fires `CONCURRENCY_RACE_ALERT`, and a fresh dispatch against `Y` succeeds.
 - **Note:** ARCH §6.5 and Feature-Spec cite "Task 2.4" for this enforcement; that cross-reference is stale (Task 2.4 is now Tether Internalization) and should point here (Task 4.4).
+
+## Milestone 5: Integration Testing & Release Gate
+
+> **Timebox:** ~2 weeks
+
+- **Goal:** Run full integration test suite across all modules, verify cross-module contracts, and prepare for release.
+
+- **Check-in-able directory structure:**
+    `tests/` (integration tests per crate), `docs/CH/` (audit artifacts)
+
+### Tasks
+
+#### Task 5.1: Integration Test Suite (Check-in Unit 9)
+- **Description:** Implement the integration test suite covering all test cases from `docs/Test-Spec.md`.
+- **Implementation:**
+    - Test Suites 2.1–2.9: UTC-01-xx through UTC-09-xx, covering daemon, sandbox, tether, HITL, lifecycle, dashboard, benchmarks, degraded mode, and tether module.
+    - SSH-gated tests (UTC-09-04) use `#[ignore = "requires SSH credentials"]`.
+    - Benchmark harness (UTC-07-xx) uses `criterion`; deferred to P2, not a release gate.
+- **UAT:** `cargo test --workspace` passes all non-ignored tests; `cargo test --workspace -- --ignored` skips SSH-gated tests gracefully.
+
+#### Task 5.2: Cross-Module Contract Verification (Check-in Unit 10)
+- **Description:** Verify all UDS contracts (3.2–3.5), schema contracts (3.1/3.1b), and lifecycle contracts (Onboard/Offboard) hold across module boundaries.
+- **Implementation:**
+    - janus-sh ↔ janus-daemon: Contract 3.2/3.4 payload round-trip with all verdict types.
+    - janus::tether ↔ janus-daemon: Contract 3.5 dispatch/report payload with target_sha locking.
+    - herdr-janus ↔ janus-daemon: Contract 3.3 progress query payload.
+    - Multi-DB: Onboard creates per-blueprint DB, Offboard archives + DELETEs, no cross-contamination.
+- **UAT:** All contract-level integration tests pass; no cross-module deserialization errors.
+
+#### Task 5.3: Release Preparation (Check-in Unit 11)
+- **Description:** Finalize version, update CHANGELOG, tag release, and verify all check-in gates.
+- **Implementation:**
+    - Bump version in `janus/Cargo.toml` and `herdr-plugin.toml` to `0.3.0`.
+    - Generate `CHANGELOG.md` from conventional commits.
+    - GPG-sign the release tag: `git tag -s v0.3.0 -m "MetaMach 0.3.0 — de-containerized, Multi-DB, internalized tether"`.
+    - Final check-in gate sweep: all 5 hygiene gates pass.
+- **UAT:** `git tag -v v0.3.0` verifies the GPG signature; `cargo build --release --locked` produces clean binaries; `make bootstrap` completes end-to-end.
 
 ## Check-in Gates
 

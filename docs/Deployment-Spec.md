@@ -18,6 +18,17 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 
 > **Platform Note (macOS `/dev/shm` unavailable):** macOS does not have `/dev/shm` tmpfs by default; `mkdir -p /dev/shm/...` creates a **regular directory** on the root filesystem—keys will land on disk, completely defeating RAM-disk security. Therefore: **production deployment supports Linux only**; macOS is development-only and must use `$TMPDIR` or `hdiutil attach -nomount ram://2048` to create a genuine RAM disk, with explicit notation that "keys under macOS are not memory-resident and must not carry real financial credentials."
 
+
+> 💡 **Uni-Directional Stateless Deployment Pattern (Non-Normative Note for Remote Targets)**
+> 
+> In scenarios where the remote physical target is behind strict air-gapped network isolation and cannot host Git credentials or establish a reverse connection to the Absurd Postgres database, the following **uni-directional stateless Diff pipeline** is recommended as an implementation pattern. This is a fallback for air-gapped targets; the primary cross-host transport is the **Task 2.4 herdr-tether** integration (bidirectional `remain-on-exit` PTY), used wherever the remote can sustain a Tether session.
+>
+> 1. When the local `janus-daemon` encounters a cross-host Step, it generates a `git diff <target_sha>` patch stream in memory - diffed against the **dispatch-pinned** `target_sha` (Contract 3.1), not a moving `HEAD`, so the patch matches the SHA the remote report echoes back as `dispatch_sha`.
+> 2. The patch is projected uni-directionally through an SSH pipe onto the remote host's `/tmp/sandbox`:
+>    `git diff <target_sha> | ssh -i /dev/shm/ssh_key user@remote "patch -p1 -d /tmp/sandbox"`
+> 3. The remote host executes the build/test, then returns only a structured `result.json` (≤16KB) via SSH stdout to the local host for database ingestion.
+> 
+> This pattern keeps the remote target entirely stateless — no Git, no database, no persistent storage. All state reconciliation and audit commitments are performed locally by the Janus Daemon. This is a **recommended pattern**, not a mandatory spec contract; alternative transport mechanisms (NFS shared volumes, container volume mounts, pre-synced source trees) are equally valid as long as the remote target remains stateless.
 ## 2. Immutable/Mutable Physical Directory Topology
 
 To prevent GitHub plugin updates from accidentally wiping the Factory Director's local financial data, personalized config, and database credentials, strict Immutable/Mutable separation must be enforced. The deployment scripts auto-create and establish symlinks:

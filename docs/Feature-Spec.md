@@ -129,16 +129,21 @@ CREATE TABLE absurd_tasks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Step checkpoint table (with Size Budget enforcement)
+-- Step checkpoint table (with Size Budget enforcement & Optimistic Locking)
 CREATE TABLE absurd_steps (
     task_id INTEGER REFERENCES absurd_tasks(id) ON DELETE CASCADE,
     step_name VARCHAR(100) NOT NULL,
     status VARCHAR(20) NOT NULL,  -- PENDING | STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
+    target_sha VARCHAR(40) NOT NULL DEFAULT '0000000000000000000000000000000000000000',
+                                  -- Optimistic lock: Git HEAD SHA-1 pinned at Step dispatch.
+                                  -- The all-zeros sentinel marks a non-git blueprint (lock skipped).
     result_cache JSONB,           -- strictly capped at 16KB physical storage
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (task_id, step_name)
 );
 ```
+
+> **Optimistic Locking - `target_sha` (preparatory; enforcement lands with Task 2.4):** At dispatch the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` (the all-zeros sentinel is used for non-git blueprints, which skip the lock) and sends it as `dispatch_sha` with the step payload; the remote report echoes `dispatch_sha` back. On return the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: the Daemon discards it, marks the step `SUSPENDED`, emits a `CONCURRENCY_RACE_ALERT` through the existing HITL channel (Telegram/Teams), and auto-reschedules the step against the new `HEAD`. The apply itself is `UPDATE absurd_steps SET status = 'COMPLETED', result_cache = $1 WHERE task_id = $2 AND step_name = $3 AND target_sha = $4` (`$4 = report.dispatch_sha`); the `target_sha = $4` clause is the reschedule guard. **Reschedule semantics:** a reschedule writes a *new* `absurd_tasks` row (new `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail and ensuring stale pre-reschedule reports zero-row correctly. The column is added by `003_target_sha.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine arrive with Task 2.4 (herdr-tether).
 
 > **Unified Status Enumeration:** The system-wide Step/Task state machine is `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`. The Blueprint-level state machine is `ACTIVE <-> OFFBOARDED` (Onboard activates / Offboard archives).
 

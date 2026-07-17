@@ -1,0 +1,21 @@
+# Offboard LLM smelting config (Feature-Spec §2.5 "Offboard LLM Integration Spec").
+#
+# The smelting LLM is a configurable external dependency. The API key never
+# touches disk - only the environment-variable NAME is stored here; the Daemon
+# reads the actual key from `api_key_env` at Offboard time. When the LLM is
+# unavailable (no key, rate-limited, air-gapped, >timeout), Offboard does NOT
+# block - it falls back to a raw JSON snapshot (Feature-Spec §2.5 degradation).
+#
+# Symlinked into ${HERDR_PLUGIN_CONFIG_DIR} by `make symlinks`.
+
+[llm]
+endpoint = "https://api.example.com/v1/chat/completions"
+api_key_env = "METAMACH_LLM_API_KEY"
+model = "gpt-4o-mini"
+max_input_tokens = 60000
+timeout_seconds = 120
+
+[input]
+# Only the most recent N steps feed the LLM; excess discarded reverse-chronologically.
+recent_steps = 50
+per_step_truncate_bytes = 16384

@@ -8,8 +8,9 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -23,6 +24,7 @@ use janus::absurd::AbsurdDb;
 use janus::paths;
 use janus::protocol::{Request, Response};
 use janus::tool_guard::Engine;
+use janus::{coldstart, lifecycle};
 use sqlx::postgres::PgConnectOptions;
 
 fn main() -> Result<()> {
@@ -48,6 +50,36 @@ async fn run() -> Result<()> {
     db.spawn_connect(pg_connect_options());
     info!("absurd db online: {}", db.pg_online().await);
 
+    let repo_root = Arc::new(paths::repo_root());
+
+    // Task 4.1: cold-start self-heal - once PG has had a moment to connect, scan
+    // for non-terminal tasks and log resume plans (re-exec deferred to Task 2.4).
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            if let Err(e) = coldstart::reconcile(&db).await {
+                warn!("cold-start reconcile failed: {e}");
+            }
+        });
+    }
+    // ARCH §6.2: daily Janus GC - NULL-ify result_cache for >3-day-old completed tasks.
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
+            tick.tick().await; // first tick is immediate
+            loop {
+                tick.tick().await;
+                match db.gc_old_caches().await {
+                    Ok(n) if n > 0 => info!("janus GC: pruned {n} old step cache(s)"),
+                    Ok(_) => {}
+                    Err(e) => warn!("janus GC failed: {e}"),
+                }
+            }
+        });
+    }
+
     let agents_path = paths::agents_toml_path();
     let engine = Arc::new(Engine::load(&agents_path));
     info!("tool guard rules: {}", agents_path.display());
@@ -59,7 +91,8 @@ async fn run() -> Result<()> {
                 Ok((stream, _)) => {
                     let db = db.clone();
                     let engine = engine.clone();
-                    tokio::spawn(handle_conn(stream, db, engine));
+                    let repo_root = repo_root.clone();
+                    tokio::spawn(handle_conn(stream, db, engine, repo_root));
                 }
                 Err(e) => warn!("accept error: {e}"),
             },
@@ -72,7 +105,12 @@ async fn run() -> Result<()> {
 }
 
 /// Handle one request/response over a single connection (one line in, one out).
-async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>, engine: Arc<Engine>) {
+async fn handle_conn(
+    stream: UnixStream,
+    db: Arc<AbsurdDb>,
+    engine: Arc<Engine>,
+    repo_root: Arc<PathBuf>,
+) {
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
@@ -84,7 +122,7 @@ async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>, engine: Arc<Engine>)
         return; // liveness probe / peer closed without sending - not an error
     }
     let resp = match serde_json::from_str::<Request>(trimmed) {
-        Ok(req) => handle_request(req, db, &engine).await,
+        Ok(req) => handle_request(req, db, &engine, &repo_root).await,
         Err(e) => {
             warn!("bad request ({e}): {trimmed:?}");
             Response::Error {
@@ -98,7 +136,12 @@ async fn handle_conn(stream: UnixStream, db: Arc<AbsurdDb>, engine: Arc<Engine>)
     let _ = write_half.write_all(b"\n").await;
 }
 
-async fn handle_request(req: Request, db: Arc<AbsurdDb>, engine: &Engine) -> Response {
+async fn handle_request(
+    req: Request,
+    db: Arc<AbsurdDb>,
+    engine: &Engine,
+    repo_root: &Path,
+) -> Response {
     match req {
         Request::Ping => Response::Pong,
         Request::Blueprints => match db.active_blueprints().await {
@@ -162,6 +205,39 @@ async fn handle_request(req: Request, db: Arc<AbsurdDb>, engine: &Engine) -> Res
                 reason: verdict.reason,
                 rewritten_argv: verdict.rewritten_argv,
                 correlation_id: verdict.correlation_id,
+            }
+        }
+        // M4 Task 4.3: Onboard (Feature-Spec §2.5).
+        Request::Onboard { name } => match lifecycle::onboard(&db, &name, repo_root).await {
+            Ok(r) => {
+                info!(
+                    %name,
+                    reactivated = r.reactivated,
+                    incidents = r.previous_incidents.len(),
+                    "onboard via UDS"
+                );
+                Response::Ok { message: r.message }
+            }
+            Err(e) => Response::Error {
+                message: e.to_string(),
+            },
+        },
+        // M4 Task 4.2: Offboard (Feature-Spec §2.5).
+        Request::Offboard { name } => {
+            let cfg_path = repo_root.join("configs").join("offboard.toml");
+            let cfg = match lifecycle::OffboardConfig::load(&cfg_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    return Response::Error {
+                        message: format!("offboard config: {e}"),
+                    };
+                }
+            };
+            match lifecycle::offboard(&db, &name, repo_root, &cfg).await {
+                Ok(r) => Response::Ok { message: r.message },
+                Err(e) => Response::Error {
+                    message: e.to_string(),
+                },
             }
         }
     }

@@ -12,8 +12,11 @@
 //! Daemon over `janus.sock` via the protocol defined in [`protocol`].
 
 pub mod absurd;
+pub mod coldstart;
+pub mod lifecycle;
 pub mod paths;
 pub mod protocol;
+pub mod recipe;
 pub mod spawn;
 pub mod tool_guard;
 pub mod uds;

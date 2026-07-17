@@ -1,0 +1,12 @@
+# GateMetric blueprint - BMX attitude evaluation system, cross-host compile target.
+# (Feature-Spec Contract 3.6.) [remote] declares the SSH compile server.
+[blueprint]
+name = "gatemetric"
+default_workflow = "firmware-deploy"
+
+[remote]
+host = "192.168.1.100"
+user = "builder"
+
+[openwiki]
+scope = ["mpu6050", "esp32-timers", "i2c-conflicts"]

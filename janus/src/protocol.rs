@@ -30,6 +30,10 @@ pub enum Request {
         argv: Vec<String>,
         env_snapshot: HashMap<String, String>,
     },
+    /// `janus onboard --blueprint <name>` (Task 4.3).
+    Onboard { name: String },
+    /// `janus offboard --blueprint <name>` (Task 4.2).
+    Offboard { name: String },
 }
 
 /// Daemon -> client response.
@@ -51,6 +55,10 @@ pub enum Response {
         reason: Option<String>,
         rewritten_argv: Option<Vec<String>>,
         correlation_id: String,
+    },
+    /// Generic success ack (Onboard/Offboard).
+    Ok {
+        message: String,
     },
     Error {
         message: String,

@@ -1,0 +1,8 @@
+# JoyRobots blueprint - local-only modular education robot platform.
+# (Feature-Spec Contract 3.6.) No [remote] => local-only blueprint.
+[blueprint]
+name = "joyrobots"
+default_workflow = "dev-flow"
+
+[openwiki]
+scope = ["spike-prime-api", "lego-spike"]

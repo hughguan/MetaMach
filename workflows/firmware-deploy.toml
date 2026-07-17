@@ -1,0 +1,23 @@
+# MetaMach firmware cross-compile & flash pipeline (Feature-Spec Contract 3.7).
+# Step `cross-compile` runs on the blueprint's `[remote]` host via Tether SSH.
+
+[workflow]
+name = "firmware-deploy"
+description = "Standard firmware cross-compile & flash pipeline"
+
+[[steps]]
+name = "scout"
+agent = "scout"
+toolset = ["read", "grep", "find"]
+
+[[steps]]
+name = "code"
+agent = "coder"
+toolset = ["read", "write", "edit", "bash-safe"]
+
+[[steps]]
+name = "cross-compile"
+agent = "deployer"
+command = "make cross-compile"
+host = "remote"                    # References janus.toml [remote]; default = local
+toolset = ["bash-full", "ssh"]

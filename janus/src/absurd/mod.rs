@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use tokio::sync::RwLock;
@@ -205,6 +205,168 @@ impl AbsurdDb {
         } else {
             let cache = serde_json::json!({ "suspended_reason": reason }).to_string();
             self.record_fallback_event(task_id, step_name, "SUSPENDED", Some(&cache))
+        }
+    }
+
+    /// Task 4.3: idempotent tenant registration (Feature-Spec §2.5.3). Returns
+    /// `true` if an existing (e.g. OFFBOARDED) row was reactivated, `false` if a
+    /// fresh row was inserted.
+    pub async fn register_blueprint(
+        &self,
+        recipe: &crate::recipe::ValidatedRecipe,
+    ) -> Result<bool> {
+        let Some(pg) = self.pool().await else {
+            bail!("pg offline");
+        };
+        let scope_json = serde_json::to_value(&recipe.openwiki_scope)?;
+        let config_json: serde_json::Value =
+            serde_json::from_str(&recipe.config_text).unwrap_or(serde_json::Value::Null);
+        // `(xmax = 0)` is true for a freshly INSERTed row, false for one touched
+        // by ON CONFLICT DO UPDATE (i.e. a reactivation of an existing row).
+        let row: (bool,) = sqlx::query_as(
+            "INSERT INTO blueprints \
+                (name, status, default_workflow, config, openwiki_scope, remote_host, onboarded_at) \
+             VALUES ($1, 'ACTIVE', $2, $3, $4, $5, NOW()) \
+             ON CONFLICT (name) DO UPDATE \
+             SET status='ACTIVE', default_workflow=EXCLUDED.default_workflow, \
+                 config=EXCLUDED.config, openwiki_scope=EXCLUDED.openwiki_scope, \
+                 remote_host=EXCLUDED.remote_host, onboarded_at=NOW(), offboarded_at=NULL \
+             RETURNING (xmax = 0) AS inserted",
+        )
+        .bind(&recipe.name)
+        .bind(&recipe.default_workflow)
+        .bind(&config_json)
+        .bind(&scope_json)
+        .bind(recipe.remote_host.as_deref())
+        .fetch_one(&pg)
+        .await?;
+        Ok(!row.0) // reactivated = NOT freshly inserted
+    }
+
+    /// Task 4.2: scan the most-recent step traces (with result_cache) for the
+    /// blueprint, for Offboard smelting.
+    pub async fn scan_offboard_traces(&self, name: &str, limit: usize) -> Result<Vec<StepTrace>> {
+        let Some(pg) = self.pool().await else {
+            bail!("pg offline");
+        };
+        let rows: Vec<StepTrace> = sqlx::query_as(
+            "SELECT s.task_id, s.step_name, s.status, s.result_cache::text AS result_cache \
+             FROM absurd_steps s \
+             JOIN absurd_tasks t ON t.id = s.task_id \
+             JOIN blueprints b ON b.id = t.blueprint_id \
+             WHERE b.name = $1 \
+             ORDER BY s.updated_at DESC \
+             LIMIT $2",
+        )
+        .bind(name)
+        .bind(limit as i64)
+        .fetch_all(&pg)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Task 4.2: physically DELETE result_cache JSON for the blueprint via the
+    /// `melt_blueprint_data` stored proc (migration 002). Returns rows deleted.
+    pub async fn melt_blueprint_data(&self, name: &str) -> Result<i64> {
+        let Some(pg) = self.pool().await else {
+            bail!("pg offline");
+        };
+        let row: (i64,) = sqlx::query_as("SELECT melt_blueprint_data($1)")
+            .bind(name)
+            .fetch_one(&pg)
+            .await?;
+        Ok(row.0)
+    }
+
+    /// Task 4.2: mark a blueprint OFFBOARDED.
+    pub async fn set_blueprint_offboarded(&self, name: &str) -> Result<()> {
+        let Some(pg) = self.pool().await else {
+            bail!("pg offline");
+        };
+        sqlx::query("UPDATE blueprints SET status='OFFBOARDED', offboarded_at=NOW() WHERE name=$1")
+            .bind(name)
+            .execute(&pg)
+            .await?;
+        Ok(())
+    }
+
+    /// Task 4.1: non-terminal tasks at cold start, each with its last COMPLETED
+    /// step (the resume breakpoint). Empty in degraded mode (PG offline).
+    pub async fn cold_start_running_tasks(&self) -> Result<Vec<ColdStartTask>> {
+        let Some(pg) = self.pool().await else {
+            return Ok(vec![]);
+        };
+        let rows: Vec<ColdStartRow> = sqlx::query_as(
+            "SELECT t.id, b.name AS blueprint, t.workflow_name, t.status, \
+                    (SELECT s.step_name FROM absurd_steps s \
+                     WHERE s.task_id = t.id AND s.status = 'COMPLETED' \
+                     ORDER BY s.updated_at DESC LIMIT 1) AS last_completed_step \
+             FROM absurd_tasks t JOIN blueprints b ON b.id = t.blueprint_id \
+             WHERE t.status IN ('STARTING','RUNNING','SUSPENDED') \
+             ORDER BY t.id",
+        )
+        .fetch_all(&pg)
+        .await?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
+    /// ARCH §6.2: Janus GC - NULL-ify `result_cache` for steps of tasks
+    /// COMPLETED more than 3 days ago. Returns rows affected.
+    pub async fn gc_old_caches(&self) -> Result<i64> {
+        let Some(pg) = self.pool().await else {
+            return Ok(0);
+        };
+        let res = sqlx::query(
+            "UPDATE absurd_steps s SET result_cache = NULL \
+             FROM absurd_tasks t \
+             WHERE s.task_id = t.id \
+               AND t.status = 'COMPLETED' \
+               AND t.completed_at IS NOT NULL \
+               AND t.completed_at < NOW() - INTERVAL '3 days' \
+               AND s.result_cache IS NOT NULL",
+        )
+        .execute(&pg)
+        .await?;
+        Ok(res.rows_affected() as i64)
+    }
+}
+
+/// A historical step trace for Offboard smelting (Task 4.2).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct StepTrace {
+    pub task_id: i64,
+    pub step_name: String,
+    pub status: String,
+    pub result_cache: Option<String>,
+}
+
+/// A non-terminal task found at cold start + its last COMPLETED step (Task 4.1).
+#[derive(Debug, Clone)]
+pub struct ColdStartTask {
+    pub task_id: i64,
+    pub blueprint: String,
+    pub workflow_name: String,
+    pub status: String,
+    pub last_completed_step: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct ColdStartRow {
+    id: i64,
+    blueprint: String,
+    workflow_name: String,
+    status: String,
+    last_completed_step: Option<String>,
+}
+
+impl From<ColdStartRow> for ColdStartTask {
+    fn from(r: ColdStartRow) -> Self {
+        Self {
+            task_id: r.id,
+            blueprint: r.blueprint,
+            workflow_name: r.workflow_name,
+            status: r.status,
+            last_completed_step: r.last_completed_step,
         }
     }
 }

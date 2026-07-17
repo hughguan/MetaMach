@@ -65,3 +65,14 @@ pub fn agents_toml_path() -> PathBuf {
     }
     config_dir().join("agents.toml")
 }
+
+/// Immutable ROOT: the plugin source checkout (`HERDR_PLUGIN_ROOT`, injected by
+/// Herdr 0.7.3; the repo dir when standalone). Hosts `blueprints/`, `workflows/`,
+/// `configs/`, and `target/release/`. Onboard/Offboard resolve recipes + the
+/// offboard LLM config relative to this.
+pub fn repo_root() -> PathBuf {
+    match std::env::var("HERDR_PLUGIN_ROOT") {
+        Ok(s) if !s.is_empty() => PathBuf::from(s),
+        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    }
+}

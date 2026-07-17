@@ -44,6 +44,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
 regex = "1"
+# M4: Offboard LLM smelting HTTP client (OpenAI-style chat completions).
+ureq = { version = "2", features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3"

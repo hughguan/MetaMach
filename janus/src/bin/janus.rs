@@ -3,9 +3,11 @@
 //! Subcommands:
 //!   `janus status [--blueprint <name>] [--json]` - Contract 3.3 progress snapshot.
 //!   `janus daemon` - launch the resident `janus-daemon` in the foreground.
+//!   `janus onboard --blueprint <name>` - register/reactivate a blueprint (Task 4.3).
+//!   `janus offboard --blueprint <name>` - smelt + prune a blueprint (Task 4.2).
 //!
-//! `onboard` / `offboard` land in M4. All subcommands require the Daemon
-//! reachable; `status` lazy-starts it if absent (Feature-Spec §2.1 self-heal).
+//! All subcommands require the Daemon reachable; `status`/`onboard`/`offboard`
+//! lazy-start it if absent (Feature-Spec §2.1 self-heal).
 
 use std::process::Command;
 use std::time::Duration;
@@ -40,12 +42,26 @@ enum CliCommand {
     },
     /// Launch the resident janus-daemon in the foreground.
     Daemon,
+    /// Register / reactivate a blueprint (Feature-Spec §2.5, Task 4.3).
+    Onboard {
+        /// Blueprint name (the `blueprints/<name>/` directory).
+        #[arg(long)]
+        blueprint: String,
+    },
+    /// Smelt execution traces + prune DB cache (Feature-Spec §2.5, Task 4.2).
+    Offboard {
+        /// Blueprint name to offboard.
+        #[arg(long)]
+        blueprint: String,
+    },
 }
 
 fn main() -> Result<()> {
     match Cli::parse().command {
         CliCommand::Status { blueprint, json } => status(blueprint, json),
         CliCommand::Daemon => daemon(),
+        CliCommand::Onboard { blueprint } => lifecycle_cmd(Request::Onboard { name: blueprint }),
+        CliCommand::Offboard { blueprint } => lifecycle_cmd(Request::Offboard { name: blueprint }),
     }
 }
 
@@ -85,6 +101,22 @@ fn print_status_text(tasks: &[ActiveTask]) {
             "  [{}] {} · step {} · {} · {}",
             t.blueprint_id, t.workflow_name, step, t.status, elapsed
         );
+    }
+}
+
+/// `janus onboard` / `janus offboard`: send the request, print the Daemon's ack.
+fn lifecycle_cmd(req: Request) -> Result<()> {
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
+    }
+    let resp = uds::request(&req)?;
+    match resp {
+        Response::Ok { message } => {
+            println!("{message}");
+            Ok(())
+        }
+        Response::Error { message } => bail!(message),
+        other => bail!("unexpected daemon response: {other:?}"),
     }
 }
 

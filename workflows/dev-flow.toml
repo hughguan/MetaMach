@@ -1,0 +1,22 @@
+# MetaMach standard R&D pipeline (Feature-Spec Contract 3.7). Ordered station chain.
+# Bound by `blueprints/<name>/janus.toml` `default_workflow`.
+
+[workflow]
+name = "dev-flow"
+description = "Standard R&D pipeline: scout -> code -> compile"
+
+[[steps]]
+name = "scout"
+agent = "scout"
+toolset = ["read", "grep", "find"]
+
+[[steps]]
+name = "code"
+agent = "coder"
+toolset = ["read", "write", "edit", "bash-safe"]
+
+[[steps]]
+name = "compile"
+agent = "coder"
+command = "make compile"
+toolset = ["read", "write", "bash-safe"]

@@ -268,12 +268,16 @@ fn compile_glob(pattern: &str) -> Regex {
         }
     }
     if pattern.ends_with('/') {
-        // boundary: whitespace, quote, end, or a shell separator. Consuming
-        // (not lookahead) - the `regex` crate has no lookarounds; for a boolean
-        // is_match consuming the separator is equivalent.
-        s.push_str(r#"(?:[\s"'&|;<>()]|$)"#);
+        // boundary: whitespace, quote, end, or a shell separator (incl. backtick
+        // command substitution). Consuming (not lookahead) - the `regex` crate
+        // has no lookarounds; for a boolean is_match consuming the separator is
+        // equivalent. Backtick is included so `rm -rf /`-style blacklists also
+        // catch `` rm -rf /`... `` / `bash -c "`rm -rf /`"`.
+        s.push_str(r#"(?:[\s"'&|;<>()`]|$)"#);
     }
-    Regex::new(&s).unwrap_or_else(|_| Regex::new(r"$^").expect("never-match regex"))
+    // `a^` is unsatisfiable (a literal `a` can't be followed by start-of-string),
+    // so it never matches - unlike `$^`, which matches the empty string.
+    Regex::new(&s).unwrap_or_else(|_| Regex::new(r"a^").expect("never-match regex"))
 }
 
 /// First matching pattern (by original text) for `agent`, falling back to the
@@ -297,7 +301,7 @@ fn match_any(
 /// to `/` whose `$VAR` is then `rm -rf`-ed. Best-effort (the `regex` crate has
 /// no backreferences, so this is a two-step scan).
 fn env_injection_root_delete(cmd: &str) -> Option<String> {
-    let re_assign = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)=/(?:[\s&|;"']|$)"#).ok()?;
+    let re_assign = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)=/(?:[\s&|;"'`]|$)"#).ok()?;
     let re_rm = Regex::new(r"rm\s+-rf\s+").ok()?;
     if !re_rm.is_match(cmd) {
         return None;
@@ -322,7 +326,10 @@ fn capability_of(cmd: &str) -> String {
         "ls" | "cat" | "head" | "tail" | "grep" | "find" | "pwd" | "echo" | "wc" | "tree"
         | "less" | "more" => "read".to_string(),
         "git" => match second {
-            "log" | "show" | "status" | "diff" => "read".to_string(),
+            // `git log` -> the distinct "git-log" capability (Contract 3.5 lists
+            // it for scout); git show/status/diff stay under general "read".
+            "log" => "git-log".to_string(),
+            "show" | "status" | "diff" => "read".to_string(),
             "commit" => "git-commit".to_string(),
             "push" => "git-push".to_string(),
             _ => "git".to_string(),
@@ -525,5 +532,73 @@ bash_blacklist = ["rm -rf /", "> /dev/sd*", "mkfs.*", "dd if=* of=/dev/*"]
             command_string(&["script.sh".into(), "arg".into()]),
             "script.sh arg"
         );
+    }
+
+    // --- M3 review regression tests ---
+
+    #[test]
+    fn capability_of_maps_git_log_to_git_log_tag() {
+        // `git log` is its own "git-log" capability (Contract 3.5); the other
+        // git read subcommands stay under general "read".
+        assert_eq!(capability_of("git log"), "git-log");
+        assert_eq!(capability_of("git show"), "read");
+        assert_eq!(capability_of("git status"), "read");
+        assert_eq!(capability_of("git diff"), "read");
+    }
+
+    #[test]
+    fn scout_git_log_allowed() {
+        // scout (bash_safe=false) gets `git log` via its "git-log" permission,
+        // not via the bash_safe fallback - so this exercises the live tag.
+        let (e, _f) = engine();
+        assert_eq!(eval(&e, "scout", "git log").kind, VerdictKind::Allow);
+        assert_eq!(eval(&e, "scout", "git status").kind, VerdictKind::Allow);
+    }
+
+    #[test]
+    fn git_log_is_a_distinct_capability() {
+        // An agent granted only "git-log" (no "read", no bash_safe) may run
+        // `git log` but not a general read like `ls` - proving "git-log" is a
+        // live, distinct capability rather than dead config.
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"
+[agent.gitlog_only]
+permissions   = ["git-log"]
+allow_network = false
+bash_safe     = false
+
+[agent.default]
+bash_safe     = true
+bash_blacklist = ["rm -rf /"]
+"#
+        )
+        .unwrap();
+        let e = Engine::load(f.path());
+        assert_eq!(eval(&e, "gitlog_only", "git log").kind, VerdictKind::Allow);
+        let v = eval(&e, "gitlog_only", "ls -la");
+        assert_eq!(v.kind, VerdictKind::Block);
+        assert_eq!(v.cause.as_deref(), Some("permissions"));
+    }
+
+    #[test]
+    fn backtick_after_root_slash_is_blocked() {
+        // `rm -rf /`id`` - the backtick (command substitution) after `/` must
+        // count as a boundary so the `rm -rf /` blacklist still catches it.
+        let (e, _f) = engine();
+        let v = eval(&e, "coder", r"rm -rf /`id`");
+        assert_eq!(v.kind, VerdictKind::Block);
+        assert_eq!(v.cause.as_deref(), Some("blacklist"));
+    }
+
+    #[test]
+    fn env_injection_root_delete_via_backtick_blocked() {
+        // `RM_TARGET=/`x` && rm -rf $RM_TARGET` - the `=/` is followed by a
+        // backtick; the boundary must include it so the env-injection scan fires.
+        let (e, _f) = engine();
+        let v = eval(&e, "coder", r"RM_TARGET=/`x` && rm -rf $RM_TARGET");
+        assert_eq!(v.kind, VerdictKind::Block);
+        assert_eq!(v.cause.as_deref(), Some("blacklist"));
     }
 }

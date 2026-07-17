@@ -1,10 +1,10 @@
-# MetaMach 0.1.0 — Deployment Specification
+# MetaMach 0.3.0 — Deployment Specification
 
 > Immutable/Mutable separation architecture, physical sandbox mounting, and unified database grid-connection guide.
 
-This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 0.1.0** production base on a local physical compute node (e.g., the Richmond Hill workshop server).
+This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 0.3.0** production base on a local physical compute node (e.g., the Richmond Hill workshop server).
 
-This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** separation and security red lines, providing system-level definition of physical directories, RAM disk mounting, database containers, and the one-click bootstrap process.
+This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** separation and security red lines, providing system-level definition of physical directories, RAM disk mounting, database initialization, and the one-click bootstrap process.
 
 ## 1. Prerequisites
 
@@ -13,7 +13,8 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 | **OS** | Linux / macOS | POSIX-compatible environment & UDS support | `uname -a` |
 | **Rust Toolchain** | Rust 1.88+ (Edition 2024) | Compile `janus-daemon`, `herdr-janus`, `janus-sh` | `rustc --version` |
 | **Tmux** | Tmux 3.3+ | Physical carrier for Tether PTY session immortality | `tmux -V` |
-| **Docker & Compose** | Docker v24.0+ / Compose v2.20+ | One-click Absurd Postgres container | `docker compose version` |
+| **PostgreSQL** | PG 15+ | Native host Postgres instance (no Docker); managed by `janus-daemon` on first startup | `psql --version`
+
 | **SOPS & Age** _(optional)_ | SOPS v3.8+ / Age v1.1+ | Strong encrypted storage of local sensitive keys in Git monorepo | `sops --version` |
 
 > **Platform Note (macOS `/dev/shm` unavailable):** macOS does not have `/dev/shm` tmpfs by default; `mkdir -p /dev/shm/...` creates a **regular directory** on the root filesystem—keys will land on disk, completely defeating RAM-disk security. Therefore: **production deployment supports Linux only**; macOS is development-only and must use `$TMPDIR` or `hdiutil attach -nomount ram://2048` to create a genuine RAM disk, with explicit notation that "keys under macOS are not memory-resident and must not carry real financial credentials."
@@ -21,7 +22,7 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 
 > 💡 **Uni-Directional Stateless Deployment Pattern (Non-Normative Note for Remote Targets)**
 > 
-> In scenarios where the remote physical target is behind strict air-gapped network isolation and cannot host Git credentials or establish a reverse connection to the Absurd Postgres database, the following **uni-directional stateless Diff pipeline** is recommended as an implementation pattern. This is a fallback for air-gapped targets; the primary cross-host transport is the **Task 2.4 herdr-tether** integration (bidirectional `remain-on-exit` PTY), used wherever the remote can sustain a Tether session.
+> In scenarios where the remote physical target is behind strict air-gapped network isolation and cannot host Git credentials or establish a reverse connection to the Absurd Postgres database, the following **uni-directional stateless Diff pipeline** is recommended as an implementation pattern. This is a fallback for air-gapped targets; the primary cross-host transport is the internal `janus::tether` module (bidirectional `remain-on-exit` PTY), used wherever the remote can sustain a Tether session.
 >
 > 1. When the local `janus-daemon` encounters a cross-host Step, it generates a full source-tree snapshot at the dispatch-pinned `target_sha` (Contract 3.1) via `git archive`, ensuring the remote receives a complete, self-contained working tree — not just an incremental patch.
 > 2. The archive is projected uni-directionally through an SSH pipe onto the remote host's `/tmp/sandbox`:
@@ -52,39 +53,19 @@ To prevent GitHub plugin updates from accidentally wiping the Factory Director's
 
 ## 3. Absurd Postgres Database Setup
 
-Single-database, multi-tenant design (logically isolated by `blueprint_id`). Pull up a high-performance Postgres instance locally via Docker Compose.
+One PG, Multi-DB topology. A single native Postgres 15+ instance runs on the host (no Docker), managed directly by `janus-daemon`. Each blueprint receives an independent logical database via `CREATE DATABASE metamach_blueprint_<name>` on Onboard. Data persists at `~/.metamach/db/`.
 
-### 3.1 Container Orchestration: `docker-compose.yml`
+### 3.1 Native Postgres Bootstrap
 
-Create this file at the `metamach/` repository root:
+`janus-daemon` handles PG lifecycle on first startup:
 
-```yaml
-services:
-  metamach-db:
-    image: postgres:15.8-alpine               # Pinned minor version; no floating tag drift
-    container_name: metamach-postgres-db
-    command: postgres -c listen_addresses=''   # Disable TCP; Unix Socket only; eliminate network surface
-    environment:
-      POSTGRES_DB: metamach_db
-      POSTGRES_USER: metamach_admin
-      POSTGRES_PASSWORD: ${METAMACH_DB_PASSWORD}  # Randomly generated & injected by make bootstrap (§5.1)
-    volumes:
-      - metamach_pgdata:/var/lib/postgresql/data
-      - ./janus/migrations:/docker-entrypoint-initdb.d  # Auto-execute migrations on container init
-      - ${METAMACH_PG_SOCKET_DIR}:/var/run/postgresql    # Unix Socket exposed to host state dir; host processes connect via socket
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U metamach_admin -d metamach_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+1. **Init cluster:** If `~/.metamach/db/` is empty, run `initdb -D ~/.metamach/db/` to create a fresh PG cluster.
+2. **Start server:** Launch `pg_ctl -D ~/.metamach/db/ -l ~/.metamach/db/pg.log start` with `listen_addresses=''` (Unix socket only, no TCP).
+3. **Create admin role:** `CREATE ROLE metamach_admin WITH LOGIN PASSWORD '<random>'` (password persisted to `~/.metamach/db/.pgpass`, chmod 600).
+4. **Run migrations:** Execute all `.sql` files from `janus/migrations/` in order.
+5. **Blueprint onboarding:** `CREATE DATABASE metamach_blueprint_<name>` on each `janus onboard`.
 
-volumes:
-  metamach_pgdata:
-    driver: local
-```
-
-> **Security Note:** The `ports` mapping has been removed; Postgres no longer listens on any TCP port (`listen_addresses=''`). The host `janus-daemon` connects via Unix Socket: connection string like `postgresql://metamach_admin:${METAMACH_DB_PASSWORD}@/metamach_db?host=${METAMACH_PG_SOCKET_DIR}`. Even other users on the same machine cannot guess the password via TCP.
+> **Connection string:** `postgresql://metamach_admin:<password>@/metamach_db?host=~/.metamach/db` — Unix socket only, no TCP exposure.
 
 ## 4. RAM Disk Key Decryption & Mounting
 
@@ -135,25 +116,24 @@ fi
 
 ## 5. One-Command Bootstrap (Makefile)
 
-MetaMach 0.1.0 provides a highly simplified "one-command grid-connection" instruction. The Factory Director only needs to execute `make bootstrap` in the root directory; the system auto-completes environment validation, code compilation, directory creation, symlink mounting, and database initialization.
+MetaMach 0.3.0 provides a highly simplified "one-command grid-connection" instruction. The Factory Director only needs to execute `make bootstrap` in the root directory; the system auto-completes environment validation, code compilation, directory creation, symlink mounting, and native PG initialization.
 
 ### 5.1 Automation Master Switch: `Makefile`
 
 ```makefile
 .PHONY: all bootstrap compile symlinks db-up db-down db-backup db-restore db-migrate health logs uninstall clean
 
-# 1. Environment variables (NEVER hardcode a default password)
+# 1. Environment variables
 HERDR_PLUGIN_STATE_DIR ?= ~/.local/state/herdr/plugins/metamach.janus
-METAMACH_PG_SOCKET_DIR ?= $(HERDR_PLUGIN_STATE_DIR)/pg_socket
-# If password not explicitly set, first try reading from Mutable State; if absent, randomly generate (first bootstrap persists it)
-export METAMACH_DB_PASSWORD ?= $(shell [ -f $(HERDR_PLUGIN_STATE_DIR)/.db_password ] && cat $(HERDR_PLUGIN_STATE_DIR)/.db_password || openssl rand -hex 16)
+METAMACH_DB_DIR ?= ~/.metamach/db
+export METAMACH_DB_PASSWORD ?= $(shell [ -f $(METAMACH_DB_DIR)/.pgpass ] && cat $(METAMACH_DB_DIR)/.pgpass || openssl rand -hex 16)
 
 all: bootstrap
 
 # 2. Supreme one-command bootstrap primitive
 bootstrap: symlinks compile db-up
 	@echo "================================================================="
-	@echo "🪐 MetaMach 0.1.0 successfully bootstrapped in Richmond Hill!"
+	@echo "🪐 MetaMach 0.3.0 successfully bootstrapped!"
 	@echo "🔌 Run 'prefix+j' inside Herdr to open Dispatcher Console."
 	@echo "================================================================="
 
@@ -162,9 +142,9 @@ symlinks:
 	@echo "📁 Creating mutable state and config directories..."
 	@mkdir -p ~/.config/herdr/plugins/metamach.janus
 	@mkdir -p ~/.local/state/herdr/plugins/metamach.janus
-	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
-	@printf '%s' "$(METAMACH_DB_PASSWORD)" > $(HERDR_PLUGIN_STATE_DIR)/.db_password && chmod 600 $(HERDR_PLUGIN_STATE_DIR)/.db_password
-	@echo "🔑 DB password persisted to $(HERDR_PLUGIN_STATE_DIR)/.db_password (chmod 600, gitignored). Save it now."
+	@mkdir -p $(METAMACH_DB_DIR)
+	@printf '%s' "$(METAMACH_DB_PASSWORD)" > $(METAMACH_DB_DIR)/.pgpass && chmod 600 $(METAMACH_DB_DIR)/.pgpass
+	@echo "🔑 DB password persisted to $(METAMACH_DB_DIR)/.pgpass (chmod 600)."
 	@echo "🔗 Linking agents config into Herdr Config Directory..."
 	@ln -sf $$(pwd)/configs/agents.toml ~/.config/herdr/plugins/metamach.janus/agents.toml
 
@@ -178,66 +158,69 @@ compile:
 	@cp janus/target/release/herdr-janus ${HERDR_PLUGIN_ROOT}/bin/herdr-janus
 	@cp janus/target/release/janus-sh ${HERDR_PLUGIN_ROOT}/bin/janus-sh
 
-# 5. Start Postgres unified database container
+# 5. Initialize native Postgres (no Docker)
 db-up:
-	@echo "🐳 Starting Absurd Postgres container (Unix Socket only, no TCP)..."
-	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
-	@docker compose up -d
-	@echo "⏳ Waiting for container to be running..."
-	@until docker compose ps metamach-db | grep -q "Up"; do sleep 0.5; done
-	@echo "⏳ Waiting for database health check..."
-	@docker compose exec -T metamach-db sh -c \
-		"until pg_isready -U metamach_admin -d metamach_db; do sleep 1; done"
-	@echo "⚡ Database is online and migrated."
+	@echo "🐘 Initializing native Postgres at $(METAMACH_DB_DIR)..."
+	@if [ ! -f $(METAMACH_DB_DIR)/PG_VERSION ]; then \
+		echo "  → Running initdb..."; \
+		initdb -D $(METAMACH_DB_DIR) -U metamach_admin --auth-local=trust; \
+	fi
+	@echo "  → Starting PG server (Unix socket only, no TCP)..."
+	@pg_ctl -D $(METAMACH_DB_DIR) -l $(METAMACH_DB_DIR)/pg.log start 2>/dev/null || true
+	@echo "  → Setting admin password..."
+	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d postgres -c "ALTER ROLE metamach_admin WITH PASSWORD '$(METAMACH_DB_PASSWORD)';" 2>/dev/null || true
+	@echo "  → Creating metamach_db..."
+	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d postgres -c "CREATE DATABASE metamach_db;" 2>/dev/null || true
+	@echo "  → Running migrations..."
+	@for f in janus/migrations/*.sql; do psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f $$f; done
+	@echo "⚡ Native Postgres online at $(METAMACH_DB_DIR)."
 
-# 6. Safe shutdown; release physical resources
+# 6. Safe shutdown
 db-down:
-	@echo "🔌 Stopping database..."
-	@docker compose down
+	@echo "🔌 Stopping Postgres..."
+	@pg_ctl -D $(METAMACH_DB_DIR) stop 2>/dev/null || true
 
-# 7. Database backup (pg_dump to timestamped SQL file)
+# 7. Database backup
 db-backup:
 	@echo "💾 Backing up metamach_db..."
-	@docker compose exec -T metamach-db pg_dump -U metamach_admin metamach_db > metamach_backup_$$(date +%Y%m%d_%H%M%S).sql
-	@echo "✅ Backup written to metamach_backup_*.sql"
+	@pg_dump -h $(METAMACH_DB_DIR) -U metamach_admin metamach_db > metamach_backup_$$(date +%Y%m%d_%H%M%S).sql
+	@echo "✅ Backup complete."
 
-# 8. Database restore (requires BACKUP_FILE variable)
+# 8. Database restore
 db-restore:
 	@if [ -z "$(BACKUP_FILE)" ]; then echo "❌ Usage: make db-restore BACKUP_FILE=backup.sql"; exit 1; fi
 	@echo "🔄 Restoring metamach_db from $(BACKUP_FILE)..."
-	@docker compose exec -T metamach-db psql -U metamach_admin -d metamach_db < $(BACKUP_FILE)
+	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db < $(BACKUP_FILE)
 	@echo "✅ Restore complete."
 
-# 9. Run pending database migrations
+# 9. Run pending migrations
 db-migrate:
 	@echo "🔄 Running pending migrations..."
-	@docker compose exec -T metamach-db sh -c \
-		"for f in /docker-entrypoint-initdb.d/*.sql; do psql -U metamach_admin -d metamach_db -f \$$f; done"
+	@for f in janus/migrations/*.sql; do psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f $$f; done
 	@echo "✅ Migrations complete."
 
-# 10. Health check (Daemon socket + DB liveness + suspended tasks)
+# 10. Health check
 health:
 	@echo "=== MetaMach Health Check ==="
-	@docker compose exec -T metamach-db pg_isready -U metamach_admin -d metamach_db || echo "❌ DB offline"
+	@pg_isready -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db || echo "❌ DB offline"
 	@test -S $(HERDR_PLUGIN_STATE_DIR)/janus.sock && echo "✅ Daemon socket alive" || echo "❌ Daemon socket missing"
-	@# Additional: query SUSPENDED count, disk usage, etc.
 
-# 11. Log viewing (Daemon log at janus.log; 10MB rotation × 5 files)
+# 11. Log viewing
 logs:
-	@tail -n 200 $(HERDR_PLUGIN_STATE_DIR)/janus.log 2>/dev/null || echo "(no janus.log; Daemon defaults to stderr; production should redirect to janus.log with logrotate 10MB×5)"
+	@tail -n 200 $(HERDR_PLUGIN_STATE_DIR)/janus.log 2>/dev/null || echo "(no janus.log; Daemon defaults to stderr)"
 
-# 12. Full uninstall (teardown everything)
-uninstall: clean db-down
+# 12. Full uninstall
+uninstall:
 	@echo "⚠️  This will DELETE all MetaMach data. Continue? [y/N]" && read -r REPLY && [ "$$REPLY" = "y" ]
-	@docker compose down -v
+	@pg_ctl -D $(METAMACH_DB_DIR) stop 2>/dev/null || true
+	@rm -rf $(METAMACH_DB_DIR)
 	@rm -rf ~/.config/herdr/plugins/metamach.janus
 	@rm -rf ~/.local/state/herdr/plugins/metamach.janus
-	@rm -f /usr/local/bin/janus-daemon /usr/local/bin/janus-sh /usr/local/bin/herdr-tether
 	@echo "🗑️  MetaMach fully uninstalled."
 
-# 13. Clean local compile cache & RAM disk
+# 13. Clean local compile cache
 clean:
-	@echo "🧹 Cleaning cargo workspace and unmounting RAM disk..."
+	@echo "🧹 Cleaning cargo workspace..."
 	@cd janus && cargo clean
 	@if [ -d /dev/shm/metamach.janus ]; then \
 		echo "⚠️  Wiping RAM disk secrets at /dev/shm/metamach.janus..."; \
@@ -264,16 +247,16 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
 
 ### Step 6.2: Verify `remain-on-exit` Process Immortality
 
-1. Execute `herdr-tether open --command "sleep 100"` to launch a background physical process.
+1. Execute `janus tether open --command "sleep 100"` to launch a background physical process via the internal Tether module.
 2. Force-close the Herdr foreground view window, or directly execute `killall -9 herdr` on the host.
 3. Run `tmux list-sessions` in a system terminal.
 
-- **Pass:** The background still clearly shows a tmux session named `tether-janus-task-<uuid>` in active running state. Re-enter Herdr and execute `herdr-tether attach`; scene restores 100% in milliseconds.
+- **Pass:** The background still clearly shows a tmux session named `tether-janus-task-<uuid>` in active running state. Re-enter Herdr and execute `janus tether attach`; scene restores 100% in milliseconds.
 
 ### Step 6.3: Verify Cold-Start Self-Healing
 
 1. Start a physical cross-compilation task lasting approximately 1 minute.
-2. Run `docker compose stop` to forcibly kill the Postgres database, and kill the `janus-daemon` process to simulate a sudden power outage.
+2. Run `pg_ctl -D ~/.metamach/db/ stop` to forcibly stop Postgres, and kill the `janus-daemon` process to simulate a sudden power outage.
 3. Restart the PG database container, and run `target/release/janus-daemon` in a terminal.
 
 - **Pass:** Within `0.5s` of startup, the Daemon performs a typed disposition of pre-outage unfinished tasks: for `RUNNING`-state tasks, it picks up from the last `COMPLETED` Step Checkpoint in the `absurd_steps` table and seamlessly resumes the next station; for `SUSPENDED`-state tasks, it keeps them suspended and notifies the Factory Director (never blindly re-runs). Console has no extraneous redundant output.
@@ -290,7 +273,7 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
 3. Verify tenant registration and dispatchability:
     ```bash
     # Blueprint registered as ACTIVE
-    docker compose exec -T metamach-db psql -U metamach_admin -d metamach_db \
+    psql -h ~/.metamach/db/ -U metamach_admin -d metamach_db \
         -c "SELECT name, status, default_workflow FROM blueprints;"
     # Inspect workshop status headlessly
     janus status

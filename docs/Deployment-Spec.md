@@ -13,9 +13,11 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 | **OS** | Linux / macOS | POSIX-compatible environment & UDS support | `uname -a` |
 | **Rust Toolchain** | Rust 1.88+ (Edition 2024) | Compile `janus-daemon`, `herdr-janus`, `janus-sh` | `rustc --version` |
 | **Tmux** | Tmux 3.3+ | Physical carrier for Tether PTY session immortality | `tmux -V` |
-| **PostgreSQL** | PG 15+ | Native host Postgres instance (no Docker); managed by `janus-daemon` on first startup | `psql --version`
+| **PostgreSQL** | PG 15+ | Native host Postgres instance (no Docker); managed by `janus-daemon` on first startup | `psql --version` |
+| **Python** | 3.11+ | `absurdctl` CLI (applies `absurd.sql` to each per-blueprint DB on Onboard); absurd engine install | `python3 --version` |
 
 | **SOPS & Age** _(optional)_ | SOPS v3.8+ / Age v1.1+ | Strong encrypted storage of local sensitive keys in Git monorepo | `sops --version` |
+| **pg_cron** _(optional)_ | 1.6+ | Absurd-managed partition cleanup (`enable_cron`); optional - Daemon may call `cleanup_tasks` directly | `psql -c '\dx pg_cron'` |
 
 > **Platform Note (macOS `/dev/shm` unavailable):** macOS does not have `/dev/shm` tmpfs by default; `mkdir -p /dev/shm/...` creates a **regular directory** on the root filesystem—keys will land on disk, completely defeating RAM-disk security. Therefore: **production deployment supports Linux only**; macOS is development-only and must use `$TMPDIR` or `hdiutil attach -nomount ram://2048` to create a genuine RAM disk, with explicit notation that "keys under macOS are not memory-resident and must not carry real financial credentials."
 

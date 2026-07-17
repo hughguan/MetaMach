@@ -119,10 +119,11 @@ CREATE TABLE blueprints (
 );
 
 -- Global audit log: full traces for every offboarded task
--- (written by Daemon during Offboard; never pruned)
+-- (written by Daemon during Offboard; never pruned). task_id is UUID to match
+-- absurd.spawn_task() output (M0.5 spike F1).
 CREATE TABLE absurd_audit_log (
     id SERIAL PRIMARY KEY,
-    task_id INTEGER NOT NULL,
+    task_id UUID NOT NULL,
     blueprint_name VARCHAR(100) NOT NULL,
     workflow_name VARCHAR(100) NOT NULL,
     step_count INTEGER NOT NULL,
@@ -131,46 +132,56 @@ CREATE TABLE absurd_audit_log (
     trace_summary JSONB       -- full trace metadata: step names, statuses, timestamps
 );
 CREATE INDEX idx_audit_blueprint ON absurd_audit_log(blueprint_name);
+CREATE INDEX idx_audit_task ON absurd_audit_log(task_id);
 ```
 
 ### Contract 3.1b: Per-Blueprint Schema (`metamach_blueprint_<name>`)
 
-Each blueprint gets its own dedicated database. No cross-DB foreign keys — the Daemon resolves `blueprint_id` at the application layer.
+Each blueprint gets its own dedicated database. **The durable-execution engine is [Absurd](https://github.com/earendil-works/absurd) (v0.4.0)**, installed into the per-blueprint DB via `absurdctl init` (applies `absurd.sql` into the `absurd` schema). Absurd owns the task / checkpoint / event tables and the state-machine functions; MetaMach **does not** redefine them - parallel `absurd_tasks`/`absurd_steps` tables would conflict with absurd's functions (M0.5 spike F1). MetaMach adds only a thin overlay table for fields absurd has no concept of.
+
+**Concept mapping (MetaMach -> Absurd primitive):**
+
+| MetaMach concept | Absurd primitive |
+|---|---|
+| a workflow dispatch | `spawn_task(queue, task_name, params)` -> `task_id uuid`, `run_id uuid`; `claim_task` / `complete_run` / `fail_run` |
+| `result_cache` (16KB) + step `status` | `set_task_checkpoint_state(queue, task_id, step_name, state jsonb, owner_run)` / `get_task_checkpoint_state` |
+| `SUSPENDED` (HITL gate) | `await_event` -> `should_suspend=true`; `emit_event` resumes |
+| cold-start self-heal (no tmux-resurrect) | native: checkpoints re-read via `get_task_checkpoint_states` |
+| Janus GC (3-day cleanup) | `cleanup_tasks` / `cleanup_all_queues` |
+| Onboard tenant | `create_queue('<blueprint>.<workflow>')` per workflow |
+| `CONCURRENCY_RACE_ALERT` reschedule | `retry_task` / new `spawn_task` |
+
+`task_id` is a **UUID** (absurd's `spawn_task` output), not an integer. No cross-DB foreign keys - the Daemon resolves `blueprint_name` at the application layer. `status` + `result_cache` live in absurd's checkpoint `state` JSONB; the overlay below carries only MetaMach-specific fields.
 
 ```sql
 -- =================================================================
--- PER-BLUEPRINT DB (metamach_blueprint_<name>): tasks + steps
+-- PER-BLUEPRINT DB (metamach_blueprint_<name>)
 -- =================================================================
+-- 1. `absurdctl init` applies absurd.sql (absurd schema: task/checkpoint/event
+--    tables + durable-execution functions). External engine install - not shown.
+-- 2. This migration adds only the MetaMach overlay (002_blueprint.sql):
 
--- Workflow task table (one dispatch = one Task row)
-CREATE TABLE absurd_tasks (
-    id SERIAL PRIMARY KEY,
-    blueprint_name VARCHAR(100) NOT NULL,     -- denormalized; no cross-DB FK
-    workflow_name VARCHAR(100) NOT NULL,
-    status VARCHAR(20) NOT NULL,  -- PENDING | STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Step checkpoint table (with Size Budget enforcement & Optimistic Locking)
-CREATE TABLE absurd_steps (
-    task_id INTEGER REFERENCES absurd_tasks(id) ON DELETE CASCADE,
-    step_name VARCHAR(100) NOT NULL,
-    status VARCHAR(20) NOT NULL,  -- PENDING | STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
-    target_sha VARCHAR(40) NOT NULL DEFAULT '0000000000000000000000000000000000000000',
-                                  -- Optimistic lock: Git HEAD SHA-1 pinned at Step dispatch.
-                                  -- The all-zeros sentinel marks a non-git blueprint (lock skipped).
-    exit_code INTEGER,            -- Process exit code (NULL until step completes)
-    started_at TIMESTAMPTZ,       -- When the step transitioned to RUNNING
-    result_cache JSONB,           -- strictly capped at 16KB physical storage
-    stdout_tail TEXT,              -- most recent 1KB terminal output snapshot
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-- MetaMach step-meta overlay, keyed by absurd's UUID task_id + step_name.
+-- Carries fields absurd has no concept of. status + result_cache live in
+-- absurd's checkpoint state JSONB (set_task_checkpoint_state).
+CREATE TABLE metamach_step_meta (
+    task_id         UUID NOT NULL,                       -- absurd.spawn_task().task_id
+    step_name       VARCHAR(100) NOT NULL,
+    blueprint_name  VARCHAR(100) NOT NULL,               -- denormalized; no cross-DB FK
+    target_sha      VARCHAR(64) NOT NULL DEFAULT '0000000000000000000000000000000000000000',
+                                                          -- Optimistic lock: Git HEAD pinned at dispatch.
+                                                          -- All-zeros sentinel = non-git blueprint (lock skipped).
+                                                          -- VARCHAR(64) supports SHA-256.
+    exit_code       INTEGER,                             -- NULL until step completes
+    stdout_tail     TEXT,                                -- most recent ~1KB terminal snapshot
+    started_at      TIMESTAMPTZ,                         -- when the step transitioned to RUNNING
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (task_id, step_name)
 );
+CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 ```
 
-> **Optimistic Locking - `target_sha`:** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` and sends it as `dispatch_sha` in the step payload (see Contract 3.5). The remote report echoes `dispatch_sha` back. On return, the Daemon compares `report.dispatch_sha == current HEAD` — a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. The apply uses `UPDATE absurd_steps SET status = 'COMPLETED', result_cache = $1, exit_code = $2, stdout_tail = $3 WHERE task_id = $4 AND step_name = $5 AND target_sha = $6` (`$6 = report.dispatch_sha`). **Reschedule semantics:** a reschedule writes a *new* `absurd_tasks` row (new `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail. The column is added by `003_target_sha.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tether`.
+> **Optimistic Locking - `target_sha` (app-layer; F4):** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` into `metamach_step_meta.target_sha` and sends it as `dispatch_sha` in the step payload (see Contract 3.5). The remote report echoes `dispatch_sha` back. On return, the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. Absurd has no SHA-lock concept (its checkpoint write is its own upsert), so the guard is an application-level `UPDATE metamach_step_meta SET exit_code = $2, stdout_tail = $3, started_at = $4 WHERE task_id = $5 AND step_name = $6 AND target_sha = $7` (`$7 = report.dispatch_sha`) executed by the Rust daemon **before** calling absurd's `complete_run` / `set_task_checkpoint_state`. **Reschedule semantics:** a reschedule calls `spawn_task` again (new UUID `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail. The `target_sha` column ships in `002_blueprint.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tether` and enforced in M4 Task 4.4.
 
 > **Unified Status Enumeration:** The system-wide Step/Task state machine is `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (tmux session creation, pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing. The Blueprint-level state machine is `ACTIVE <-> OFFBOARDED` (Onboard activates / Offboard archives).
 

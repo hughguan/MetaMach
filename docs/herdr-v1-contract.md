@@ -121,7 +121,7 @@ This lets `herdr-janus` know which agent/pane/workspace invoked it - useful for 
 ## 10. Follow-ups (non-blocking)
 - Wire the actual `prefix+j` keybinding in `~/.config/herdr/config.toml` to open the `metamach.janus` `dispatcher` pane (read the user's config for exact syntax; or use the plugin `event_hooks`/keybinding manifest support).
 - Confirm `[[actions]]` / `[[event_hooks]]` / `[[link_handlers]]` semantics if MetaMach later needs plugin-defined actions or link handling (not required for the popup).
-- Environment gap: **Docker is not installed** (blocks M1 Task 1.1 - Absurd Postgres). `sops`/`age` absent (optional, financial blueprints only). Rust 1.95 + tmux present.
+- Environment gap: `sops`/`age` absent (optional, financial blueprints only). Rust 1.88+ + tmux 3.3+ + native PostgreSQL 16+ present. (Docker is no longer required per 0.3.0 de-containerization.)
 
 ## 11. PoC artifact
 `spike/herdr-hello-plugin/` (gitignored) - a minimal plugin with one `dispatcher` overlay pane that prints the injected `HERDR_*` env. Linked and validated: `herdr plugin link spike/herdr-hello-plugin`, then `herdr plugin pane open --plugin herdr-hello-plugin --entrypoint dispatcher --placement overlay`. Remove with `herdr plugin unlink herdr-hello-plugin`.

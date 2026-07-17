@@ -12,8 +12,8 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 +-----------------------------------------------------------------------------------------+
 |  1. CONTROL:   janus-daemon (resident UDS service) & herdr-janus (Popup shadow client)   |
 |  2. SANDBOX:   janus-sh (proxy shell) & Event-Driven Tool Guard (synchronous kernel guard) |
-|  3. WORKFLOW:  Absurd Postgres transaction engine & Cross-Host Tether (remain-on-exit)   |
-|  4. KNOWLEDGE: Federated OpenWiki Skill & Auto-Pruning Smelter (Melt DB Cache)           |
+|  3. WORKFLOW:  Absurd Postgres (One PG, Multi-DB) & janus::tether (remain-on-exit)       |
+|  4. KNOWLEDGE: Federated OpenWiki Skill & Trace Purge & Audit Archive (DELETE + archive)  |
 +-----------------------------------------------------------------------------------------+
 ```
 
@@ -37,56 +37,53 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
     - **Shell Interception Proxy (janus-sh):** When Tether launches a pane, it forcibly injects the `SHELL` environment variable to point to the **absolute path** of `janus-sh` (`${HERDR_PLUGIN_ROOT}/bin/janus-sh`, installed by `make bootstrap`, see Deployment-Spec §5.1). **Never use the relative path `target/release/janus-sh`**—it fails when CWD is not the repo root, the binary is not yet compiled, or the pane is started from a different directory.
     - **Synchronous UDS Reconciliation:** When an Agent sends any command-line string, `janus-sh` synchronously suspends execution, packaging the raw `argv` array and dispatching it to `janus.sock`.
     - **Timeout & Deadlock Prevention:** `janus-sh` blocks synchronously waiting for the Daemon verdict with a configurable timeout (default 30s). If the Daemon crashes or the UDS breaks causing a timeout, **fail-closed**: return an error to the Agent without executing the command (never let through), preventing the Agent's shell from hanging indefinitely due to Daemon unreachability. Verdict response format and semantics are defined in Contract 3.4.
-    - **Dry-Run Redirection:** The Daemon's Tool Guard module performs security review against core allowlist commands (e.g., commands that modify system-level configuration or execute financial transaction orders). Before receiving the Factory Director's digitally signed authorization (Correlation ID) via Teams/TUI, the Daemon forcibly rewrites command parameters in memory (e.g., appending `--dry-run`) or returns an interception error—never passing through to the real physical host shell.
+    - **Dry-Run Redirection:** The Daemon's Tool Guard module performs security review against core allowlist commands (e.g., commands that modify system-level configuration or flash hardware). For financial-class high-risk operations, forces rewriting `argv` to `--action dry-run` before delivering to the host shell. This redirection is synchronous and transparent to the Agent.
 
-### Feature 2.3: Multi-Agent Cross-Host Durable Workflows
+### Feature 2.3: Durable Workflow State Machine (Tether & Absurd Engine)
 
-- **Description:** Based on Absurd Postgres strong transaction engine and Tether cross-host tmux PTY, supporting idempotent handoff and breakpoint self-healing for pipeline steps across multiple stations and host boundaries.
-
-- **Technical Spec:**
-    - **Absurd Transaction Primitives:** Before each Workflow Step executes, the Daemon must commit an `UPDATE` in the physical database to lock the transition state (`STARTING`). Upon successful execution, output data is packaged as `JSONB result_cache` in an atomic Commit (state transitions to `COMPLETED`).
-    - **Physical Non-Destruction (Remain-on-Exit):** Tether-launched local or OpenSSH BatchMode-connected remote tmux sessions must be explicitly injected with `remain-on-exit on`. **To avoid polluting the Factory Director's personal tmux global config and unrelated sessions**, Tether uses an **independent tmux server** (`tmux -L metamach-tether ...`) and sets `set remain-on-exit on` per-session within that server (never using the `-g` global flag). When cross-host cross-compilation or firmware flashing fails with non-zero exit code (`Exit Code != 0`), the physical PTY pane is never killed, preserving the error scene. The independent server also allows disaster recovery drills to safely execute `tmux -L metamach-tether kill-server` without harming the director's other sessions.
-    - **Cold-Start Reconciliation:** After a system power-cycle restart, the Daemon scans all tasks in non-terminal states. `tmux-resurrect` usage is forbidden. It directly extracts the last valid `COMPLETED` Checkpoint from Postgres, assigns a brand-new Tether Session UUID, and seamlessly resumes at the physical breakpoint.
-
-### Feature 2.4: Human-in-the-Loop Gate & Notification
-
-- **Description:** When a pipeline encounters a compile break or privilege violation, trigger system-level non-destructive suspension and pop up high-density reconciliation cards on external async communication gateways for Factory Director approval.
+- **Description:** Provide a durable, self-healing multi-station pipeline engine combining the internalized `janus::tether` (physical session immortality) and the Absurd Postgres transaction engine (state checkpointing).
 
 - **Technical Spec:**
-    - **Non-Destructive Suspension:** Mark task state as `SUSPENDED`. The Daemon holds the current Tether physical PTY, protecting memory context.
-    - **Async Bidirectional Gateway (Telegram primary, Teams secondary):** **Telegram is the primary notification backend** (open protocol, mobile-native, Bot API + Inline Keyboard natively implements `[Resume]` buttons); MS Teams is the secondary adapter (MessageCard format, API entirely different from Telegram, requires independent adapter). The Daemon constructs only an **abstract Webhook Payload** (task UUID, interception cause, 16KB-truncated stdout scene, `Resume` trigger key + Correlation ID), which each backend adapter then translates into native format (Telegram `sendMessage` + `inline_keyboard` / Teams Actionable MessageCard). Adding a new backend only requires implementing an adapter without modifying Daemon core logic.
-    - **Remote HITL Response (redesigned; no longer relies on `Ctrl+C`):** `SUSPENDED` means the command was intercepted and the pane is idle—**there is no process that needs to be released by `Ctrl+C`.** The correct recovery closed loop is:
-        1. The Factory Director `attach`-es into that idle pane via Herdr TUI and **fixes in-place** (edits code, rewrites config, corrects pin definitions, etc.);
-        2. The director types `metamach-resume` in the pane (or taps the `Resume` card callback on mobile) to signal completion;
-        3. The Daemon verifies the Correlation ID signature, transitions the state from `SUSPENDED` back to `RUNNING`, and **dispatches the command for the next step**—**never blindly re-executing the intercepted original command**, which would overwrite the director's just-applied in-place fix.
+    - **Task Lifecycle:** On dispatch, the Daemon creates an `absurd_tasks` row with `status = 'PENDING'`. Before the first Step begins, it transitions to `STARTING`. When the first Step starts executing, the task transitions to `RUNNING`. Terminal states are `COMPLETED`, `FAILED`, or `SUSPENDED`.
+    - **Step Lifecycle:** Each Step independently transitions through `PENDING → STARTING → RUNNING → COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (establishes tmux session, writes pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing in the tmux pane.
+    - **Multi-DB Fan-Out:** At dispatch, `janus-daemon` connects to the target blueprint's dedicated database (`metamach_blueprint_<name>`) and writes `absurd_tasks` and `absurd_steps` rows there. The global catalog DB (`metamach_db`) tracks only `blueprints` metadata and `absurd_audit_log` entries.
+    - **janus::tether (Internalized):** Physical session management is handled by `janus::tether`, a native Rust module inside `janus-daemon`. It directly creates and manages tmux `remain-on-exit` sessions (socket `-L metamach-tether`) and cross-host SSH transport. The external `herdr-tether` plugin is deprecated and no longer required.
+    - **Optimistic Locking (target_sha):** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` and sends it as `dispatch_sha` in the step payload. On remote report return, the Daemon compares `report.dispatch_sha == current HEAD` — a mismatch means `HEAD` advanced, so the report is stale: discard, mark `SUSPENDED`, emit `CONCURRENCY_RACE_ALERT`, and auto-reschedule. See Contract 3.1 and Contract 3.5 for the full payload contracts.
 
-### Feature 2.5: Federated Lifecycle Smelter (Onboard / Offboard & Auto-Pruning)
+### Feature 2.4: Human-in-the-Loop (HITL) Gate
 
-- **Description:** Manage the hot/cold data state transitions of product blueprints. On product offboarding, smelt the full lifecycle execution traces into cold experience deposits and wipe large-volume caches.
+- **Description:** Provide non-destructive suspension and asynchronous bidirectional approval for steps that encounter insurmountable obstacles (compile errors, privilege violations, pin conflicts).
 
 - **Technical Spec:**
-    - **Federated Wiki Design:** `configs/global_rules.md` resides in Immutable ROOT as globally injected System Lines. Each blueprint owns a dedicated `blueprints/<name>/openwiki/` subdirectory for project-specific AST knowledge graph storage.
+    - **Non-Destructive Suspension:** When a step fails or triggers a Tool Guard fuse, the Daemon transitions the step to `SUSPENDED` in the database. The physical tmux session is **never killed** — the terminal scene (error messages, memory variables, console cache) is preserved intact.
+    - **Multi-Endpoint HITL:** The Daemon sends a mobile alert card via Telegram and/or Teams webhooks. The card includes a Correlation ID, task context, and an interactive `[Resume]` button. Tapping `[Resume]` sends a signed callback to the Daemon, which verifies the Correlation ID and dispatches the next step.
+    - **In-Place Fix Workflow:** The Factory Director can also `attach` into the still-alive tmux pane, fix the issue in-place, and type `metamach-resume` (or click `[Resume]` in TUI) to signal completion. The Daemon verifies the step is `SUSPENDED` for the current blueprint, transitions it to `COMPLETED`, and dispatches the next step.
 
-    - **Onboard Registration Mechanism:** When the Factory Director executes `janus onboard --blueprint <name>`, the Daemon takes over with the following atomic sequence (any critical step failure triggers full rollback—no half-activated state):
-        1. **Recipe Validation:** Read `blueprints/<name>/janus.toml`, validate required fields (`blueprint.name`, `blueprint.default_workflow`, `openwiki.scope`, optional `remote`). Confirm `workflows/<default_workflow>.toml` exists and conforms to the workflow file schema. Validation failure returns a clear error without writing to the database.
-        2. **Pre-Ignition Self-Check:** Probe Absurd Postgres connectivity and tmux engine readiness. If `[remote]` is declared, perform a best-effort `BatchMode` connectivity probe against the remote SSH target (`-o ConnectTimeout=5`); unreachable only logs `WARN`, does not block Onboard (allows offline Onboard first, fill in target later).
-        3. **Tenant Registration (Idempotent):** Execute `CREATE DATABASE metamach_blueprint_<name>` to allocate an independent logical database for the new blueprint (One PG, Multi-DB topology). Also `INSERT INTO blueprints (name, status, …) ON CONFLICT (name) DO UPDATE SET status='ACTIVE' …` to register metadata in the global catalog. Repeated Onboard has no side effects; re-onboarding an already `OFFBOARDED` blueprint reactivates it. Repeated Onboard has no side effects; re-onboarding an already `OFFBOARDED` blueprint reactivates it.
-        4. **Workflow Binding:** Persist `default_workflow` into blueprint metadata and precompile-validate that workflow's Step sequence, ensuring instant ignition on dispatch.
-        5. **Knowledge Graph Loading & Experience Inheritance:** Index `blueprints/<name>/openwiki/` into OpenWiki retrieval scope. **If `production_report.md` exists at that path** (prior Offboard artifact), the Daemon prioritizes parsing its structured blocks (compile error history / pin conflicts / Tool Guard interception logs / successful Patches) and appends critical failure patterns as `## Previous Incidents` few-shot examples into that blueprint's Agent System Prompt template, achieving cross-generational immune inheritance.
-        6. **Onboarding Ready:** Transaction commits; status set to `ACTIVE`. Daemon broadcasts a `blueprint_registered` event to `herdr-janus` via UDS; the Popup dispatch menu instantly refreshes to show the new product.
+### Feature 2.5: Federated Lifecycle Smelter (Onboard / Offboard & Trace Purge)
 
-    - **Offboard Smelting Mechanism:** When the Factory Director executes `janus offboard --blueprint <name>`:
-        1. Daemon scans Absurd DB, extracting all historical Task and Step execution traces and Tool Guard interception logs for that blueprint.
-        2. Calls the configured LLM (see "Offboard LLM Integration Spec" below) to compress the above execution snapshots, pin errors, and avoidance patches into a high-density Markdown file, atomically writing to `./blueprints/<name>/openwiki/production_report.md`.
-        3. **Database Anti-Bloat Degradation (Melt Cache):** Calls the backend SQL stored procedure `melt_blueprint_data('<name>')`, **completely DELETEs rows** (not NULL-ifies) for all Step `result_cache` JSON large fields and stdout log rows belonging to that blueprint—NULL-ification does not free TOAST physical space; full-row deletion allows autovacuum / `VACUUM FULL` to reclaim. Simultaneously writes one row of audit metadata statistics (Task ID, elapsed time) into a separate `absurd_audit_log` table for later audit.
-        4. Via the shadow client, invokes local Git to auto-incrementally Commit and Push `production_report.md`, completing the self-propagation of silicon experience.
+- **Description:** Provide a complete product lifecycle engine: Onboard (CREATE DATABASE + tenant registration), Offboard (DELETE + audit archive + LLM smelting), and re-Onboard with experience inheritance.
 
-    - **Offboard LLM Integration Spec:** The LLM used for smelting is a configurable external dependency with the following specification:
+- **Technical Spec:**
+    - **Onboard Registration Mechanism:** When the Factory Director executes `janus onboard --blueprint <name>`, the Daemon takes over with the following sequence:
+        1. **Recipe Validation:** Read `blueprints/<name>/janus.toml`, validate required fields. Confirm `workflows/<default_workflow>.toml` exists. Validation failure returns a clear error without writing to the database.
+        2. **Pre-Ignition Self-Check:** Probe Absurd Postgres connectivity and tmux engine readiness. If `[remote]` is declared, perform a best-effort `BatchMode` connectivity probe (`-o ConnectTimeout=5`); unreachable only logs `WARN`, does not block Onboard.
+        3. **Per-Blueprint Database Creation:** Execute `CREATE DATABASE metamach_blueprint_<name>` to allocate an independent logical database for the new blueprint (One PG, Multi-DB topology). Blueprint name is validated (max 60 chars, alphanumeric + underscore). On `42P04` (duplicate database), treat as idempotent — the database already exists from a prior Onboard. Since `CREATE DATABASE` cannot run inside a transaction block, the Daemon orchestrates compensation: if a later step fails, it executes `DROP DATABASE metamach_blueprint_<name>` as cleanup.
+        4. **Tenant Registration (Idempotent):** `INSERT INTO blueprints … ON CONFLICT (name) DO UPDATE SET status='ACTIVE' …` in the global catalog DB. Repeated Onboard has no side effects; re-onboarding an already `OFFBOARDED` blueprint reactivates it.
+        5. **Workflow Binding:** Persist `default_workflow` and precompile-validate the Step sequence.
+        6. **Knowledge Graph Loading & Experience Inheritance:** Index `blueprints/<name>/openwiki/` into OpenWiki. If `production_report.md` exists, parse its structured blocks and append critical failure patterns as `## Previous Incidents` into the Agent System Prompt template.
+
+    - **Offboard Trace Purge & Audit Archive:** When the Factory Director executes `janus offboard --blueprint <name>`:
+        1. **Trace Extraction:** Daemon scans the blueprint's dedicated database, extracting all historical Task and Step execution traces and Tool Guard interception logs.
+        2. **LLM Smelting (async):** Calls the configured LLM (see "Offboard LLM Integration Spec" below) to compress execution snapshots into `production_report.md`. When the LLM is unavailable, writes `production_report.raw.json` and logs `WARN` — does not block Offboard.
+        3. **DELETE + Audit Archive (8a):** The Daemon orchestrates a multi-DB sequence: (a) in the blueprint's dedicated database, `DELETE FROM absurd_steps` and `DELETE FROM absurd_tasks` for all rows belonging to this blueprint; (b) in the global catalog DB, `INSERT INTO absurd_audit_log` one row per offboarded task with full trace metadata (task_id, blueprint_name, workflow_name, step_count, elapsed_seconds, offboarded_at); (c) `UPDATE blueprints SET status = 'OFFBOARDED', offboarded_at = NOW() WHERE name = <name>`. The per-blueprint database is retained (not dropped) — schema and audit history survive for forensic review.
+        4. **Git Commit (8c):** Via the shadow client, invokes local Git to auto-incrementally commit and push `production_report.md`.
+
+    - **Offboard LLM Integration Spec:** The LLM used for smelting is a configurable external dependency:
         - **Endpoint Config:** `configs/offboard.toml` declares `endpoint`, `api_key_env` (environment variable name; key never touches disk), `model`, `max_input_tokens`.
-        - **Input Budget:** Only takes the most recent N Steps (default N=50), each `result_cache` truncated to 16KB; total input constrained by `max_input_tokens`; excess discarded in reverse chronological order.
-        - **Prompt Template:** Forces structured output of four blocks—[Compile Error History], [Pin Conflict Details], [Tool Guard Interception Logs], [Successful Patches Applied].
-        - **Degradation Fallback:** When the LLM is unavailable (API key invalid, rate-limited, air-gapped offline) or exceeds 120s timeout, **does not block Offboard**; instead writes a raw JSON snapshot `production_report.raw.json` and logs `WARN`.
-        - **Async Execution:** The Offboard command immediately returns "Smelting in progress"; LLM summarization runs in the background; when the report is ready, a UDS event notifies `herdr-janus` and completes the Git commit.
+        - **Input Budget:** Only takes the most recent N Steps (default N=50), each `result_cache` truncated to 16KB; total input constrained by `max_input_tokens`.
+        - **Prompt Template:** Forces structured output of four blocks — [Compile Error History], [Pin Conflict Details], [Tool Guard Interception Logs], [Successful Patches Applied].
+        - **Degradation Fallback:** When the LLM is unavailable or exceeds 120s timeout, writes `production_report.raw.json` and logs `WARN` — does not block Offboard.
+        - **Async Execution:** The Offboard command immediately returns "Smelting in progress"; LLM summarization runs in the background; when ready, a UDS event notifies `herdr-janus` and completes the Git commit.
 
 ### Feature 2.6: Workflow Progress Dashboard (Workflow Monitor & Status Query)
 
@@ -94,16 +91,19 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 
 - **Technical Spec:**
     - **Dual-View Popup:** `herdr-janus`'s Popup adds a "Progress" view alongside the existing "Dispatch" view, toggled via the `Tab` key after waking with `prefix+j`. The Progress view renders the in-flight task matrix grouped by blueprint using `ratatui` tables: owning blueprint · workflow name · current step · per-step status (`PENDING` / `STARTING` / `RUNNING` / `COMPLETED` / `SUSPENDED` / `FAILED`) · elapsed time · most recent stdout summary (truncated to 1KB).
-    - **Polling Cadence:** While the Progress view is open, `herdr-janus` sends a `progress` query to the Daemon via UDS at a fixed 1–2s cadence and re-renders. Closing the view stops polling—zero idle overhead.
-    - **`progress` Query Primitive (Daemon side):** Upon receiving the query, the Daemon executes a read-only `SELECT` aggregating `absurd_tasks JOIN absurd_steps` (filtering non-terminal tasks), overlaid with Tether physical Session liveness signals (`tmux has-session`). This query uses an independent read-only transaction, **never contending** with workflow execution write transactions.
-    - **Suspend Instant Highlight:** When a step status is `SUSPENDED`, the dashboard highlights that row red within 1s and renders `[A]ttach Scene` / `[R]esume` shortcut entries at the row end, directly reusing the existing Tether attach and HITL resume pathways.
     - **`janus status` CLI Fallback:** In non-TUI environments (SSH / CI), `janus status [--blueprint <name>] [--json]` uses the same `progress` primitive, outputting plain-text or JSON snapshots for scriptable inspection.
 
 ## 3. System Data Exchange Contracts
 
-### Contract 3.1: Core Schema (Absurd DB)
+### Contract 3.1: Global Catalog Schema (`metamach_db`)
+
+The global catalog database (`metamach_db`) is the single source of truth for blueprint metadata and audit trails. Per-blueprint operational data resides in independent databases (`metamach_blueprint_<name>`) — see Contract 3.1b.
 
 ```sql
+-- =================================================================
+-- GLOBAL CATALOG DB (metamach_db): blueprint registry + audit log
+-- =================================================================
+
 -- Blueprint tenant registry (Onboard writes / Offboard sets OFFBOARDED)
 CREATE TABLE blueprints (
     id SERIAL PRIMARY KEY,
@@ -118,10 +118,34 @@ CREATE TABLE blueprints (
     offboarded_at TIMESTAMPTZ                       -- most recent Offboard time
 );
 
+-- Global audit log: full traces for every offboarded task
+-- (written by Daemon during Offboard; never pruned)
+CREATE TABLE absurd_audit_log (
+    id SERIAL PRIMARY KEY,
+    task_id INTEGER NOT NULL,
+    blueprint_name VARCHAR(100) NOT NULL,
+    workflow_name VARCHAR(100) NOT NULL,
+    step_count INTEGER NOT NULL,
+    elapsed_seconds DOUBLE PRECISION,
+    offboarded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    trace_summary JSONB       -- full trace metadata: step names, statuses, timestamps
+);
+CREATE INDEX idx_audit_blueprint ON absurd_audit_log(blueprint_name);
+```
+
+### Contract 3.1b: Per-Blueprint Schema (`metamach_blueprint_<name>`)
+
+Each blueprint gets its own dedicated database. No cross-DB foreign keys — the Daemon resolves `blueprint_id` at the application layer.
+
+```sql
+-- =================================================================
+-- PER-BLUEPRINT DB (metamach_blueprint_<name>): tasks + steps
+-- =================================================================
+
 -- Workflow task table (one dispatch = one Task row)
 CREATE TABLE absurd_tasks (
     id SERIAL PRIMARY KEY,
-    blueprint_id INTEGER NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+    blueprint_name VARCHAR(100) NOT NULL,     -- denormalized; no cross-DB FK
     workflow_name VARCHAR(100) NOT NULL,
     status VARCHAR(20) NOT NULL,  -- PENDING | STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
     started_at TIMESTAMPTZ,
@@ -137,15 +161,18 @@ CREATE TABLE absurd_steps (
     target_sha VARCHAR(40) NOT NULL DEFAULT '0000000000000000000000000000000000000000',
                                   -- Optimistic lock: Git HEAD SHA-1 pinned at Step dispatch.
                                   -- The all-zeros sentinel marks a non-git blueprint (lock skipped).
+    exit_code INTEGER,            -- Process exit code (NULL until step completes)
+    started_at TIMESTAMPTZ,       -- When the step transitioned to RUNNING
     result_cache JSONB,           -- strictly capped at 16KB physical storage
+    stdout_tail TEXT,              -- most recent 1KB terminal output snapshot
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (task_id, step_name)
 );
 ```
 
-> **Optimistic Locking - `target_sha` (preparatory; enforcement lands with Task 2.4):** At dispatch the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` (the all-zeros sentinel is used for non-git blueprints, which skip the lock) and sends it as `dispatch_sha` with the step payload; the remote report echoes `dispatch_sha` back. On return the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: the Daemon discards it, marks the step `SUSPENDED`, emits a `CONCURRENCY_RACE_ALERT` through the existing HITL channel (Telegram/Teams), and auto-reschedules the step against the new `HEAD`. The apply itself is `UPDATE absurd_steps SET status = 'COMPLETED', result_cache = $1 WHERE task_id = $2 AND step_name = $3 AND target_sha = $4` (`$4 = report.dispatch_sha`); the `target_sha = $4` clause is the reschedule guard. **Reschedule semantics:** a reschedule writes a *new* `absurd_tasks` row (new `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail and ensuring stale pre-reschedule reports zero-row correctly. The column is added by `003_target_sha.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tether` (internalized in 0.3.0).
+> **Optimistic Locking - `target_sha`:** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` and sends it as `dispatch_sha` in the step payload (see Contract 3.5). The remote report echoes `dispatch_sha` back. On return, the Daemon compares `report.dispatch_sha == current HEAD` — a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. The apply uses `UPDATE absurd_steps SET status = 'COMPLETED', result_cache = $1, exit_code = $2, stdout_tail = $3 WHERE task_id = $4 AND step_name = $5 AND target_sha = $6` (`$6 = report.dispatch_sha`). **Reschedule semantics:** a reschedule writes a *new* `absurd_tasks` row (new `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail. The column is added by `003_target_sha.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tether`.
 
-> **Unified Status Enumeration:** The system-wide Step/Task state machine is `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`. The Blueprint-level state machine is `ACTIVE <-> OFFBOARDED` (Onboard activates / Offboard archives).
+> **Unified Status Enumeration:** The system-wide Step/Task state machine is `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (tmux session creation, pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing. The Blueprint-level state machine is `ACTIVE <-> OFFBOARDED` (Onboard activates / Offboard archives).
 
 ### Contract 3.2: Proxy Shell Sync UDS Request Payload (janus-sh → Daemon)
 
@@ -180,8 +207,8 @@ CREATE TABLE absurd_steps (
       "tether_alive": true,
       "suspended_reason": null,
       "steps": [
-        {"name": "scout",         "status": "COMPLETED"},
-        {"name": "code",          "status": "COMPLETED"},
+        {"name": "scout",         "status": "COMPLETED", "exit_code": 0},
+        {"name": "code",          "status": "COMPLETED", "exit_code": 0},
         {"name": "cross_compile", "status": "RUNNING",  "stdout_tail": "…latest 1KB terminal summary…"}
       ]
     }
@@ -198,23 +225,69 @@ CREATE TABLE absurd_steps (
   "execution_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a",
   "verdict": "ALLOW",
   "reason": "financial_trade_requires_approval",
-  "rewritten_argv": ["hi5bot", "--action", "dry-run"],
-  "correlation_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a"
+  "rewritten_argv": null
 }
 ```
 
-> **Verdict Semantics:** `ALLOW` = execute as-is on the host shell; `BLOCK` = `janus-sh` returns non-zero exit code to Agent without execution, Step transitions to `SUSPENDED` triggering HITL; `REWRITE` = replace original argv with `rewritten_argv` then execute (e.g., Dry-Run redirection). **Timeout:** If Daemon does not respond within `janus-sh`'s synchronous blocking window (default 30s), `janus-sh` **fail-closed** treats it as `BLOCK` and returns an error—never letting the command through.
+```json
+{
+  "execution_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a",
+  "verdict": "REWRITE",
+  "reason": "financial_trade_requires_dry_run",
+  "rewritten_argv": ["hi5bot", "--action", "dry-run"]
+}
+```
 
-### Contract 3.5: Agent Pool Qualification & Tool Guard Rules Schema (`configs/agents.toml`)
+```json
+{
+  "execution_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a",
+  "verdict": "BLOCK",
+  "reason": "blacklist_match: rm -rf /",
+  "rewritten_argv": null
+}
+```
+
+> **Verdict semantics:** `ALLOW` — execute the original argv as-is; `REWRITE` — execute `rewritten_argv` instead; `BLOCK` — return an error to the Agent, do not execute anything. The 30s fail-closed timeout applies to the entire round-trip.
+
+### Contract 3.5: Step Dispatch & Remote Report Payloads (Daemon ↔ janus::tether)
+
+```json
+// Dispatch payload (Daemon → tether → remote host)
+{
+  "dispatch_sha": "a1b2c3d4e5f6...",
+  "task_id": 1042,
+  "step_name": "cross_compile",
+  "blueprint_name": "gatemetric",
+  "command": "make cross-compile",
+  "cwd": "/workspaces/metamach/blueprints/gatemetric/firmware",
+  "env": {
+    "SHELL": "/path/to/bin/janus-sh",
+    "METAMACH_TASK_ID": "1042"
+  }
+}
+
+// Remote report payload (remote host → tether → Daemon)
+{
+  "dispatch_sha": "a1b2c3d4e5f6...",
+  "task_id": 1042,
+  "step_name": "cross_compile",
+  "exit_code": 0,
+  "stdout_tail": "…last 1KB of terminal output…",
+  "result_cache": { "binary_size": 123456, "warnings": 0 },
+  "completed_at": "2026-07-15T09:12:00Z"
+}
+```
+
+> The `dispatch_sha` field is the optimistic-locking token. The remote host echoes it back verbatim in the report. The Daemon verifies `report.dispatch_sha == current HEAD` before applying the result. Mismatch → stale report → discard + reschedule.
+
+### Contract 3.6: Agent Pool Registration Schema (`configs/agents.toml`)
 
 ```toml
-# Global Agent role qualifications & Tool Guard decision matrix
-# (Loaded by Daemon on startup; hot-reload supported)
-
 [agent.scout]
-permissions      = ["read", "grep", "find", "git-log"]
+permissions      = ["read", "grep", "find"]
 allow_network    = false
 bash_safe        = true
+bash_blacklist   = []
 
 [agent.coder]
 permissions      = ["read", "write", "edit", "bash-safe", "git-commit"]
@@ -228,9 +301,9 @@ allow_network    = true
 require_approval = ["esptool.py write_flash", "make flash", "*production*"]
 ```
 
-> **Decision Priority:** Tool Guard evaluates each `janus-sh`-reported argv in order—(1) `bash_blacklist` hit → `BLOCK`; (2) `require_approval` hit → `BLOCK` and set `SUSPENDED` awaiting HITL; (3) command capability not in current role `permissions` allowlist → `BLOCK`; (4) financial-class high-risk command → `REWRITE` to Dry-Run; (5) remainder → `ALLOW`. Rules are configurable (not hardcoded Rust); Daemon loads via `configs/agents.toml` symlink (Mutable Config zone).
+> **Decision Priority:** Tool Guard evaluates each `janus-sh`-reported argv in order — (1) `bash_blacklist` hit → `BLOCK`; (2) `require_approval` hit → `BLOCK` and set `SUSPENDED` awaiting HITL; (3) command capability not in current role `permissions` allowlist → `BLOCK`; (4) financial-class high-risk command → `REWRITE` to Dry-Run; (5) remainder → `ALLOW`. Rules are configurable (not hardcoded Rust); Daemon loads via `configs/agents.toml` symlink (Mutable Config zone).
 
-### Contract 3.6: Blueprint Recipe Schema (`blueprints/<name>/janus.toml`)
+### Contract 3.7: Blueprint Recipe Schema (`blueprints/<name>/janus.toml`)
 
 ```toml
 [blueprint]
@@ -245,9 +318,9 @@ user = "builder"
 scope = ["mpu6050", "esp32-timers", "i2c-conflicts"]
 ```
 
-> On Onboard, the Daemon strictly validates `blueprint.name`, `blueprint.default_workflow` (corresponding file must exist), and `openwiki.scope`; `[remote]` absent = local-only blueprint. Validation failure prevents Onboard (see §2.5 Onboard step 1).
+> On Onboard, the Daemon strictly validates `blueprint.name`, `blueprint.default_workflow` (corresponding file must exist), and `openwiki.scope`; `[remote]` absent = local-only blueprint. Validation failure prevents Onboard.
 
-### Contract 3.7: Workflow Pipeline Schema (`workflows/<name>.toml`)
+### Contract 3.8: Workflow Pipeline Schema (`workflows/<name>.toml`)
 
 ```toml
 [workflow]
@@ -274,7 +347,21 @@ toolset = ["bash-full", "ssh"]
 
 > Each `[[steps]]` declares at minimum `name`, `agent`, `toolset`; `command` is the concrete instruction executed at that station; `host` references the blueprint's `[remote]` for cross-host steps. The Daemon dispatches steps sequentially in array order, writing one `absurd_steps` Checkpoint per step.
 
-### Contract 3.8: Disaster Recovery Ring Buffer Schema (`fallback.db`, SQLite)
+### Contract 3.9: Offboard Configuration Schema (`configs/offboard.toml`)
+
+```toml
+[offboard]
+endpoint = "https://api.openai.com/v1/chat/completions"
+api_key_env = "OPENAI_API_KEY"
+model = "gpt-4o"
+max_input_tokens = 128000
+max_steps = 50
+timeout_seconds = 120
+```
+
+> The `api_key_env` field references an environment variable name; the actual key never touches disk. If the file is absent, Offboard skips LLM smelting and writes `production_report.raw.json`.
+
+### Contract 3.10: Disaster Recovery Ring Buffer Schema (`fallback.db`, SQLite)
 
 ```sql
 -- fallback.db: local ring buffer hosting transition states during PG unreachability
@@ -282,20 +369,26 @@ toolset = ["bash-full", "ssh"]
 CREATE TABLE fallback_events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
+    blueprint_name VARCHAR(100) NOT NULL,   -- denormalized for replay routing
     step_name TEXT NOT NULL,
     status TEXT NOT NULL,       -- STARTING | RUNNING | COMPLETED | SUSPENDED | FAILED
+    target_sha VARCHAR(40) NOT NULL DEFAULT '0000000000000000000000000000000000000000',
+    exit_code INTEGER,
     result_cache TEXT,          -- JSON text, also 16KB truncated
+    stdout_tail TEXT,           -- latest 1KB terminal output snapshot
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_fe_task ON fallback_events(task_id);
+CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 ```
 
-> Ring buffer: max 1000 entries or 50MB, whichever comes first; oldest entries evicted when limit reached. On PG recovery, batch Log Replay merges all `fallback_events` into `absurd_steps` and truncates the ring buffer.
+> Ring buffer: max 1000 entries or 50MB, whichever comes first; oldest entries evicted when limit reached. On PG recovery, batch Log Replay merges all `fallback_events` into the appropriate per-blueprint database's `absurd_steps` and truncates the ring buffer. `blueprint_name` is used to route replay to the correct per-blueprint database.
 
 ## 4. UAT & Fault Matrix
 
 | Fault Boundary | Physical Behavior | System-Level Fault Tolerance & Convergence |
 |---|---|---|
-| **Tether Physical Network/SSH Drop** | Remote compile server offline; `std::process` pipe read/write hangs. | **Session Freeze:** Janus Daemon captures the immortal underlying handle, marks Step `SUSPENDED` in Postgres. Never kills the background tmux pane. On network recovery, re-establish SSH pipe and execute `janus tether attach` to wake the scene in seconds. |
-| **Agent Hallucination, Infinite Log Spam** | Terminal stdout stream generates megabytes of garbage text per second. | **Physical Size Budget Fuse (single authoritative enforcement point):** `janus-sh` has an in-memory streaming counter—when single-Step stdout exceeds **16 KiB**, it **early-streaming truncates** (optimization only, reducing UDS transfer). The **authoritative 16KiB enforcement point is at `janus-daemon`'s `absurd` module, before the `INSERT` transaction commits**—Daemon re-validates and hard-truncates before database write, appending `[MetaMach Log Budget Exceeded]` tag. Two defense lines targeting the same 16KiB cap; the DB write is the final gate, ensuring dirty data never reaches Postgres. |
-| **Absurd DB Connection Pool Crash** | Host Postgres encounters extreme physical OOM or container unexpected exit. | **State Machine Anti-Blast Degradation:** Janus Daemon internally has a local in-memory SQLite ring buffer. During PG disconnection, all transition-state Step changes are atomically written to local `HERDR_PLUGIN_STATE_DIR/fallback.db` first. Upon detecting host PG container recovery, auto-triggers batch merge replay (Log Replay), ensuring workshop production never halts. |
+| **Tether Physical Network/SSH Drop** | Remote compile server offline; `std::process` pipe read/write hangs. | **Session Freeze:** Janus Daemon captures the immortal underlying handle via `janus::tether`, marks Step `SUSPENDED` in Postgres. Never kills the background tmux pane. On network recovery, re-establish SSH pipe and execute `janus tether attach` to wake the scene in seconds. |
+| **Agent Hallucination, Infinite Log Spam** | Terminal stdout stream generates megabytes of garbage text per second. | **Physical Size Budget Fuse (single authoritative enforcement point):** `janus-sh` has an in-memory streaming counter — when single-Step stdout exceeds **16 KiB**, it early-streaming truncates (optimization only, reducing UDS transfer). The **authoritative 16KiB enforcement point is at `janus-daemon`'s `absurd` module, before the `INSERT` transaction commits** — Daemon re-validates and hard-truncates before database write, appending `[MetaMach Log Budget Exceeded]` tag. Two defense lines targeting the same 16KiB cap; the DB write is the final gate. |
+| **Absurd DB Connection Pool Crash** | Host Postgres encounters extreme physical OOM or native process crash. | **State Machine Anti-Blast Degradation:** Janus Daemon internally has a local in-memory SQLite ring buffer. During PG disconnection, all transition-state Step changes are atomically written to local `fallback.db` first. Upon detecting host PG recovery, auto-triggers batch merge replay (Log Replay), ensuring workshop production never halts. |
+| **Fail-Closed 30s UDS Timeout** | Daemon crashes or UDS socket breaks during janus-sh command check. | **Fail-Closed:** `janus-sh` blocks synchronously with a 30s timeout. If the Daemon does not respond, returns an error to the Agent without executing the command. Never lets through. Agent's shell does not hang indefinitely. |

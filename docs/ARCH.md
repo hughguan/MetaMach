@@ -1,4 +1,4 @@
-# MetaMach 0.1.0 — System Architecture
+# MetaMach 0.3.0 — System Architecture
 
 > A silicon-grade industrial production machine powered by Janus Daemon and distributed durable execution sessions.
 
@@ -6,7 +6,7 @@
 
 In the era of distributed AI co-development, traditional AI programming or agent scheduling is largely "stateless single-shot invocation." Under long-running, heavy-load, multi-station, cross-physical-host R&D scenarios, systems are highly vulnerable to process crashes from network jitter, API circuit-breakers, or context loss—fragmenting the development flow.
 
-**MetaMach 0.1.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), and **Blueprints** (product recipes):
+**MetaMach 0.3.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), and **Blueprints** (product recipes):
 
 - **Brain-as-a-Daemon (Janus Daemon) — Central Nervous System:** Core control flow and state transitions are entirely owned by the always-running background daemon **`janus-daemon`**, which holds an exclusive database connection pool and event listener gateway. The Herdr-side plugin is merely a lightweight shadow client (`herdr-janus`) dedicated to terminal rendering and interaction.
 
@@ -61,7 +61,7 @@ Product lines reside under `blueprints/`, maintaining absolute physical cleanlin
 
 ## 3. System Architecture Topology
 
-MetaMach 0.1.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
+MetaMach 0.3.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
 
 - **Control Plane:**
     - **`janus-daemon` (resident process):** Responsible for core logic scheduling, maintaining a persistent connection to Absurd Postgres, listening for external Teams/TG async messages. Also exposes the `progress` query primitive: aggregating real-time status from `absurd_tasks` JOIN `absurd_steps` plus Tether physical session liveness signals, serving as the sole authoritative data source for the workflow progress dashboard.
@@ -130,7 +130,7 @@ sequenceDiagram
     Daemon->>Tether: Drive Tether to re-run "make cross-compile" remotely
     Tether-->>Daemon: Compile passes, QA success!
     Daemon->>Daemon: janus offboard --blueprint gatemetric
-    Daemon->>Absurd: Execute melt_blueprint_data(), wipe large JSONs, DB footprint instantly shrinks
+    Daemon->>Absurd: Execute DELETE + archive: purge operational data, write absurd_audit_log, DB footprint shrinks
     Daemon->>OW: Write pin conflict fix into blueprints/gatemetric/openwiki/production_report.md
     Daemon-->>Human: Evolution archived. Next Agent onboards with this immune antibody!
 ```
@@ -228,12 +228,12 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │   # ====================================================================
 └── provisioning/
     ├── bootstrap.sh              # Zero-dependency deploy: native PG init, symlinks, migrations
-    └── init-user-db.sh           # Postgres role, permission & metamach_db init script
+    └── migrations/               # Postgres init migration scripts (catalog + per-blueprint)
 
 # ═══════════════════════════════════════════════════════════════════════
 # EXTERNAL DEPENDENCIES (separate repos, fetched/built by make bootstrap)
 # absurd       → https://github.com/earendil-works/absurd
-#    Absurd Postgres engine: transaction reconciliation, connection pool, melt_blueprint_data
+#    Absurd Postgres engine: transaction reconciliation, connection pool, DELETE + absurd_audit_log
 # openwiki     → https://github.com/langchain-ai/openwiki
 #    Federated knowledge RAG engine: shared skill retrieval, production_report indexing
 #

@@ -257,7 +257,7 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
 
 1. Start a physical cross-compilation task lasting approximately 1 minute.
 2. Run `pg_ctl -D ~/.metamach/db/ stop` to forcibly stop Postgres, and kill the `janus-daemon` process to simulate a sudden power outage.
-3. Restart the PG database container, and run `target/release/janus-daemon` in a terminal.
+3. Restart native PG (`pg_ctl -D ~/.metamach/db/ start`), and run `target/release/janus-daemon` in a terminal.
 
 - **Pass:** Within `0.5s` of startup, the Daemon performs a typed disposition of pre-outage unfinished tasks: for `RUNNING`-state tasks, it picks up from the last `COMPLETED` Step Checkpoint in the `absurd_steps` table and seamlessly resumes the next station; for `SUSPENDED`-state tasks, it keeps them suspended and notifies the Factory Director (never blindly re-runs). Console has no extraneous redundant output.
 

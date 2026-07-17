@@ -172,7 +172,7 @@ db-up:
 	@echo "  → Creating metamach_db..."
 	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d postgres -c "CREATE DATABASE metamach_db;" 2>/dev/null || true
 	@echo "  → Running migrations..."
-	@for f in janus/migrations/*.sql; do psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f $$f; done
+	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql
 	@echo "⚡ Native Postgres online at $(METAMACH_DB_DIR)."
 
 # 6. Safe shutdown
@@ -196,7 +196,7 @@ db-restore:
 # 9. Run pending migrations
 db-migrate:
 	@echo "🔄 Running pending migrations..."
-	@for f in janus/migrations/*.sql; do psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f $$f; done
+	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql
 	@echo "✅ Migrations complete."
 
 # 10. Health check

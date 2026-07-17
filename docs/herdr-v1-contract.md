@@ -70,7 +70,7 @@ When Herdr opens a plugin pane, it injects these env vars into the entrypoint pr
 | `HERDR_PLUGIN_ID` | `metamach.janus` | tenant key |
 | `HERDR_PLUGIN_ROOT` | plugin source checkout dir | read-only binaries/config (`target/release/`, `workflows/`) |
 | `HERDR_PLUGIN_CONFIG_DIR` | `~/.config/herdr/plugins/config/<id>` | mutable config (`agents.toml`) |
-| `HERDR_PLUGIN_STATE_DIR` | `~/.local/state/herdr/plugins/<id>` | mutable state (`janus.sock`, `janus.pid`, `fallback.db`, PG socket) |
+| `HERDR_PLUGIN_STATE_DIR` | `~/.local/state/herdr/plugins/<id>` | mutable state (`janus.sock`, `janus.pid`, `fallback.db`) |
 | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | Herdr server socket API (open/close panes, query agents) |
 | `HERDR_PLUGIN_ENTRYPOINT_ID` | `dispatcher` | which pane entrypoint |
 | `HERDR_PLUGIN_CONTEXT_JSON` | JSON (see below) | dispatch context |

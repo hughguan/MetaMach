@@ -58,8 +58,6 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 
 | ID | Module | Purpose | Precondition | Steps | Expected | Severity |
 |----|--------|--------|-------------|-------|----------|----------|
-| **UTC-03-06** | Optimistic Locking (target_sha) | Validate stale remote reports are discarded when HEAD advances during step execution | Blueprint repo with git history; step dispatched at SHA-A | 1. Dispatch a step at SHA-A. 2. While step is running, commit a new change so HEAD advances to SHA-B. 3. Remote report returns with . | 1. Daemon detects , discards the report. 2. Step marked  with . 3. Auto-reschedule creates a new  row (new ) against SHA-B. 4. Old task audit trail preserved. | **Critical** |
-
 | **UTC-03-06** | Optimistic Locking (target_sha) | Validate stale remote reports are discarded when HEAD advances during step execution | Blueprint repo with git history; step dispatched at SHA-A | 1. Dispatch a step at SHA-A. 2. While step is running, commit a new change so HEAD advances to SHA-B. 3. Remote report returns with `dispatch_sha` = SHA-A. | 1. Daemon detects SHA-A != SHA-B, discards the report. 2. Step marked `SUSPENDED` with `CONCURRENCY_RACE_ALERT`. 3. Auto-reschedule creates a new `absurd_tasks` row (new `task_id`) against SHA-B. 4. Old task audit trail preserved. | **Critical** |
 
 | **UTC-04-01** | Non-Destructive Suspension | Validate physical scene preserved on compile break or privilege interception; process not killed | Compile script intentionally contains syntax error to trigger failure | Run compile pipeline; trigger failure. | 1. DB state locks to `SUSPENDED`. 2. Tether physical tmux Session suspended; error scene, memory variables, and console cache do not vanish. | **Critical** |

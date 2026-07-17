@@ -1,10 +1,10 @@
-# MetaMach 1.0 — Product Requirements
+# MetaMach 0.1.0 — Product Requirements
 
 > A business guide for the Factory Director: blueprint onboarding, workflow dispatch, HITL gates, and production reports.
 
 ## Director's Note
 
-This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 1.0 feature landscape from a business perspective.
+This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.1.0 feature landscape from a business perspective.
 
 ## 1. Business Vision & Core Pain Points
 
@@ -16,7 +16,7 @@ In traditional AI-assisted R&D and automated assembly, the Factory Director freq
 
 3. **Non-Accumulating Knowledge (Evolution Line):** Every error, pin conflict, and fix the AI encounters vanishes when the session ends, never converted into permanent factory assets—leading to repeated mistakes in subsequent development.
 
-**MetaMach 1.0** delivers a digital silicon pipeline as deterministic, safe, controllable, and self-evolving as a physical factory, through its design of "resident guardian brain + durable physical sessions + shared knowledge graph."
+**MetaMach 0.1.0** delivers a digital silicon pipeline as deterministic, safe, controllable, and self-evolving as a physical factory, through its design of "resident guardian brain + durable physical sessions + shared knowledge graph."
 
 ## 2. Core Business Feature Modules
 
@@ -51,7 +51,7 @@ Ensures the physical robustness of any R&D task:
 
 ### 2.4 Intelligent Security Guard & HITL Approval Gate
 
-MetaMach 1.0 adheres to a "safety first" principle, keeping AI within a secure institutional cage:
+MetaMach 0.1.0 adheres to a "safety first" principle, keeping AI within a secure institutional cage:
 
 - **Proactive High-Risk Command Interception:** When the AI attempts operations exceeding its qualification level (e.g., modifying critical system configuration files, executing high-risk deletion commands, or triggering hardware pin conflicts), the underlying proxy shell (`janus-sh`) intercepts at kernel level and forcibly suspends the task.
 - **Multi-Endpoint Approval (Teams / TUI):** When the security gate triggers, the Factory Director's **MS Teams / Telegram mobile** instantly receives a card with error scene context (containing cause, affected module, and `[Resume]` / `[Reject]` buttons). The Factory Director can remotely control the workshop assembly line start/stop with a mobile tap.

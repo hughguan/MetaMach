@@ -1,8 +1,8 @@
-# MetaMach 1.0 — Project Plan
+# MetaMach 0.1.0 — Project Plan
 
 > Milestone roadmap (M0–M4) of independently check-in-able, physically network-able factory units.
 
-This plan decomposes MetaMach 1.0's R&D and grid-connection process into **5 core milestone phases (M0–M4)**. Each milestone is sliced by "compilable, independently commit/check-in-able, 100% Immutable-vs-Mutable compliant" physical features or functional modules (Feature Units), with explicit physical verification methods to ensure the Richmond Hill workshop's grid-connection is seamless and steady.
+This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 core milestone phases (M0–M4)**. Each milestone is sliced by "compilable, independently commit/check-in-able, 100% Immutable-vs-Mutable compliant" physical features or functional modules (Feature Units), with explicit physical verification methods to ensure the Richmond Hill workshop's grid-connection is seamless and steady.
 
 ## Milestone Timeline
 
@@ -169,7 +169,7 @@ This plan decomposes MetaMach 1.0's R&D and grid-connection process into **5 cor
 
 ## Check-in Gates
 
-To keep MetaMach 1.0's repository history clean, every Check-in commit must pass the following CI/CD verification:
+To keep MetaMach 0.1.0's repository history clean, every Check-in commit must pass the following CI/CD verification:
 
 1. `cargo fmt --all -- --check` (100% format alignment)
 2. `cargo clippy --all-targets -- -D warnings` (100% static safety detection, zero warnings)

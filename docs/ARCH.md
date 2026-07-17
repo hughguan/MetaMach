@@ -1,4 +1,4 @@
-# MetaMach 1.0 — System Architecture
+# MetaMach 0.1.0 — System Architecture
 
 > A silicon-grade industrial production machine powered by Janus Daemon and distributed durable execution sessions.
 
@@ -6,7 +6,7 @@
 
 In the era of distributed AI co-development, traditional AI programming or agent scheduling is largely "stateless single-shot invocation." Under long-running, heavy-load, multi-station, cross-physical-host R&D scenarios, systems are highly vulnerable to process crashes from network jitter, API circuit-breakers, or context loss—fragmenting the development flow.
 
-**MetaMach 1.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), and **Blueprints** (product recipes):
+**MetaMach 0.1.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), and **Blueprints** (product recipes):
 
 - **Brain-as-a-Daemon (Janus Daemon) — Central Nervous System:** Core control flow and state transitions are entirely owned by the always-running background daemon **`janus-daemon`**, which holds an exclusive database connection pool and event listener gateway. The Herdr-side plugin is merely a lightweight shadow client (`herdr-janus`) dedicated to terminal rendering and interaction.
 
@@ -61,7 +61,7 @@ Product lines reside under `blueprints/`, maintaining absolute physical cleanlin
 
 ## 3. System Architecture Topology
 
-MetaMach 1.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
+MetaMach 0.1.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
 
 - **Control Plane:**
     - **`janus-daemon` (resident process):** Responsible for core logic scheduling, maintaining a persistent connection to Absurd Postgres, listening for external Teams/TG async messages. Also exposes the `progress` query primitive: aggregating real-time status from `absurd_tasks` JOIN `absurd_steps` plus Tether physical session liveness signals, serving as the sole authoritative data source for the workflow progress dashboard.

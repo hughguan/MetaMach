@@ -1,10 +1,10 @@
-# MetaMach 1.0 — Engineering Feature Specification
+# MetaMach 0.1.0 — Engineering Feature Specification
 
 > Cognitive scheduler, agent sandbox (janus-sh), durable workflows, data contracts, and fault matrix.
 
 ## 1. Module Architecture Overview
 
-Following Herdr 0.7.3 plugin specifications and the system's independent resident process design, MetaMach 1.0 software is composed of four core functional layers. This specification strictly adheres to the Immutable ROOT vs. Mutable State separation and pixel-level defines behavioral boundaries, data flows, and exception handling for each feature.
+Following Herdr 0.7.3 plugin specifications and the system's independent resident process design, MetaMach 0.1.0 software is composed of four core functional layers. This specification strictly adheres to the Immutable ROOT vs. Mutable State separation and pixel-level defines behavioral boundaries, data flows, and exception handling for each feature.
 
 ```
 +-----------------------------------------------------------------------------------------+

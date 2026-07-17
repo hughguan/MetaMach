@@ -1,4 +1,4 @@
-# MetaMach 1.0 — Review & Audit Standards
+# MetaMach 0.1.0 — Review & Audit Standards
 
 > Architecture walkthrough and audit criteria centered on design philosophy, ultimate security, system stability, and multi-dimensional disaster recovery.
 
@@ -6,7 +6,7 @@
 
 ## 1. Philosophy Alignment
 
-Before MetaMach 1.0 formally connects to the grid, the Architect and Factory Director must jointly conduct an **Architecture-Level Design Review**. This specification provides a set of rigorous, quantified audit criteria to prove that the system design can 100% defend the following four design pillars even under harsh physical environments and black-box AI vulnerabilities:
+Before MetaMach 0.1.0 formally connects to the grid, the Architect and Factory Director must jointly conduct an **Architecture-Level Design Review**. This specification provides a set of rigorous, quantified audit criteria to prove that the system design can 100% defend the following four design pillars even under harsh physical environments and black-box AI vulnerabilities:
 
 ```
 +-----------------------------------------------------------------------------------------+
@@ -136,7 +136,7 @@ The Factory Director and Architect must physically verify and sign off each item
 
 ## 4. UAT Final Approval
 
-This specification is physically verified by the **MetaMach 1.0 Architect** and the **Factory Director (End User)**. Sign-off is executed digitally via GPG-signed Git tag (`git tag -s v1.0-review-approved`) or GitHub PR approval workflow.
+This specification is physically verified by the **MetaMach 0.1.0 Architect** and the **Factory Director (End User)**. Sign-off is executed digitally via GPG-signed Git tag (`git tag -s v1.0-review-approved`) or GitHub PR approval workflow.
 
 Once sign-off is complete, the Richmond Hill workshop's distributed silicon leviathan formally ignites and connects to the grid.
 

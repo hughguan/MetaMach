@@ -1,8 +1,8 @@
-# MetaMach 1.0 — Deployment Specification
+# MetaMach 0.1.0 — Deployment Specification
 
 > Immutable/Mutable separation architecture, physical sandbox mounting, and unified database grid-connection guide.
 
-This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 1.0** production base on a local physical compute node (e.g., the Richmond Hill workshop server).
+This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 0.1.0** production base on a local physical compute node (e.g., the Richmond Hill workshop server).
 
 This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** separation and security red lines, providing system-level definition of physical directories, RAM disk mounting, database containers, and the one-click bootstrap process.
 
@@ -23,9 +23,9 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 > 
 > In scenarios where the remote physical target is behind strict air-gapped network isolation and cannot host Git credentials or establish a reverse connection to the Absurd Postgres database, the following **uni-directional stateless Diff pipeline** is recommended as an implementation pattern. This is a fallback for air-gapped targets; the primary cross-host transport is the **Task 2.4 herdr-tether** integration (bidirectional `remain-on-exit` PTY), used wherever the remote can sustain a Tether session.
 >
-> 1. When the local `janus-daemon` encounters a cross-host Step, it generates a `git diff <target_sha>` patch stream in memory - diffed against the **dispatch-pinned** `target_sha` (Contract 3.1), not a moving `HEAD`, so the patch matches the SHA the remote report echoes back as `dispatch_sha`.
-> 2. The patch is projected uni-directionally through an SSH pipe onto the remote host's `/tmp/sandbox`:
->    `git diff <target_sha> | ssh -i /dev/shm/ssh_key user@remote "patch -p1 -d /tmp/sandbox"`
+> 1. When the local `janus-daemon` encounters a cross-host Step, it generates a full source-tree snapshot at the dispatch-pinned `target_sha` (Contract 3.1) via `git archive`, ensuring the remote receives a complete, self-contained working tree — not just an incremental patch.
+> 2. The archive is projected uni-directionally through an SSH pipe onto the remote host's `/tmp/sandbox`:
+>    `git archive HEAD | ssh -i /dev/shm/ssh_key user@remote "mkdir -p /tmp/sandbox && tar xf - -C /tmp/sandbox"
 > 3. The remote host executes the build/test, then returns only a structured `result.json` (≤16KB) via SSH stdout to the local host for database ingestion.
 > 
 > This pattern keeps the remote target entirely stateless — no Git, no database, no persistent storage. All state reconciliation and audit commitments are performed locally by the Janus Daemon. This is a **recommended pattern**, not a mandatory spec contract; alternative transport mechanisms (NFS shared volumes, container volume mounts, pre-synced source trees) are equally valid as long as the remote target remains stateless.
@@ -135,7 +135,7 @@ fi
 
 ## 5. One-Command Bootstrap (Makefile)
 
-MetaMach 1.0 provides a highly simplified "one-command grid-connection" instruction. The Factory Director only needs to execute `make bootstrap` in the root directory; the system auto-completes environment validation, code compilation, directory creation, symlink mounting, and database initialization.
+MetaMach 0.1.0 provides a highly simplified "one-command grid-connection" instruction. The Factory Director only needs to execute `make bootstrap` in the root directory; the system auto-completes environment validation, code compilation, directory creation, symlink mounting, and database initialization.
 
 ### 5.1 Automation Master Switch: `Makefile`
 
@@ -153,7 +153,7 @@ all: bootstrap
 # 2. Supreme one-command bootstrap primitive
 bootstrap: symlinks compile db-up
 	@echo "================================================================="
-	@echo "🪐 MetaMach 1.0 successfully bootstrapped in Richmond Hill!"
+	@echo "🪐 MetaMach 0.1.0 successfully bootstrapped in Richmond Hill!"
 	@echo "🔌 Run 'prefix+j' inside Herdr to open Dispatcher Console."
 	@echo "================================================================="
 

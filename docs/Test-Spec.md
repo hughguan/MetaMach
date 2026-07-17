@@ -1,10 +1,10 @@
-# MetaMach 1.0 — Test Specification
+# MetaMach 0.1.0 — Test Specification
 
 > System-level quality assurance for the core scheduler, agent sandbox, and durable workflows.
 
 ## 1. Testing Strategy
 
-To guarantee MetaMach 1.0's high availability and strong anti-seismic, anti-blast capability, this test case design strictly follows three quality defense layers:
+To guarantee MetaMach 0.1.0's high availability and strong anti-seismic, anti-blast capability, this test case design strictly follows three quality defense layers:
 
 1. **Sandbox & Isolation Defense:** Validate 100% synchronous interception and redirection of high-risk commands and sensitive keys by `janus-sh` proxy interception and Tool Guard.
 2. **Durability & Self-Healing Defense:** Simulate extreme physical faults such as network timeouts and server power loss; validate `Tether (remain-on-exit)` process preservation and Absurd Postgres cold-start state reconciliation.
@@ -114,4 +114,4 @@ Before testing begins, verify the following three physical paths have no state c
     # Must exist when Daemon is running
     ```
 
-After executing all UAT physical reconciliation and stress fault tests per this specification, your **MetaMach 1.0** will possess truly "physically anti-blast, process-immortal, security-compliant, self-evolving" enterprise-grade quality endorsement.
+After executing all UAT physical reconciliation and stress fault tests per this specification, your **MetaMach 0.1.0** will possess truly "physically anti-blast, process-immortal, security-compliant, self-evolving" enterprise-grade quality endorsement.

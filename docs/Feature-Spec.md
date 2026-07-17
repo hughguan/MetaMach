@@ -44,9 +44,9 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 - **Description:** Provide a durable, self-healing multi-station pipeline engine combining the internalized `janus::tether` (physical session immortality) and the Absurd Postgres transaction engine (state checkpointing).
 
 - **Technical Spec:**
-    - **Task Lifecycle:** On dispatch, the Daemon creates an `absurd_tasks` row with `status = 'PENDING'`. Before the first Step begins, it transitions to `STARTING`. When the first Step starts executing, the task transitions to `RUNNING`. Terminal states are `COMPLETED`, `FAILED`, or `SUSPENDED`.
+    - **Task Lifecycle:** On dispatch, the Daemon creates a task via `absurd.spawn_task` with `status = 'PENDING'`. Before the first Step begins, it transitions to `STARTING`. When the first Step starts executing, the task transitions to `RUNNING`. Terminal states are `COMPLETED`, `FAILED`, or `SUSPENDED`.
     - **Step Lifecycle:** Each Step independently transitions through `PENDING → STARTING → RUNNING → COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (establishes tmux session, writes pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing in the tmux pane.
-    - **Multi-DB Fan-Out:** At dispatch, `janus-daemon` connects to the target blueprint's dedicated database (`metamach_blueprint_<name>`) and writes `absurd_tasks` and `absurd_steps` rows there. The global catalog DB (`metamach_db`) tracks only `blueprints` metadata and `absurd_audit_log` entries.
+    - **Multi-DB Fan-Out:** At dispatch, `janus-daemon` connects to the target blueprint's dedicated database (`metamach_blueprint_<name>`) and spawns a task via `absurd.spawn_task`, writes step checkpoints via `set_task_checkpoint_state`, and adds a `metamach_step_meta` overlay row per step. The global catalog DB (`metamach_db`) tracks only `blueprints` metadata and `absurd_audit_log` entries.
     - **janus::tether (Internalized):** Physical session management is handled by `janus::tether`, a native Rust module inside `janus-daemon`. It directly creates and manages tmux `remain-on-exit` sessions (socket `-L metamach-tether`) and cross-host SSH transport. The external `herdr-tether` plugin is deprecated and no longer required.
     - **Optimistic Locking (target_sha):** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` and sends it as `dispatch_sha` in the step payload. On remote report return, the Daemon compares `report.dispatch_sha == current HEAD` — a mismatch means `HEAD` advanced, so the report is stale: discard, mark `SUSPENDED`, emit `CONCURRENCY_RACE_ALERT`, and auto-reschedule. See Contract 3.1 and Contract 3.5 for the full payload contracts.
 
@@ -75,7 +75,7 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
     - **Offboard Trace Purge & Audit Archive:** When the Factory Director executes `janus offboard --blueprint <name>`:
         1. **Trace Extraction:** Daemon scans the blueprint's dedicated database, extracting all historical Task and Step execution traces and Tool Guard interception logs.
         2. **LLM Smelting (async):** Calls the configured LLM (see "Offboard LLM Integration Spec" below) to compress execution snapshots into `production_report.md`. When the LLM is unavailable, writes `production_report.raw.json` and logs `WARN` — does not block Offboard.
-        3. **DELETE + Audit Archive (8a):** The Daemon orchestrates a multi-DB sequence: (a) in the blueprint's dedicated database, `DELETE FROM absurd_steps` and `DELETE FROM absurd_tasks` for all rows belonging to this blueprint; (b) in the global catalog DB, `INSERT INTO absurd_audit_log` one row per offboarded task with full trace metadata (task_id, blueprint_name, workflow_name, step_count, elapsed_seconds, offboarded_at); (c) `UPDATE blueprints SET status = 'OFFBOARDED', offboarded_at = NOW() WHERE name = <name>`. The per-blueprint database is retained (not dropped) — schema and audit history survive for forensic review.
+        3. **DELETE + Audit Archive (8a):** The Daemon orchestrates a multi-DB sequence: (a) in the blueprint's dedicated database, call absurd `cleanup_tasks` to purge task/checkpoint data and `DELETE FROM metamach_step_meta` for the blueprint overlay rows; (b) in the global catalog DB, `INSERT INTO absurd_audit_log` one row per offboarded task with full trace metadata (task_id, blueprint_name, workflow_name, step_count, elapsed_seconds, offboarded_at); (c) `UPDATE blueprints SET status = 'OFFBOARDED', offboarded_at = NOW() WHERE name = <name>`. The per-blueprint database is retained (not dropped) — schema and audit history survive for forensic review.
         4. **Git Commit (8c):** Via the shadow client, invokes local Git to auto-incrementally commit and push `production_report.md`.
 
     - **Offboard LLM Integration Spec:** The LLM used for smelting is a configurable external dependency:
@@ -208,7 +208,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 {
   "active_tasks": [
     {
-      "task_id": 1042,
+      "task_id": "0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a",
       "blueprint_id": "gatemetric",
       "workflow_name": "dev-flow",
       "status": "RUNNING",
@@ -356,7 +356,7 @@ host = "remote"                    # References janus.toml [remote]; default = l
 toolset = ["bash-full", "ssh"]
 ```
 
-> Each `[[steps]]` declares at minimum `name`, `agent`, `toolset`; `command` is the concrete instruction executed at that station; `host` references the blueprint's `[remote]` for cross-host steps. The Daemon dispatches steps sequentially in array order, writing one `absurd_steps` Checkpoint per step.
+> Each `[[steps]]` declares at minimum `name`, `agent`, `toolset`; `command` is the concrete instruction executed at that station; `host` references the blueprint's `[remote]` for cross-host steps. The Daemon dispatches steps sequentially in array order, writing one checkpoint per step via `set_task_checkpoint_state` (plus a `metamach_step_meta` overlay row).
 
 ### Contract 3.9: Offboard Configuration Schema (`configs/offboard.toml`)
 
@@ -393,7 +393,7 @@ CREATE INDEX idx_fe_task ON fallback_events(task_id);
 CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 ```
 
-> Ring buffer: max 1000 entries or 50MB, whichever comes first; oldest entries evicted when limit reached. On PG recovery, batch Log Replay merges all `fallback_events` into the appropriate per-blueprint database's `absurd_steps` and truncates the ring buffer. `blueprint_name` is used to route replay to the correct per-blueprint database.
+> Ring buffer: max 1000 entries or 50MB, whichever comes first; oldest entries evicted when limit reached. On PG recovery, batch Log Replay replays `fallback_events` into absurd's checkpoint state (`set_task_checkpoint_state`) and the `metamach_step_meta` overlay in the appropriate per-blueprint database, then truncates the ring buffer. `blueprint_name` is used to route replay to the correct per-blueprint database.
 
 ## 4. UAT & Fault Matrix
 

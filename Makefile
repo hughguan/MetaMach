@@ -1,6 +1,6 @@
 # MetaMach 0.3.0 - Factory master switch (Deployment-Spec §5.1)
 #
-# Native PG, no Docker. janus-daemon --init-db launches PG and runs migrations.
+# Native PG, no Docker. make db-init launches PG and runs the catalog migration.
 # janus-daemon (M2), janus-sh (M3), and janus::tether (0.3.0) are picked up
 # automatically by `compile` as their binaries land.
 
@@ -68,7 +68,7 @@ compile:
 	done
 
 # 6. Initialize native Postgres (0.3.0: no Docker).
-#    janus-daemon --init-db launches PG, runs migrations.
+#    make db-init launches PG + catalog migration; per-blueprint migrations run on janus onboard.
 db-init:
 	@echo "🐘 Initializing native Postgres at $(METAMACH_DB_DIR)..."
 	@if [ ! -f $(METAMACH_DB_DIR)/PG_VERSION ]; then \
@@ -78,11 +78,8 @@ db-init:
 		pg_ctl -D $(METAMACH_DB_DIR) -l $(METAMACH_DB_DIR)/pg.log start; \
 		echo "   Creating metamach_db..."; \
 		createdb -h $(METAMACH_DB_DIR) -U metamach_admin metamach_db; \
-		echo "   Running migrations..."; \
-		for f in janus/migrations/*.sql; do \
-			psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f $$f; \
-			echo "   migrated $$(basename $$f)"; \
-		done; \
+		echo "   Running catalog migration (001_catalog.sql only)..."; \
+		psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql; \
 	else \
 		echo "   PG already initialized at $(METAMACH_DB_DIR)."; \
 		pg_ctl -D $(METAMACH_DB_DIR) -l $(METAMACH_DB_DIR)/pg.log start 2>/dev/null || echo "   (already running)"; \
@@ -109,11 +106,11 @@ db-restore:
 	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db < $(BACKUP_FILE)
 	@echo "✅ Restore complete."
 
-# 10. Run pending migrations (idempotent: 001_init_absurd.sql uses IF NOT EXISTS).
+# 10. Run catalog migration (idempotent: 001_catalog.sql uses IF NOT EXISTS).
 db-migrate:
-	@echo "🔄 Running pending migrations..."
-	@for f in janus/migrations/*.sql; do psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f $$f; done
-	@echo "✅ Migrations complete."
+	@echo "🔄 Running catalog migration (001_catalog.sql)..."
+	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql
+	@echo "✅ Catalog migration complete. Per-blueprint migrations (002_blueprint.sql) run on janus onboard."
 
 # 11. Health check (native PG liveness; Daemon socket).
 health:

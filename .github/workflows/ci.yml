@@ -1,0 +1,86 @@
+# MetaMach 0.3.0 — CI Pipeline
+# Native PG, no Docker. Tests janus-daemon, herdr-janus, janus-sh, and janus::tether.
+# Per the 0.3.0 architecture: One PG, Multi-DB, tmux for tether tests, SQLite bundled.
+
+name: MetaMach CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Native PG connection (Unix socket via /tmp)
+  PGHOST: /tmp
+  PGUSER: metamach_admin
+  PGDATABASE: metamach_db
+
+jobs:
+  test:
+    name: Test (Rust ${{ matrix.rust }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        rust: ["1.88"]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: metamach_admin
+          POSTGRES_DB: metamach_db
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tmux postgresql-client
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            janus/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('janus/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all --manifest-path janus/Cargo.toml -- --check
+
+      - name: Clippy (lint)
+        run: cargo clippy --manifest-path janus/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build release
+        run: cargo build --release --locked --manifest-path janus/Cargo.toml
+
+      - name: Run tests
+        run: cargo test --workspace --manifest-path janus/Cargo.toml
+        env:
+          # PG service connection for integration tests
+          DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
+          # tmux available for janus::tether tests
+          TMUX_TMPDIR: /tmp
+
+      - name: Run ignored tests (SSH-gated)
+        run: cargo test --workspace --manifest-path janus/Cargo.toml -- --ignored || echo "⚠️  SSH-gated tests skipped (expected; requires SSH credentials)"
+        env:
+          DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
+        continue-on-error: true

@@ -1,6 +1,8 @@
-# MetaMach 0.1.0 — Project Plan
+# MetaMach 0.1.0 - Project Plan
 
 > Milestone roadmap (M0–M4) of independently check-in-able, physically network-able factory units.
+>
+> **Governing architecture baseline:** This plan is aligned to the **0.3.0 consensus** (`docs/ARCH-0.3.0.md`): de-containerized host-native Postgres at `~/.metamach/db/`, One-PG-Multi-DB topology, internalized `janus::tether`, `DELETE` + global `absurd_audit_log` Offboard, retained SQLite fallback, Fail-Closed 30s interception, 16KB dual defense. Earlier 0.1.0/0.2.0 proposals (Docker, external `herdr-tether`, `DROP DATABASE`, `melt`/`VACUUM`-only Offboard) are **superseded**.
 
 This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 core milestone phases (M0–M4)**. Each milestone is sliced by "compilable, independently commit/check-in-able, 100% Immutable-vs-Mutable compliant" physical features or functional modules (Feature Units), with explicit physical verification methods to ensure the Richmond Hill workshop's grid-connection is seamless and steady.
 
@@ -17,7 +19,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 - **Status:** Complete. Validated against installed Herdr 0.7.3; contract documented in `docs/herdr-v1-contract.md` (version-controlled English source; `docs/CH/` is gitignored). PoC at `spike/herdr-hello-plugin/` (gitignored). **M1 Task 1.2 (Popup) green-lit.** Key corrections: popup placement is `overlay` (not `popup`); manifest has no `width`/`height`; Herdr injects `HERDR_PLUGIN_ROOT/CONFIG_DIR/STATE_DIR` + `HERDR_SOCKET_PATH`.
 
-- **Goal:** Before investing any MetaMach self-developed code, first verify that the Herdr 0.7.3 plugin SDK is genuinely usable, eliminating M1's largest unknown external dependency. M0 produces no MetaMach business code—only "contract validation evidence + minimal PoC plugin + Herdr 0.7.3 API interface memo."
+- **Goal:** Before investing any MetaMach self-developed code, first verify that the Herdr 0.7.3 plugin SDK is genuinely usable, eliminating M1's largest unknown external dependency. M0 produces no MetaMach business code-only "contract validation evidence + minimal PoC plugin + Herdr 0.7.3 API interface memo."
 
 - **Check-in-able directory structure:**
     `docs/herdr-v1-contract.md` (interface memo), `spike/herdr-hello-plugin/` (PoC plugin, gitignored)
@@ -37,23 +39,25 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - PoC plugin renders a `ratatui` Popup, captures keyboard focus, safely pops the stack on `Esc`.
     - Verify the Popup can communicate with a background process via UDS (proving the M2 `herdr-janus` ↔ `janus-daemon` pathway).
-- **UAT:** PoC plugin pops up on `prefix+j`, keyboard focus does not escape, `Esc` closes, UDS communication round-trip succeeds. If any item fails, M1 does not start—align contract with Herdr 0.7.3 upstream first.
+- **UAT:** PoC plugin pops up on `prefix+j`, keyboard focus does not escape, `Esc` closes, UDS communication round-trip succeeds. If any item fails, M1 does not start-align contract with Herdr 0.7.3 upstream first.
 
 ## Milestone 1: Infrastructure Grid-Connection & Shadow Shell (Immutable & Base)
 
-- **Goal:** Establish Immutable/Mutable directory separation, start Absurd Postgres container, get the lightweight shadow client Popup rendering.
+- **Goal:** Establish Immutable/Mutable directory separation, stand up the **host-native** Absurd Postgres cluster + global catalog DB (no Docker), and get the lightweight shadow client Popup rendering.
 
 - **Check-in-able directory structure:**
-    `janus/herdr-plugin.toml`, `janus/src/bin/herdr_janus.rs`, `docker-compose.yml`, `Makefile`
+    `janus/herdr-plugin.toml`, `janus/src/bin/herdr_janus.rs`, `Makefile` (native PG targets), `janus/migrations/` (catalog + blueprint split)
 
 ### Tasks
 
-#### Task 1.1: Absurd Postgres Container & Migrations Initialization (Check-in Unit 1)
-- **Description:** Write and commit `docker-compose.yml` and `janus/migrations/`.
+#### Task 1.1: Host-Native Absurd Postgres & Multi-DB Migrations (Check-in Unit 1)
+- **Description:** Stand up the de-containerized Postgres cluster and the split migration set (global catalog DB vs per-blueprint DB), per 0.3.0 §1.1/§1.4. No `docker-compose.yml`.
 - **Implementation:**
-    - Create `metamach_db` in Postgres; write `001_init_absurd.sql` initializing table structure (`blueprints`, `absurd_tasks`, `absurd_steps`).
-    - Configure the container to auto-mount and execute migration scripts on startup.
-- **UAT:** Run `docker compose up -d`; inside the container execute `\dt` to see all initialized database physical tables.
+    - **Single owner:** `janus-daemon` owns the PG lifecycle on first startup - `initdb -D ~/.metamach/db/`, `pg_ctl start`, role + random password persisted to `~/.metamach/db/.pgpass` (chmod 0600), and migration execution. The Makefile `db-up` target is a thin shim (initdb + `pg_ctl start`, or `janus-daemon --init-only`); it must NOT duplicate role/DB/migration logic. Use `--auth-local=scram-sha-256` (not `trust`); surface, never swallow, bootstrap errors.
+    - **Global catalog DB:** create one catalog database (e.g., `metamach`) holding the `blueprints` registry and the **global `absurd_audit_log`** table. Migration `001_catalog.sql` is applied at bootstrap.
+    - **Per-blueprint DB schema:** migration `002_blueprint.sql` defines `absurd_tasks`, `absurd_steps` (incl. `target_sha VARCHAR(64)`, `exit_code`, `started_at`, `result_cache`/`stdout_tail`) and is applied against `metamach_blueprint_<name>` on `janus onboard` (M4 Task 4.3). Cross-DB FKs to `blueprints(id)` are **dropped** (Postgres cannot enforce them across databases); `blueprint_name` is carried as a routing key, not a FK.
+    - **`fallback_events` (Contract 3.8):** add `blueprint_name` + `target_sha` columns so Log Replay can route events to the correct per-blueprint DB and preserve SHA-lock state across PG outages.
+- **UAT:** `make bootstrap` brings up native PG at `~/.metamach/db/` (no Docker); `psql -h ~/.metamach/db -d metamach -c '\dt'` shows `blueprints` + `absurd_audit_log`; `~/.metamach/db/.pgpass` is mode 0600.
 
 #### Task 1.2: Shadow Shell Popup & TUI Rendering (Check-in Unit 2)
 - **Description:** Write `herdr-plugin.toml` and implement `herdr_janus.rs` shadow client.
@@ -76,7 +80,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - Daemon binds UDS listener at `~/.local/state/.../janus.sock` on startup.
     - **Singleton File Lock (PID Lock):** Write current process PID to `~/.local/state/.../janus.pid`. If a second launch detects that file and the PID inside corresponds to a still-alive `janus-daemon` process, safely exit to prevent duplicate UDS binding (stale PID detection: if the PID is not alive, overwrite and start).
-    - When UDS receives a request, the Daemon queries Absurd Postgres's `blueprints` table and returns all `status = 'ACTIVE'` real blueprint lists to the client (`herdr-janus`)—no longer using Mock data (M1 already has the table; data can come from migration seeds or M4's `janus onboard`).
+    - When UDS receives a request, the Daemon queries Absurd Postgres's `blueprints` table and returns all `status = 'ACTIVE'` real blueprint lists to the client (`herdr-janus`)-no longer using Mock data (M1 already has the table; data can come from migration seeds or M4's `janus onboard`).
 
 #### Task 2.2: Shadow Client UDS Reconciliation & "Lazy-Start" (Check-in Unit 4)
 - **Description:** Refactor `herdr_janus.rs` to connect to the Daemon for data exchange with seamless self-healing startup.
@@ -91,20 +95,21 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - Daemon exposes `progress` UDS query: uses a read-only transaction to aggregate `absurd_tasks JOIN absurd_steps` (filtering non-terminal), overlaid with Tether `tmux has-session` liveness signals; returns the Contract 3.3-defined payload. This query uses an independent read-only channel, never contending with workflow write transactions.
     - `herdr-janus` Popup adds Progress view; `Tab` toggles between "Dispatch / Progress" views; Progress view polls `progress` at 1–2s cadence and renders using `ratatui` tables grouped by blueprint. `SUSPENDED` steps highlighted with `[A]ttach` / `[R]esume` entries.
     - Implement `janus status [--blueprint <name>] [--json]` CLI reusing the same `progress` primitive, outputting plain-text/JSON snapshots.
-- **UAT:** After dispatching a multi-step workflow, switch to Progress view; step states should progress with real execution within 2s (`PENDING -> RUNNING -> COMPLETED`); artificially trigger `SUSPENDED`—that row highlights within 1s. In an SSH environment, `janus status` should output an in-flight task snapshot consistent with the dashboard.
+- **UAT:** After dispatching a multi-step workflow, switch to Progress view; step states should progress with real execution within 2s (`PENDING -> RUNNING -> COMPLETED`); artificially trigger `SUSPENDED`-that row highlights within 1s. In an SSH environment, `janus status` should output an in-flight task snapshot consistent with the dashboard.
 
-> Note: This task lands the query and rendering skeleton in M2; the real Task/Step data it reads becomes progressively richer through M3 (janus-sh step execution) and M4 (cross-host workflows). M2 can use migration seed tasks to validate rendering.
+> Note: This task lands the query and rendering skeleton in M2; the real Task/Step data it reads becomes progressively richer through M3 (janus-sh step execution) and M4 (cross-host workflows). M2 can use migration seed tasks to validate rendering. **Multi-DB fan-out:** because `absurd_tasks`/`absurd_steps` live in per-blueprint DBs, the `progress` query must iterate each `metamach_blueprint_<name>` and union in Rust (a single `JOIN` cannot span databases). The Daemon sets `RUNNING` after returning the `ALLOW` verdict (Contract 3.4) so the dashboard can render the `STARTING -> RUNNING` transition.
 
-#### Task 2.4: Tether Engine External Dependency Fetch & Local Session Verification (Check-in Unit 4c)
-- **Description:** Integrate the external dependency `herdr-tether` (https://github.com/moneycaringcoder/herdr-tether) into the `make bootstrap` fetch/build flow, and validate that local tmux session primitives are available—pre-positioning for M3 (janus-sh testing inside Tether panes) and M4 (cross-host).
+#### Task 2.4: Tether Internalization - `janus::tether` Native Module (Check-in Unit 4c)
+- **Description:** Per 0.3.0 §2.4, migrate herdr-tether's core tmux session engine (~3,500 LOC: `DurableBackend` trait + `LifecycleService` + cold-start integration) into the native `janus::tether` Rust module inside `janus-daemon`. The external `herdr-tether` binary is **deprecated and no longer fetched**. New dependency: `thiserror`. Effort ~2 weeks (+~2,600 LOC tests).
 - **Implementation:**
-    - Add `tether` target in `make bootstrap`: fetch `herdr-tether` source via git submodule or cargo git dependency and `cargo build --release`; install the artifact to `${HERDR_PLUGIN_ROOT}/bin/herdr-tether`.
-    - Verify `herdr-tether open --command "sleep 100"` creates a persistent tmux session inside an independent tmux server (`tmux -L metamach-tether`) with per-session `remain-on-exit on` (no `-g` global flag; does not pollute the director's personal tmux).
-    - Verify `herdr-tether attach` can re-attach in milliseconds with scene preserved.
-- **UAT:** After `make bootstrap`, `herdr-tether open --command "sleep 100"` launches a session; force-close the foreground view; `tmux list-sessions` still shows `tether-janus-*` session alive; `herdr-tether attach` restores the scene in milliseconds.
+    - Port session create/attach/kill against an isolated tmux server `tmux -L metamach-tether`, with **per-session** `remain-on-exit on` (no `-g`; never pollutes the director's personal tmux).
+    - Expose the `janus tether open|attach|list` subcommand surface (define the subcommand table in ARCH §3 / Feature-Spec and cross-reference from Deployment-Spec §6.2).
+    - In-process signal linkage to Tool Guard (<1ms) replaces the prior ~5-15ms external UDS IPC path.
+- **UAT:** `janus tether open --command "sleep 100"` launches a session in `tmux -L metamach-tether`; force-close the foreground view; `tmux -L metamach-tether list-sessions` still shows `tether-janus-*` alive; `janus tether attach` restores the scene in milliseconds. No `herdr-tether` binary exists in the build.
+- **Note:** Landing `janus::tether` in M2 resolves the prior M3 dependency inversion - `janus-sh` (M3) can now be tested inside real Tether panes.
 
 #### Task 2.5: OpenWiki External Dependency Fetch & RAG Query Verification (Check-in Unit 4d)
-- **Description:** Integrate the external dependency OpenWiki (https://github.com/langchain-ai/openwiki) into the build flow, and connect the Daemon → OpenWiki RAG query chain—pre-positioning for M4 Offboard write-back and Agent onboarding retrieval.
+- **Description:** Integrate the external dependency OpenWiki (https://github.com/langchain-ai/openwiki) into the build flow, and connect the Daemon -> OpenWiki RAG query chain-pre-positioning for M4 Offboard write-back and Agent onboarding retrieval.
 - **Implementation:**
     - `make bootstrap` adds `openwiki` target: fetch/build OpenWiki engine; configure index scopes for `blueprints/<name>/openwiki/` and global `configs/global_rules.md`.
     - Daemon implements `openwiki_query` bypass: when an Agent encounters a code blind spot and initiates RAG retrieval, Daemon preferentially hits the Absurd Postgres-level cache (Git-SHA dedup); on miss, queries the OpenWiki engine.
@@ -131,47 +136,60 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - When the Daemon receives a command thrown by `janus-sh` (e.g., unauthorized network download, high-risk physical deletion, live financial order execution), it checks against `configs/agents.toml` qualification restrictions.
     - **Non-Destructive Suspension:** If the command is an unauthorized high-risk instruction, mark the state as `SUSPENDED`. The Daemon does not kill the underlying PTY, prevents `janus-sh` from dispatching downward, and simultaneously sends a card with a `[Resume]` button via Telegram (primary) / Teams (secondary) webhook.
+    - **Fail-Closed 30s Timeout (0.3.0 §2.1):** `janus-sh` synchronously blocks on UDS reconciliation with a 30s default threshold. If the Daemon is unreachable or the round-trip exceeds 30s, `janus-sh` returns an error to the Agent and **refuses execution** (never lets the command through); the PTY survives via `remain-on-exit` for director troubleshooting. SIGSTOP/SIGCONT alternatives are rejected.
 - **UAT:** In an Agent pane, first create a sentinel: `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`, then force-execute a blacklisted `rm -rf /tmp/metamach-test-guard-$(uuidgen)`; the terminal should instantly synchronously suspend (Remain-on-Exit), the sentinel survives, and the phone receives the approval card.
 
-## Milestone 4: Cross-Host Durability, Cold Self-Heal & Offboard Smelting (Advanced & Prune)
+## Milestone 4: Cross-Host Durability, Cold Self-Heal & Offboard Archive (Advanced & Prune)
 
-- **Goal:** Grid-connect Tether cross-host tmux, implement cold-start zero-state self-healing (abandon tmux-resurrect), and Offboard degradation smelting.
+- **Goal:** Grid-connect `janus::tether` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
 
 - **Check-in-able directory structure:**
-    `workflows/`, `blueprints/` (product recipes), `janus/src/bin/janus_daemon.rs` (supplement GC / Onboard / Offboard submodules)
+    `workflows/`, `blueprints/` (product recipes), `janus/src/bin/janus_daemon.rs` (supplement Onboard / Offboard / audit-archive / `target_sha` submodules), `janus/src/tether/` (internalized `janus::tether`)
 
 ### Tasks
 
-#### Task 4.1: Cross-Host Tether tmux Driver & Cold-Start Self-Healing (Check-in Unit 7)
-- **Description:** Implement cross-host SOP session driving and power-loss restart self-healing.
+#### Task 4.1: Cross-Host `janus::tether` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7)
+- **Description:** Drive cross-host SOP sessions through the internalized `janus::tether`, implement cold-start zero-state self-heal (no tmux-resurrect), and the degraded-mode SQLite fallback + Log Replay per 0.3.0 §1.2/§2.4.
 - **Implementation:**
-    - When a Workflow executes to the next Step, if a remote compilation server is declared, the Daemon automatically calls local `herdr-tether` to inject the Payload environment variables into the remote via SSH.
-    - **Cold-Start Reconciliation:** After Daemon starts, it scans Absurd Postgres. If there are unfinished tasks (`RUNNING`), it directly reads the last `COMPLETED` `result_cache` JSON. It assigns a new Tether Session UUID and re-runs the task in the background, seamlessly picking up at the breakpoint.
-- **UAT:** During a heavy compilation, artificially `docker compose stop` Postgres and kill the Daemon. After restart, the Daemon should reconstruct the scene from the database Step cache within 0.5s and seamlessly resume.
+    - When a Workflow Step declares a remote compilation server, the Daemon drives the internal `janus::tether` module (not an external binary) to inject the payload env via SSH into a `remain-on-exit` remote session.
+    - **Cold-Start Reconciliation:** on Daemon start, scan each `metamach_blueprint_<name>` DB for non-terminal tasks; read the last `COMPLETED` `result_cache`, assign a fresh Tether Session UUID, and resume at the breakpoint.
+    - **SQLite Log Replay:** while PG is unreachable, step transitions write to `${HERDR_PLUGIN_STATE_DIR}/fallback.db` (ring buffer, tagged with `blueprint_name`); on PG recovery, the Daemon replays and merges events into the correct per-blueprint DB with zero loss.
+- **UAT:** During a heavy compile, stop native PG (`pg_ctl stop -D ~/.metamach/db/`, NOT `docker compose stop`) and kill the Daemon; dispatch a step during the outage (writes to `fallback.db`); restart PG + Daemon; the Daemon reconstructs from the last `COMPLETED` checkpoint within 0.5s and replays `fallback.db` with no state loss.
 
-#### Task 4.2: Offboard Degradation Smelter (Melt DB Cache) (Check-in Unit 8)
-- **Description:** Implement the `janus offboard` command.
+#### Task 4.2: Offboard Trace Purge & Audit Archive (Check-in Units 8a/8b/8c)
+- **Description:** Implement `janus offboard --blueprint <name>` per 0.3.0 §1.3: LLM-smelt `production_report.md`, then `DELETE` `result_cache` and **archive** traces/interception/sign-off logs to the global `absurd_audit_log` (NOT `DROP DATABASE`, NOT a `melt`/`VACUUM`-only step). Split into three check-in units per Project-Plan-Review §2.3.
 - **Implementation:**
-    - On Offboard, auto-scan the database, package that Blueprint's historical Step errors and Tool Guard interception logs.
-    - Call the configured LLM to summarize them into high-density Markdown, writing to `./blueprints/<name>/openwiki/production_report.md`.
-    - **PG Auto-Degradation (Pruning):** Call stored procedure `melt_blueprint_data` to completely physically wipe the corresponding Steps' `result_cache` large JSON from the primary database, preserving only metadata statistics for audit, achieving database anti-bloat compaction.
-- **UAT:** For a product that has accumulated significant compilation logs, execute `janus offboard --blueprint gatemetric`; locally successfully commit and push a `production_report.md` to the Git remote; the PG database physical volume undergoes a cliff-like contraction.
+    - **8a - Audit Archive + DELETE:** Daemon-orchestrated multi-DB sequence (a single stored proc cannot span DBs): from `metamach_blueprint_<name>`, archive Step traces + Tool Guard interception logs + three-party sign-off records into the global `absurd_audit_log` (catalog DB), then `DELETE` the `result_cache` large JSONs. The per-blueprint database is **retained** (not dropped). Rename the legacy `melt_blueprint_data` proc to `offboard_blueprint_data`, scoped to the per-blueprint DB only.
+    - **8b - LLM Smelt:** per `configs/offboard.toml` (Contract TBD: endpoint, `api_key_env`, model, `max_input_tokens`), summarize the archived trace into high-density Markdown -> `blueprints/<name>/openwiki/production_report.md`. 120s timeout; on failure write `production_report.raw.json` fallback. Async; Offboard returns immediately.
+    - **8c - Git Commit:** additively commit `production_report.md` to the blueprint Git repo (no `--amend`, no history rewrite per ARCH §2.2C design decision); push with configured credentials.
+- **UAT:** For a product with heavy logs, `janus offboard --blueprint gatemetric` => (a) `absurd_audit_log` gains the archived rows; (b) `SELECT datname FROM pg_database WHERE datname='metamach_blueprint_gatemetric'` still returns a row (DB not dropped); (c) `production_report.md` is additively committed; (d) per-blueprint `result_cache` JSONs are gone.
 
-#### Task 4.3: Blueprint Onboard & Tenant Registration (Check-in Unit 8b)
-- **Description:** Implement the `janus onboard --blueprint <name>` command, completing the Onboard-side lifecycle closed loop symmetric with Offboard.
+#### Task 4.3: Blueprint Onboard & Multi-DB Tenant Registration (Check-in Unit 8d)
+- **Description:** Implement `janus onboard --blueprint <name>` per 0.3.0 §1.4 (Multi-DB baseline), symmetric with Offboard.
 - **Implementation:**
-    - Read and validate `blueprints/<name>/janus.toml` (required fields + `workflows/<default_workflow>.toml` existence); clear error on validation failure with no database write.
-    - Execute pre-ignition self-checks: Absurd Postgres reachable, tmux ready; for cross-host blueprints, best-effort SSH connectivity probe against `[remote].host` (unreachable only `WARN`).
-    - **Idempotent Tenant Registration:** `INSERT … ON CONFLICT (name) DO UPDATE` write `blueprints` row (`status='ACTIVE'`, `config`, `openwiki_scope`, `remote_host`, `onboarded_at`). Re-onboarding an already `OFFBOARDED` blueprint reactivates it.
-    - **Knowledge Graph Loading & Experience Inheritance:** Index `blueprints/<name>/openwiki/`; if prior `production_report.md` exists, parse its structured blocks and inject as `## Previous Incidents` few-shot into that blueprint's Agent System Prompt template.
-    - After onboarding is ready, broadcast `blueprint_registered` event via UDS; Popup dispatch menu instantly refreshes.
-- **UAT:** On a clean workshop with zero product lines, execute `janus onboard --blueprint joyrobots`; the `blueprints` table gains one `ACTIVE` row and the Popup menu instantly shows the product; repeated execution has no side effect (idempotent). For an already Offboarded blueprint, re-Onboard and verify its `production_report.md` is recycled into the next-generation Agent's System Prompt.
+    - Read/validate `blueprints/<name>/janus.toml` + `workflows/<default_workflow>.toml` existence; validate blueprint name (charset + length <= 44 bytes, to fit `metamach_blueprint_<name>` within the Postgres 63-byte identifier limit).
+    - Pre-ignition checks: catalog DB reachable, `janus::tether`/tmux ready; best-effort SSH probe for cross-host blueprints (unreachable = `WARN` only).
+    - **Multi-DB tenant registration:** `CREATE DATABASE metamach_blueprint_<name>` (catch SQLSTATE 42P04 => idempotent success; standard PG has no `CREATE DATABASE IF NOT EXISTS`), run `002_blueprint.sql` against it, and `INSERT ... ON CONFLICT (name) DO UPDATE` a `status='ACTIVE'` row in the **global catalog** `blueprints` table. Because `CREATE DATABASE` cannot run inside a transaction, wrap post-create steps in compensation: on any failure after the DB is created, `DROP DATABASE` to avoid a half-activated state.
+    - **Knowledge inheritance:** index `blueprints/<name>/openwiki/`; if a prior `production_report.md` exists, inject key patterns as `## Previous Incidents` few-shot into the Agent System Prompt.
+    - Broadcast `blueprint_registered` UDS event; Popup dispatch menu refreshes.
+- **UAT:** On a clean workshop, `janus onboard --blueprint joyrobots` => `SELECT datname FROM pg_database WHERE datname='metamach_blueprint_joyrobots'` returns a row; the catalog `blueprints` table has one `ACTIVE` row; the Popup menu shows it; repeated Onboard is idempotent (42P04 caught); re-Onboard of an Offboarded blueprint recycles `production_report.md`.
+
+#### Task 4.4: `target_sha` Optimistic Locking Enforcement (Check-in Unit 8e)
+- **Description:** Enforce Git-SHA optimistic locking on remote step reports per ARCH §6.5 / Feature-Spec, closing the race where a slow remote report overwrites locally-evolved code. (Schema/migration is preparatory from M1 Task 1.1; this task lands enforcement.)
+- **Implementation:**
+    - Define the Daemon -> `janus::tether` **dispatch payload** and the **remote step-report payload** contracts (each carries `dispatch_sha`/`target_sha`, `execution_id`, `exit_code`, `stdout_tail`) - currently absent from Contracts 3.2/3.4.
+    - On dispatch, pin `HEAD` into `absurd_steps.target_sha` (all-zeros sentinel = non-git blueprint, skip the lock); echo `dispatch_sha` in the report.
+    - On report return, compare `report.dispatch_sha == current HEAD`; mismatch => discard the stale report, mark the step `SUSPENDED`, emit `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule by writing a **new** `absurd_tasks` row against the new `HEAD` (the `UPDATE ... WHERE target_sha = $4` guard zeroes out for stale pre-reschedule reports).
+- **UAT:** Dispatch a step with `target_sha=X`; mutate the underlying git ref to `Y`; submit a report with stale `dispatch_sha=X`; the Daemon rejects it (SHA-mismatch), marks `SUSPENDED`, fires `CONCURRENCY_RACE_ALERT`, and a fresh dispatch against `Y` succeeds.
+- **Note:** ARCH §6.5 and Feature-Spec cite "Task 2.4" for this enforcement; that cross-reference is stale (Task 2.4 is now Tether Internalization) and should point here (Task 4.4).
 
 ## Check-in Gates
 
-To keep MetaMach 0.1.0's repository history clean, every Check-in commit must pass the following CI/CD verification:
+To keep the repository history clean, every Check-in commit must pass the following CI/CD verification:
 
 1. `cargo fmt --all -- --check` (100% format alignment)
 2. `cargo clippy --all-targets -- -D warnings` (100% static safety detection, zero warnings)
 3. `cargo test --workspace` (100% local fallback DB & transaction unit tests passing)
-4. Inspect committed files; strictly prohibit accidentally committing any plaintext keys, `.env` files, or local `janus.sock` to Git.
+4. **Regression:** all UAT validations from prior milestones still pass (no M4 regression breaks M1-M3).
+5. **0.3.0 baseline hygiene:** the commit introduces no `docker-compose.yml`, no `docker compose` invocations, no `herdr-tether` external binary fetch, and no `melt_blueprint_data`/`DROP DATABASE` Offboard path.
+6. Inspect committed files; strictly prohibit accidentally committing any plaintext keys, `.env` files, or local `janus.sock`/`~/.metamach/db/` to Git.

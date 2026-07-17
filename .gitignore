@@ -13,3 +13,9 @@ metamach_backup_*.sql
 *.sock
 *.pid
 .db_password
+
+# 0.3.0: native PG data dir (never commit host PG data)
+~/.metamach/db/
+
+# 0.3.0: SQLite fallback ring buffer (degraded mode)
+fallback.db

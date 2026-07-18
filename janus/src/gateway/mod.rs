@@ -30,7 +30,7 @@ use tracing::{info, warn};
 
 use base64::Engine as _;
 
-use crate::protocol::{GatewayVerdict, HITL_TIMEOUT_SECS, WebhookPayload};
+use crate::protocol::{GatewayVerdict, WebhookPayload, hitl_timeout_secs};
 
 // Re-export the 0.3.0 sender adapters so the gateway assembles them as channels.
 // (§VI moves TelegramSender/LoggingSender into the gateway's orbit; for 0.4.0 we
@@ -81,17 +81,6 @@ pub enum GatewayError {
     Timeout,
     #[error("invalid callback signature")]
     AuthFailed,
-}
-
-/// HITL default verdict window, in seconds (env `JANUS_HITL_TIMEOUT_SECS`;
-/// default [`HITL_TIMEOUT_SECS`] = 30 min). One unified deadline (§5.3):
-/// `expires_at` on the outbound card AND the `await_verdict` blocking timeout.
-fn hitl_secs() -> i64 {
-    std::env::var("JANUS_HITL_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse::<i64>().ok())
-        .filter(|s| *s > 0)
-        .unwrap_or(HITL_TIMEOUT_SECS)
 }
 
 /// In-flight verdict registry entry, keyed by `correlation_id` (== Hermes `run_id`).
@@ -266,11 +255,18 @@ impl Gateway {
             entry.resolved = true;
             entry.tx.take()
         };
-        // 4. Deliver the verdict (outside the lock).
+        // 4. Deliver the verdict (outside the lock). If the receiver is gone the
+        // awaiter already timed out (the race window before the spawned task
+        // removes the entry) - the verdict is undeliverable, so drop the dead
+        // entry and return 410 Gone rather than a false 200.
         let verdict = action_to_verdict(action);
-        if let Some(tx) = tx {
-            // Err means the awaiter already timed out and dropped its receiver.
-            let _ = tx.send(verdict.clone());
+        let delivered = match tx {
+            Some(tx) => tx.send(verdict).is_ok(),
+            None => false,
+        };
+        if !delivered {
+            self.pending.lock().expect("pending mutex").remove(run_id);
+            return CallbackStatus::Gone;
         }
         CallbackStatus::Resolved
     }
@@ -303,7 +299,7 @@ impl Gateway {
 impl HitlGateway for Gateway {
     fn dispatch(&self, payload: &WebhookPayload) -> Result<(), GatewayError> {
         let cid = payload.correlation_id.clone();
-        let secs = hitl_secs();
+        let secs = hitl_timeout_secs();
         let expires_at = Utc::now() + chrono::Duration::seconds(secs);
         let (tx, rx) = oneshot::channel();
         {
@@ -350,7 +346,14 @@ impl HitlGateway for Gateway {
                         sink.on_verdict(&cid_task, &blueprint, task_id, &step, &v);
                     }
                 }
-                Err(e) => warn!(cid = %cid_task, error = %e, "HITL verdict timed out / errored"),
+                Err(e) => {
+                    warn!(cid = %cid_task, error = %e, "HITL verdict timed out / errored");
+                    // Remove the dead entry: prevents a slow leak (no callback
+                    // ever arrived) and ensures a late callback returns 410 Gone
+                    // rather than a false 200 (the awaiter already gave up and
+                    // dropped its receiver).
+                    pending.lock().expect("pending mutex").remove(&cid_task);
+                }
             }
         });
         Ok(())
@@ -745,5 +748,46 @@ mod tests {
             gw.resolve_callback("never-existed", br#"{"action":"approve"}"#, None),
             CallbackStatus::Gone
         ));
+    }
+
+    #[test]
+    fn resolve_callback_gone_when_awaiter_timed_out() {
+        // P1 race-fix: the awaiter took rx + timed out (rx dropped) but the entry
+        // still lingers (the spawned task hasn't removed it yet). A late callback
+        // must NOT return a false 200 - `tx.send` fails (receiver gone), so the
+        // undeliverable verdict is treated as 410 Gone and the dead entry is
+        // removed.
+        let gw = gw(vec![]);
+        let (tx, rx) = oneshot::channel();
+        gw.pending.lock().unwrap().insert(
+            "cid-race".into(),
+            PendingVerdict {
+                tx: Some(tx),
+                rx: Some(rx),
+                blueprint: "bp".into(),
+                task_id: None,
+                step: "s".into(),
+                expires_at: Utc::now() + chrono::Duration::seconds(3600),
+                resolved: false,
+            },
+        );
+        // Simulate the awaiter taking + dropping rx (timeout).
+        let rx = gw
+            .pending
+            .lock()
+            .unwrap()
+            .get_mut("cid-race")
+            .unwrap()
+            .rx
+            .take()
+            .unwrap();
+        drop(rx);
+        // Late callback: tx.send fails (receiver gone) -> Gone, not Resolved.
+        assert!(matches!(
+            gw.resolve_callback("cid-race", br#"{"action":"approve"}"#, None),
+            CallbackStatus::Gone
+        ));
+        // Dead entry removed (no leak, no false-200 on a further duplicate).
+        assert!(!gw.pending.lock().unwrap().contains_key("cid-race"));
     }
 }

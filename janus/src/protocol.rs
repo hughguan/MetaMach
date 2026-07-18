@@ -148,6 +148,20 @@ pub fn truncate_16k(s: &str) -> String {
 /// gets `Err(Timeout)` -> BLOCK.
 pub const HITL_TIMEOUT_SECS: i64 = 1800;
 
+/// The HITL verdict window in seconds, from `JANUS_HITL_TIMEOUT_SECS` (must be
+/// positive; falls back to [`HITL_TIMEOUT_SECS`] = 30 min). **Single source of
+/// truth** shared by [`WebhookPayload::build`] (`expires_at`) and the gateway's
+/// `await_verdict` timeout - so the two can never drift (e.g. a malformed
+/// `JANUS_HITL_TIMEOUT_SECS=0` no longer makes the card instantly expire while
+/// the awaiter blocks for 30 min).
+pub fn hitl_timeout_secs() -> i64 {
+    std::env::var("JANUS_HITL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(HITL_TIMEOUT_SECS)
+}
+
 /// Abstract HITL card (Feature-Spec §2.4; ARCH-0.4.0 §5.4 enriched). The Daemon
 /// constructs this; the gateway + each adapter translate it into a native format.
 /// `scene` is the 0.3.0 field (kept as a legacy alias); `stdout_tail` is the 0.4.0
@@ -191,10 +205,7 @@ impl WebhookPayload {
         } else {
             scene_src
         };
-        let secs = std::env::var("JANUS_HITL_TIMEOUT_SECS")
-            .ok()
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(HITL_TIMEOUT_SECS);
+        let secs = hitl_timeout_secs();
         let expires_at = (Utc::now() + chrono::Duration::seconds(secs)).to_rfc3339();
         Self {
             task_id,

@@ -269,6 +269,35 @@ impl AbsurdDb {
         }
     }
 
+    /// 0.4.0: record a resolved HITL verdict on the suspended step's overlay row
+    /// (Contract 4.3c). `verdict` is `APPROVED` / `REJECTED` / `OVERRIDDEN` -
+    /// written to the `hitl_verdict` column (migration 003) so the M4 resume loop
+    /// can read it. Falls back to a fallback event if the blueprint DB (or the
+    /// column, pre-migration) is unavailable, so a recording failure never panics
+    /// the gateway's verdict thread.
+    pub async fn record_hitl_resolution(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+        verdict: &str,
+    ) -> Result<()> {
+        if let Some(pool) = self.blueprint_pool(blueprint).await? {
+            sqlx::query(
+                "UPDATE metamach_step_meta SET hitl_verdict = $3 \
+                 WHERE task_id = $1 AND step_name = $2",
+            )
+            .bind(task_id)
+            .bind(step_name)
+            .bind(verdict)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        } else {
+            self.record_fallback_event(task_id, step_name, verdict, None)
+        }
+    }
+
     /// Task 4.3: idempotent tenant registration (Feature-Spec §2.5.3). Catalog DB
     /// only - the per-blueprint DB + absurd queue are created by `janus onboard`
     /// (M4 Task 4.3). Returns `true` if an existing row was reactivated.

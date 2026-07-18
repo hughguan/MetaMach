@@ -9,6 +9,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::absurd::{AbsurdDb, StepTrace};
+use crate::cognitive;
 use crate::recipe;
 
 // --- Offboard LLM config (configs/offboard.toml, Feature-Spec §2.5) ----------
@@ -230,6 +231,11 @@ pub async fn offboard(
     // call is blocking (up to timeout_seconds), so run it off the async worker.
     let (report, llm_used) = smelt_async(&traces, name, cfg).await;
 
+    // 0.4.0 Contract 4.1: append a CognitiveProvider's knowledge artifact as a
+    // supplement (never replaces the LLM smelt). Fail-open: provider errors /
+    // no provider configured -> report unchanged.
+    let report = cognitive_supplement(&report, name, repo_root).await;
+
     let openwiki_dir = repo_root.join("blueprints").join(name).join("openwiki");
     std::fs::create_dir_all(&openwiki_dir).context("create openwiki dir")?;
     let report_path = openwiki_dir.join("production_report.md");
@@ -257,6 +263,38 @@ pub async fn offboard(
         git,
         llm_used,
     })
+}
+
+/// 0.4.0 Contract 4.1: append a CognitiveProvider's `extract_knowledge` artifact
+/// to the LLM-smelt report as a supplement (never a replacement). Blueprints
+/// without a `[cognitive]` section get a `NoopProvider` (empty string) -> no-op.
+/// Any error (no recipe, provider failure, join error) is fail-open: the report
+/// is returned unchanged.
+async fn cognitive_supplement(report: &str, name: &str, repo_root: &Path) -> String {
+    let provider = match recipe::load_recipe(name, repo_root) {
+        Ok(r) => cognitive::load_for_blueprint(&r),
+        Err(e) => {
+            warn!("cognitive: load_recipe for {name} failed ({e}); no supplement");
+            return report.to_string();
+        }
+    };
+    let name_owned = name.to_string();
+    let supplement =
+        tokio::task::spawn_blocking(move || provider.extract_knowledge(&name_owned)).await;
+    match supplement {
+        Ok(Ok(text)) if !text.trim().is_empty() => {
+            format!("{report}\n\n## Cognitive Provider Summary\n\n{text}\n")
+        }
+        Ok(Ok(_)) => report.to_string(), // empty supplement (NoopProvider)
+        Ok(Err(e)) => {
+            warn!("cognitive extract_knowledge for {name} failed ({e}); report unchanged");
+            report.to_string()
+        }
+        Err(e) => {
+            warn!("cognitive extract_knowledge join error for {name} ({e}); report unchanged");
+            report.to_string()
+        }
+    }
 }
 
 async fn smelt_async(traces: &[StepTrace], name: &str, cfg: &OffboardConfig) -> (String, bool) {

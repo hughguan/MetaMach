@@ -187,6 +187,17 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     })
 }
 
+/// Read + parse `blueprints/<name>/janus.toml` into a [`BlueprintRecipe`] (no
+/// workflow validation). Used by the 0.4.0 cognitive check + offboard to load
+/// the `[cognitive]` config without re-validating the bound workflow on every
+/// command. Cheaper than [`validate`] for the per-command advisory path.
+pub fn load_recipe(name: &str, repo_root: &Path) -> Result<BlueprintRecipe> {
+    let recipe_path = repo_root.join("blueprints").join(name).join("janus.toml");
+    let config_text = std::fs::read_to_string(&recipe_path)
+        .with_context(|| format!("read blueprint recipe {}", recipe_path.display()))?;
+    toml::from_str(&config_text).with_context(|| format!("parse {}", recipe_path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

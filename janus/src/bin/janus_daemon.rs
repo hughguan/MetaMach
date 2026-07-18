@@ -21,10 +21,13 @@ use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 
 use janus::absurd::AbsurdDb;
+use janus::cognitive;
+use janus::gateway::{self, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
-use janus::protocol::{Request, Response};
-use janus::tool_guard::Engine;
-use janus::{coldstart, lifecycle};
+use janus::protocol::{GatewayVerdict, Request, Response};
+use janus::tool_guard::webhook::{LoggingSender, TelegramSender};
+use janus::tool_guard::{Engine, Verdict, VerdictKind};
+use janus::{coldstart, lifecycle, recipe};
 use sqlx::postgres::PgConnectOptions;
 
 fn main() -> Result<()> {
@@ -84,6 +87,32 @@ async fn run() -> Result<()> {
     let engine = Arc::new(Engine::load(&agents_path));
     info!("tool guard rules: {}", agents_path.display());
 
+    // 0.4.0: construct the HITL gateway + spawn its loopback HTTP callback
+    // listener (§5.1b). Channels: Logging (always fires, audit) + Telegram +
+    // Teams (env-gated internally). HMAC secret + listen port from env.
+    let channels: Vec<Arc<dyn gateway::HitlChannel>> = vec![
+        Arc::new(LoggingSender::new(
+            paths::state_dir().join("webhook_cards.log"),
+        )),
+        Arc::new(TelegramSender),
+        Arc::new(gateway::TeamsSender),
+    ];
+    let hmac_secret = std::env::var("JANUS_TEAMS_HMAC_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(String::into_bytes);
+    let listen_port = std::env::var("JANUS_GATEWAY_LISTEN_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(gateway::DEFAULT_LISTEN_PORT);
+    let gateway = Arc::new(Gateway::new(
+        channels,
+        hmac_secret,
+        listen_port,
+        Arc::new(DbVerdictSink { db: db.clone() }),
+    ));
+    tokio::spawn(gateway.clone().spawn_listener());
+
     let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
@@ -92,7 +121,8 @@ async fn run() -> Result<()> {
                     let db = db.clone();
                     let engine = engine.clone();
                     let repo_root = repo_root.clone();
-                    tokio::spawn(handle_conn(stream, db, engine, repo_root));
+                    let gateway = gateway.clone();
+                    tokio::spawn(handle_conn(stream, db, engine, repo_root, gateway));
                 }
                 Err(e) => warn!("accept error: {e}"),
             },
@@ -110,6 +140,7 @@ async fn handle_conn(
     db: Arc<AbsurdDb>,
     engine: Arc<Engine>,
     repo_root: Arc<PathBuf>,
+    gateway: Arc<Gateway>,
 ) {
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
@@ -122,7 +153,7 @@ async fn handle_conn(
         return; // liveness probe / peer closed without sending - not an error
     }
     let resp = match serde_json::from_str::<Request>(trimmed) {
-        Ok(req) => handle_request(req, db, &engine, &repo_root).await,
+        Ok(req) => handle_request(req, db, &engine, &repo_root, gateway).await,
         Err(e) => {
             warn!("bad request ({e}): {trimmed:?}");
             Response::Error {
@@ -141,6 +172,7 @@ async fn handle_request(
     db: Arc<AbsurdDb>,
     engine: &Engine,
     repo_root: &Path,
+    gateway: Arc<Gateway>,
 ) -> Response {
     match req {
         Request::Ping => Response::Pong,
@@ -164,14 +196,36 @@ async fn handle_request(
             blueprint_id,
             task_id,
             step_name,
+            cwd,
             argv,
             env_snapshot,
-            ..
         } => {
             let verdict = engine.evaluate(&execution_id, &argv, &env_snapshot);
-            // Non-destructive HITL suspension + webhook for dangerous blocks
-            // (Feature-Spec §2.4). Fired in the background so the BLOCK verdict
-            // returns to janush immediately (fail-closed, no PTY kill).
+
+            // 0.4.0 Contract 4.1: cognitive advisory check. Runs only when a
+            // blueprint is identified + a provider is configured; bounded at 2s;
+            // pass-through on no-opinion/timeout/error. A Some(reason) escalates
+            // the verdict to BLOCK with cause "cognitive" (a hard deny - no HITL
+            // card, unlike require_approval).
+            let cognitive_context = match &blueprint_id {
+                Some(bp) => cognitive_check(repo_root, bp, &argv, cwd.as_deref()).await,
+                None => None,
+            };
+            let verdict = if let Some(ref ctx) = cognitive_context {
+                Verdict {
+                    kind: VerdictKind::Block,
+                    reason: Some(ctx.clone()),
+                    rewritten_argv: None,
+                    correlation_id: verdict.correlation_id,
+                    cause: Some("cognitive".to_string()),
+                }
+            } else {
+                verdict
+            };
+
+            // Non-destructive HITL suspension + gateway dispatch for dangerous
+            // blocks (Feature-Spec §2.4). Fired in the background so the BLOCK
+            // verdict returns to janush immediately (fail-closed, no PTY kill).
             if matches!(
                 verdict.cause.as_deref(),
                 Some("blacklist") | Some("require_approval")
@@ -191,16 +245,18 @@ async fn handle_request(
                 let sn = step_name;
                 let tid = task_id;
                 let bp = blueprint_id;
+                let gateway = gateway.clone();
                 tokio::spawn(async move {
                     if let (Some(bp), Some(tid), Some(sn)) = (bp, tid, sn.as_deref())
                         && let Err(e) = db.suspend_step(&bp, tid, sn, &reason).await
                     {
                         warn!("suspend_step failed: {e}");
                     }
-                    let _ = tokio::task::spawn_blocking(move || {
-                        janus::tool_guard::webhook::dispatch(&payload);
-                    })
-                    .await;
+                    // 0.4.0: dispatch via the HITL gateway (non-blocking; spawns
+                    // its own verdict thread). Replaces webhook::dispatch.
+                    if let Err(e) = gateway.dispatch(&payload) {
+                        warn!("gateway dispatch failed: {e}");
+                    }
                 });
             }
             Response::GuardVerdict {
@@ -209,7 +265,7 @@ async fn handle_request(
                 reason: verdict.reason,
                 rewritten_argv: verdict.rewritten_argv,
                 correlation_id: verdict.correlation_id,
-                cognitive_context: None,
+                cognitive_context,
             }
         }
         // M4 Task 4.3: Onboard (Feature-Spec §2.5).
@@ -245,6 +301,93 @@ async fn handle_request(
                 },
             }
         }
+    }
+}
+
+/// 0.4.0 Contract 4.1: run the blueprint's cognitive provider's
+/// `validate_command` with a 2s hard timeout (§III). Returns the BLOCK reason,
+/// or `None` on no-opinion / timeout / error (advisory pass-through - the
+/// standard Tool Guard verdict proceeds). Blocking provider IPC runs on
+/// `spawn_blocking`; `NoopProvider` (no `[cognitive]` section) returns `None`
+/// immediately.
+async fn cognitive_check(
+    repo_root: &Path,
+    blueprint: &str,
+    argv: &[String],
+    cwd: Option<&str>,
+) -> Option<String> {
+    let recipe = match recipe::load_recipe(blueprint, repo_root) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("cognitive: load_recipe for {blueprint} failed ({e}); pass-through");
+            return None;
+        }
+    };
+    let provider = cognitive::load_for_blueprint(&recipe);
+    let blueprint = blueprint.to_string();
+    let argv = argv.to_vec();
+    let cwd = cwd.map(String::from);
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::task::spawn_blocking(move || {
+            provider.validate_command(&blueprint, &argv, cwd.as_deref())
+        }),
+    )
+    .await;
+    match result {
+        Ok(Ok(Ok(Some(reason)))) => Some(reason),
+        Ok(Ok(Ok(None))) => None, // no opinion -> pass-through
+        Ok(Ok(Err(e))) => {
+            warn!("cognitive validate_command failed ({e}); pass-through");
+            None
+        }
+        Ok(Err(e)) => {
+            warn!("cognitive task join error ({e}); pass-through");
+            None
+        }
+        Err(_) => {
+            warn!("cognitive validate_command timed out (2s); pass-through");
+            None
+        }
+    }
+}
+
+/// 0.4.0: [`VerdictSink`] that durably records a resolved HITL verdict on the
+/// suspended step's overlay row (`hitl_verdict` column, migration 003). The
+/// gateway itself stays payload-complete (no DB); this sink is the seam the
+/// daemon wires. The DB write is spawned so it never blocks the verdict thread.
+struct DbVerdictSink {
+    db: Arc<AbsurdDb>,
+}
+
+impl VerdictSink for DbVerdictSink {
+    fn on_verdict(
+        &self,
+        _correlation_id: &str,
+        blueprint: &str,
+        task_id: Option<uuid::Uuid>,
+        step: &str,
+        verdict: &GatewayVerdict,
+    ) {
+        let Some(tid) = task_id else {
+            return;
+        };
+        let verdict_str = match verdict {
+            GatewayVerdict::Approve => "APPROVED",
+            GatewayVerdict::Reject => "REJECTED",
+            GatewayVerdict::Override { .. } => "OVERRIDDEN",
+        };
+        let db = self.db.clone();
+        let blueprint = blueprint.to_string();
+        let step = step.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = db
+                .record_hitl_resolution(&blueprint, tid, &step, verdict_str)
+                .await
+            {
+                warn!("record_hitl_resolution failed: {e}");
+            }
+        });
     }
 }
 

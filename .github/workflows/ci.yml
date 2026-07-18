@@ -1,6 +1,6 @@
 # MetaMach 0.3.0 — CI Pipeline
-# Native PG, no Docker. Tests janus-daemon, herdr-janus, janush, and janus::tether.
-# Per the 0.3.0 architecture: One PG, Multi-DB, tmux for tether tests, SQLite bundled.
+# Native PG, no Docker. Tests janus-daemon, herdr-janus, janush, and janus::tmux.
+# Per the 0.4.0 architecture: One PG, Multi-DB, tmux for session tests, SQLite bundled.
 
 name: MetaMach CI
 
@@ -51,6 +51,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -76,7 +77,7 @@ jobs:
         env:
           # PG service connection for integration tests
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
-          # tmux available for janus::tether tests
+          # tmux available for janus::tmux tests
           TMUX_TMPDIR: /tmp
 
       - name: Run ignored tests (SSH-gated)

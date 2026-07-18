@@ -175,12 +175,26 @@ impl Gateway {
         }
     }
 
-    /// Bind the loopback HTTP callback listener (§5.1b). Spawns a background
-    /// task per the daemon's tokio runtime; run via `tokio::spawn(gw.spawn_listener())`.
-    pub async fn spawn_listener(self: Arc<Self>) -> std::io::Result<()> {
+    /// Bind the loopback HTTP callback listener (§5.1b) and return the bound
+    /// address + the accept-loop task handle. The daemon awaits the handle;
+    /// tests use the address to POST callbacks (binding port `0` yields an
+    /// ephemeral port).
+    pub async fn bind_listener(
+        self: Arc<Self>,
+    ) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
         let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.listen_port).parse().unwrap();
         let listener = TcpListener::bind(addr).await?;
-        info!(%addr, "HITL gateway callback listener bound");
+        let bound = listener.local_addr()?;
+        info!(%bound, "HITL gateway callback listener bound");
+        let me = self.clone();
+        let handle = tokio::spawn(async move {
+            me.accept_loop(listener).await;
+        });
+        Ok((bound, handle))
+    }
+
+    /// Run the accept loop forever (one spawned task per connection).
+    async fn accept_loop(self: Arc<Self>, listener: TcpListener) {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
@@ -192,6 +206,14 @@ impl Gateway {
                 Err(e) => warn!("gateway accept error: {e}"),
             }
         }
+    }
+
+    /// Convenience: bind + run the accept loop (the daemon's `tokio::spawn`
+    /// entry point).
+    pub async fn spawn_listener(self: Arc<Self>) -> std::io::Result<()> {
+        let (_, handle) = self.bind_listener().await?;
+        let _ = handle.await;
+        Ok(())
     }
 
     /// Read + validate one inbound callback, returning the HTTP status to write.

@@ -452,6 +452,24 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn cognitive_supplement_noop_when_no_provider() {
+        // UTC-10-08 (fail-open side): a blueprint with no [cognitive] section
+        // gets a NoopProvider (empty extract_knowledge) -> the LLM smelt report
+        // is returned unchanged (the supplement is never a replacement).
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("blueprints").join("x")).unwrap();
+        std::fs::write(
+            root.join("blueprints").join("x").join("janus.toml"),
+            "[blueprint]\nname = \"x\"\ndefault_workflow = \"y\"\n[openwiki]\nscope = [\"s\"]\n",
+        )
+        .unwrap();
+        let report = "# Report\n\nLLM smelt output.\n";
+        let out = cognitive_supplement(report, "x", root).await;
+        assert_eq!(out, report, "no provider configured -> report unchanged");
+    }
+
     #[test]
     fn parse_incidents_extracts_bullets_with_marker() {
         let report = r#"

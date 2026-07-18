@@ -98,7 +98,7 @@ pub trait CognitiveProvider: Send + Sync {
     /// On Offboard, produce a condensed knowledge artifact for the blueprint.
     /// The returned string is written to `production_report.md` **in addition
     /// to** (not replacing) the existing LLM smelt output from `lifecycle::offboard()`.
-    /// This is a supplement, not a substitute — the LLM smelt path (Contract 3.9)
+    /// This is a supplement, not a substitute — the LLM smelt path (Feature-Spec §2.5, Offboard LLM Integration Spec)
     /// remains the primary report generator.
     fn extract_knowledge(
         &self,
@@ -114,6 +114,11 @@ pub enum CognitiveError {
     Timeout,
 }
 ```
+
+**0.4.0 delta refinements (from the baseline CognitiveProvider draft):**
+- `extract_knowledge` signature simplified: dropped the `task_history: &[TaskSummary]` parameter (the provider can read the blueprint DB directly if needed); now takes only `&self` + `blueprint: &str`.
+- `CognitiveError::Internal` variant removed — all provider errors are either `Unreachable` (connection/startup failure) or `Timeout` (query exceeded deadline). Internal provider errors are the provider's own responsibility to handle.
+- `validate_command` timeout tightened from 5s to 2s (the cognitive check is advisory, not gating; a shorter timeout keeps the Tool Guard verdict path fast).
 
 **Design invariants:**
 
@@ -195,7 +200,7 @@ The gateway includes a built-in HTTP listener (`tokio::net::TcpListener`) that b
 
 - **Recommended (development/CI):** cloudflared tunnel (`cloudflared tunnel --url http://127.0.0.1:8443`)
 - **Recommended (production):** nginx/Caddy reverse proxy with Let's Encrypt TLS termination
-- **Documented in:** `docs/Deployment-Spec.md` §7 (new "Gateway Ingress" section, to be added)
+- **Documented in:** `docs/Deployment-Spec.md` §7 (Gateway Ingress — to be added as part of the 0.4.0 implementation)
 
 The tunnel/proxy is a **deployment prerequisite**, not part of the daemon binary. The daemon itself never handles TLS or exposes a public port — it only binds to loopback.
 
@@ -247,10 +252,11 @@ The `TeamsSender` adapter translates the enriched `WebhookPayload` into an Adapt
 ```rust
 /// Contract 4.3c — HITL Gateway dispatch trait.
 pub trait HitlGateway: Send + Sync {
-    /// Dispatch a HITL card to all configured channels. Returns the
-    /// correlation_id used to match the inbound callback.
+    /// Dispatch a HITL card to all configured channels. Returns
+    /// `Ok(())` on success; the `correlation_id` is already in
+    /// `payload.correlation_id` (the gateway never mints it).
     /// Non-blocking: spawns a verdict thread and returns immediately.
-    fn dispatch(&self, payload: &WebhookPayload) -> Result<String, GatewayError>;
+    fn dispatch(&self, payload: &WebhookPayload) -> Result<(), GatewayError>;
 
     /// Block until a verdict arrives for the given correlation_id, or
     /// until the timeout expires (fail-closed: timeout = BLOCK).
@@ -299,13 +305,14 @@ pub struct WebhookPayload {
     pub cause: String,
     pub command: String,
     pub reason: String,
-    pub scene: String,                 // 16KB-truncated; maps to Hermes stdout_tail
+    pub scene: String,                 // 16KB-truncated; legacy alias for stdout_tail
     pub resume_key: String,            // "metamach-resume:{correlation_id}"
 
     // 0.4.0 enrichment for Hermes / Teams adapter
     pub blueprint: String,             // owning blueprint name
     pub step: String,                  // current step name
-    pub stdout_tail: String,           // alias for scene (Hermes naming)
+    pub stdout_tail: String,           // 16KB-truncated; canonical field (Hermes naming);
+                                       // always equal to `scene` at construction
     pub expires_at: String,            // ISO 8601; now + HITL_TIMEOUT
 }
 ```

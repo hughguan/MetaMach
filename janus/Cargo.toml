@@ -3,11 +3,11 @@ name = "janus"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
-description = "MetaMach 0.3.0 Janus core: daemon, Herdr shadow client, proxy shell, tether engine"
+description = "MetaMach 0.3.0 Janus core: daemon, Herdr shadow client, proxy shell, tmux engine"
 license = "MIT"
 publish = false
 
-# 0.3.0 adds janus::tether (internalized from herdr-tether) and thiserror for error types.
+# 0.3.0 adds janus::tmux (internalized from herdr-tether) and thiserror for error types.
 # The shared library (src/lib.rs) backs all four binaries.
 
 [[bin]]

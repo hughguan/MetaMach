@@ -1,13 +1,13 @@
-//! `janus::tether` - physical execution engine (0.3.0 §2.4).
+//! `janus::tmux` - physical execution engine (0.3.0 §2.4).
 //!
 //! Internalized from the external herdr-tether plugin: the core tmux session
 //! lifecycle (create / attach / kill / inspect) against an isolated tmux server
-//! (`tmux -L metamach-tether`), with per-session `remain-on-exit on` so physical
+//! (`tmux -L metamach-tmux`), with per-session `remain-on-exit on` so physical
 //! sessions survive process exit, SSH drop, or frontend destruction (ARCH §6.1).
 //! In-process signal linkage to Tool Guard (<1ms) replaces the prior external
 //! UDS IPC path. Cross-host SSH transport and checkpoint-driven restart land with
 //! M4 workflow execution; this module delivers the local session core + the
-//! `janus tether open|attach|list` CLI (Project-Plan Task 2.4).
+//! `janus tmux open|attach|list` CLI (Project-Plan Task 2.4).
 
 pub mod lifecycle;
 
@@ -18,10 +18,10 @@ use anyhow::{Context, Result, bail};
 use thiserror::Error;
 
 /// Isolated tmux server socket name (never pollutes the director's personal tmux).
-pub const TMUX_SOCKET: &str = "metamach-tether";
+pub const TMUX_SOCKET: &str = "metamach-tmux";
 
-/// Session name prefix per ARCH §4 sequence (`tether-janus-task-<uuid>`).
-pub const SESSION_PREFIX: &str = "tether-janus-task-";
+/// Session name prefix per ARCH §4 sequence (`tmux-janus-task-<uuid>`).
+pub const SESSION_PREFIX: &str = "tmux-janus-task-";
 
 /// A tmux session identity (the `-t` target). Newtyped so it is never confused
 /// with the absurd `task_id` UUID, which seeds the name but is not the tmux target.
@@ -34,7 +34,7 @@ impl SessionId {
         Self(name)
     }
 
-    /// Mint a fresh session id for a new task dispatch: `tether-janus-task-<uuid>`.
+    /// Mint a fresh session id for a new task dispatch: `tmux-janus-task-<uuid>`.
     pub fn new_for_task(task_uuid: &str) -> Self {
         Self(format!("{SESSION_PREFIX}{task_uuid}"))
     }
@@ -67,9 +67,9 @@ pub trait DurableBackend: Send + Sync {
     fn capture_pane(&self, id: &SessionId) -> Result<String>;
 }
 
-/// Errors specific to the tether engine.
+/// Errors specific to the tmux engine.
 #[derive(Debug, Error)]
-pub enum TetherError {
+pub enum TmuxError {
     #[error("tmux binary not found on PATH (install tmux 3.3+)")]
     TmuxNotFound,
     #[error("session {0} not found")]
@@ -78,21 +78,21 @@ pub enum TetherError {
     Command(String),
 }
 
-/// Production backend: drives a real `tmux -L metamach-tether` server.
+/// Production backend: drives a real `tmux -L metamach-tmux` server.
 #[derive(Clone, Debug)]
-pub struct TetherBackend {
+pub struct TmuxBackend {
     tmux: PathBuf,
 }
 
-impl Default for TetherBackend {
+impl Default for TmuxBackend {
     /// Delegates to `new()` so callers never get a non-functional backend with an
-    /// empty path (which would immediately fail with `TetherError::TmuxNotFound`).
+    /// empty path (which would immediately fail with `TmuxError::TmuxNotFound`).
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl TetherBackend {
+impl TmuxBackend {
     /// Resolve the tmux binary (PATH lookup with fallback to standard dirs).
     pub fn new() -> Self {
         Self {
@@ -100,7 +100,7 @@ impl TetherBackend {
         }
     }
 
-    /// Build a `tmux -L metamach-tether ...` command.
+    /// Build a `tmux -L metamach-tmux ...` command.
     fn tmux_cmd(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(&self.tmux);
         cmd.args(["-L", TMUX_SOCKET]);
@@ -111,7 +111,7 @@ impl TetherBackend {
     /// Run a tmux control command and capture its output.
     fn run(&self, args: &[&str]) -> Result<Output> {
         if self.tmux.as_os_str().is_empty() {
-            bail!(TetherError::TmuxNotFound);
+            bail!(TmuxError::TmuxNotFound);
         }
         self.tmux_cmd(args)
             .output()
@@ -119,7 +119,7 @@ impl TetherBackend {
     }
 }
 
-impl DurableBackend for TetherBackend {
+impl DurableBackend for TmuxBackend {
     fn create_session(&self, id: &SessionId, command: &str, cwd: Option<&Path>) -> Result<()> {
         // Create the session with a placeholder shell FIRST, then set
         // remain-on-exit, then respawn the pane with the real workload. This
@@ -134,24 +134,24 @@ impl DurableBackend for TetherBackend {
         }
         let out = self.run(&args)?;
         if !out.status.success() {
-            bail!(TetherError::Command(lossy_stderr(&out)));
+            bail!(TmuxError::Command(lossy_stderr(&out)));
         }
         let out = self.run(&["set-option", "-t", id.as_str(), "remain-on-exit", "on"])?;
         if !out.status.success() {
-            bail!(TetherError::Command(lossy_stderr(&out)));
+            bail!(TmuxError::Command(lossy_stderr(&out)));
         }
         // Replace the placeholder shell with the workload. With remain-on-exit
         // now on, the pane survives the workload's exit (ARCH §6.1 invariant).
         let out = self.run(&["respawn-pane", "-t", id.as_str(), "-k", command])?;
         if !out.status.success() {
-            bail!(TetherError::Command(lossy_stderr(&out)));
+            bail!(TmuxError::Command(lossy_stderr(&out)));
         }
         Ok(())
     }
 
     fn attach(&self, id: &SessionId) -> Result<()> {
         if !self.has_session(id)? {
-            bail!(TetherError::NotFound(id.as_str().to_string()));
+            bail!(TmuxError::NotFound(id.as_str().to_string()));
         }
         // attach-session inherits the caller's TTY (foreground, blocks until detach).
         let mut cmd = self.tmux_cmd(&["attach-session", "-t", id.as_str()]);
@@ -160,7 +160,7 @@ impl DurableBackend for TetherBackend {
             .stderr(Stdio::inherit());
         let status = cmd.status().context("spawn tmux attach")?;
         if !status.success() {
-            bail!(TetherError::Command(format!("attach exited {status}")));
+            bail!(TmuxError::Command(format!("attach exited {status}")));
         }
         Ok(())
     }
@@ -198,7 +198,7 @@ impl DurableBackend for TetherBackend {
         // without this check, callers would silently get an empty string and
         // misinterpret it as "no output yet" rather than "session missing".
         if !out.status.success() {
-            bail!(TetherError::Command(lossy_stderr(&out)));
+            bail!(TmuxError::Command(lossy_stderr(&out)));
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
@@ -271,7 +271,7 @@ mod tests {
         }
         fn attach(&self, id: &SessionId) -> Result<()> {
             if !self.has_session(id)? {
-                bail!(TetherError::NotFound(id.as_str().to_string()));
+                bail!(TmuxError::NotFound(id.as_str().to_string()));
             }
             Ok(())
         }
@@ -295,7 +295,7 @@ mod tests {
         let id = SessionId::new_for_task("0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a");
         assert_eq!(
             id.as_str(),
-            "tether-janus-task-0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a"
+            "tmux-janus-task-0190b2c1-7d1a-7b3c-912a-4f6c8d2e4f6a"
         );
     }
 

@@ -1,12 +1,12 @@
-//! Tether integration tests against a real `tmux -L metamach-tether` server.
+//! tmux integration tests against a real `tmux -L metamach-tmux` server.
 //!
 //! Skipped automatically when tmux is not on PATH (CI installs tmux 3.3+;
-//! dev machines without tmux still get the lib unit tests in `tether/mod.rs`).
+//! dev machines without tmux still get the lib unit tests in `tmux/mod.rs`).
 
 use std::process::Command;
 use std::time::Duration;
 
-use janus::tether::{DurableBackend, SessionId, TMUX_SOCKET, TetherBackend};
+use janus::tmux::{DurableBackend, SessionId, TMUX_SOCKET, TmuxBackend};
 
 fn tmux_available() -> bool {
     Command::new("tmux")
@@ -28,8 +28,8 @@ fn create_persists_and_lists() {
         eprintln!("skip: tmux not installed");
         return;
     }
-    let backend = TetherBackend::new();
-    let id = SessionId::from_name("tether-janus-it-create".into());
+    let backend = TmuxBackend::new();
+    let id = SessionId::from_name("tmux-janus-it-create".into());
     cleanup(&id);
     backend
         .create_session(&id, "sleep 100", None)
@@ -52,8 +52,8 @@ fn kill_removes_session() {
         eprintln!("skip: tmux not installed");
         return;
     }
-    let backend = TetherBackend::new();
-    let id = SessionId::from_name("tether-janus-it-kill".into());
+    let backend = TmuxBackend::new();
+    let id = SessionId::from_name("tmux-janus-it-kill".into());
     cleanup(&id);
     backend.create_session(&id, "sleep 100", None).unwrap();
     backend.kill_session(&id).unwrap();
@@ -66,13 +66,13 @@ fn kill_removes_session() {
 #[test]
 fn remain_on_exit_survives_process_exit() {
     // UAT (Project-Plan Task 2.4): a session whose command exits must stay alive
-    // (remain-on-exit on, set per-session by TetherBackend).
+    // (remain-on-exit on, set per-session by TmuxBackend).
     if !tmux_available() {
         eprintln!("skip: tmux not installed");
         return;
     }
-    let backend = TetherBackend::new();
-    let id = SessionId::from_name("tether-janus-it-roe".into());
+    let backend = TmuxBackend::new();
+    let id = SessionId::from_name("tmux-janus-it-roe".into());
     cleanup(&id);
     backend.create_session(&id, "true", None).unwrap();
     // Give the short-lived command time to exit, then verify the pane survived.
@@ -90,17 +90,14 @@ fn capture_pane_returns_text() {
         eprintln!("skip: tmux not installed");
         return;
     }
-    let backend = TetherBackend::new();
-    let id = SessionId::from_name("tether-janus-it-capture".into());
+    let backend = TmuxBackend::new();
+    let id = SessionId::from_name("tmux-janus-it-capture".into());
     cleanup(&id);
     backend
-        .create_session(&id, "echo tether-marker; sleep 100", None)
+        .create_session(&id, "echo tmux-marker; sleep 100", None)
         .unwrap();
     std::thread::sleep(Duration::from_millis(300));
     let pane = backend.capture_pane(&id).unwrap();
-    assert!(
-        pane.contains("tether-marker"),
-        "marker not in pane: {pane:?}"
-    );
+    assert!(pane.contains("tmux-marker"), "marker not in pane: {pane:?}");
     cleanup(&id);
 }

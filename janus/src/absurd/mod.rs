@@ -12,7 +12,7 @@
 //! needs (status, exit_code, stdout_tail, started_at, target_sha) without dynamic
 //! SQL or a `list_tasks` absurd function (M0.5 spike F1). Absurd's write-side
 //! functions (`spawn_task`/`set_task_checkpoint_state`/`cleanup_tasks`) are called
-//! by the workflow engine (M2.4 tether + M4); this module is the read/audit path.
+//! by the workflow engine (M2.4 tmux + M4); this module is the read/audit path.
 
 pub mod fallback;
 
@@ -206,7 +206,7 @@ impl AbsurdDb {
                     started_at: started_at.map(|s| s.to_rfc3339()),
                     elapsed_seconds: elapsed,
                     current_step,
-                    tether_alive: false, // Tether liveness lands with Task 2.4.
+                    tmux_alive: false, // Tether liveness lands with Task 2.4.
                     suspended_reason: if suspended {
                         Some("awaiting HITL".to_string())
                     } else {

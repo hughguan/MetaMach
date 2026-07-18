@@ -11,8 +11,8 @@ MetaMach 0.1.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as is
 - **🧠 Brain-as-a-Daemon (Janus Daemon)**  
   The control plane is a standalone Rust daemon (`janus-daemon`) that owns the entire state machine, database connection pool, and event gateway. The Herdr plugin runs as a lightweight shadow client (`herdr-janus`) responsible only for rendering and interaction—UI crashes never lose engineering context.
 
-- **🔌 Cross-Host Session Durability (Tether Engine — In Migration)**
-  All physical agent execution sessions are backed by `remain-on-exit` tmux sessions. The engine is migrating from the external `herdr-tether` v0.3.0 plugin into a native `janus::tether` Rust module (~3,500 LOC port, ~2,600 LOC tests). Once internalized, tmux sessions survive frontend popup destruction (SIGHUP immunity) and operate at microsecond-level IPC latency. See `spike/herdr-tether-migration-evaluation.md` for the full evaluation.
+- **🔌 Cross-Host Session Durability (tmux Engine — In Migration)**
+  All physical agent execution sessions are backed by `remain-on-exit` tmux sessions. The engine is migrating from the external `herdr-tether` v0.3.0 plugin into a native `janus::tmux` Rust module (~3,500 LOC port, ~2,600 LOC tests). Once internalized, tmux sessions survive frontend popup destruction (SIGHUP immunity) and operate at microsecond-level IPC latency. See `spike/herdr-tether-migration-evaluation.md` for the full evaluation.
 
 - **🛡️ Durable Workflows & HITL (Self-Healing)**
   Workflow state is transactional and atomic. When an AI hits a blocking failure (compile error, permission denied), the pipeline auto-suspends, preserves the terminal live, and signals a **Human-in-the-Loop** approval via Telegram/Teams. Resume at the exact breakpoint.
@@ -122,10 +122,10 @@ The 0.3.0 baseline (`docs/ARCH-0.3.0.md`) is the final arbitration of two rounds
 | Retain SQLite Fallback ring buffer | ✅ Force-Retained | Workshop must "run degraded" during PG outage |
 | `DROP DATABASE` physical shredding | ❌ Rejected | Destroys audit trail; DELETE + `absurd_audit_log` archiving instead |
 | One PG, Multi-DB topology | ✅ Adopted | Independent connection pools, zero cross-blueprint lock contention |
-| Tether Internalization | ✅ Adopted | 4 physical requirements: survival autonomy, durability, IPC latency, single-binary |
+| tmux Internalization | ✅ Adopted | 4 physical requirements: survival autonomy, durability, IPC latency, single-binary |
 | Fail-Closed 30s Timeout | ✅ Force-Retained | SIGSTOP/SIGCONT rejected; existing Feature-Spec 2.2 design |
 
-See `docs/ARCH-0.3.0.md` for full details and `spike/herdr-tether-migration-evaluation.md` for the tether internalization plan.
+See `docs/ARCH-0.3.0.md` for full details and `spike/herdr-tether-migration-evaluation.md` for the tmux internalization plan.
 
 ## 🧪 Current Test Coverage
 
@@ -141,7 +141,7 @@ See `docs/ARCH-0.3.0.md` for full details and `spike/herdr-tether-migration-eval
 - `UTC-02-04`: UDS fuzz/rate-limit tests not yet written
 - `UTC-04-02`: Telegram callback polling not wired
 - `UTC-04-03`: Teams adapter not implemented (LoggingSender fallback only)
-- `UTC-03-02/05`: Cross-host & concurrent workflow — blocked until tether internalization
+- `UTC-03-02/05`: Cross-host & concurrent workflow — blocked until tmux internalization
 - `UTC-07-xx`: No benchmark harness exists
 
 ## 🚀 CI/CD Status

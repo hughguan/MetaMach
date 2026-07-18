@@ -12,7 +12,7 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 |-----------|----------------|---------|--------|
 | **OS** | Linux / macOS | POSIX-compatible environment & UDS support | `uname -a` |
 | **Rust Toolchain** | Rust 1.88+ (Edition 2024) | Compile `janus-daemon`, `herdr-janus`, `janush` | `rustc --version` |
-| **Tmux** | Tmux 3.3+ | Physical carrier for Tether PTY session immortality | `tmux -V` |
+| **Tmux** | Tmux 3.3+ | Physical carrier for tmux PTY session immortality | `tmux -V` |
 | **PostgreSQL** | PG 15+ | Native host Postgres instance (no Docker); managed by `janus-daemon` on first startup | `psql --version` |
 | **Python** | 3.11+ | `absurdctl` CLI (applies `absurd.sql` to each per-blueprint DB on Onboard); absurd engine install | `python3 --version` |
 
@@ -24,7 +24,7 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 
 > 💡 **Uni-Directional Stateless Deployment Pattern (Non-Normative Note for Remote Targets)**
 > 
-> In scenarios where the remote physical target is behind strict air-gapped network isolation and cannot host Git credentials or establish a reverse connection to the Absurd Postgres database, the following **uni-directional stateless Diff pipeline** is recommended as an implementation pattern. This is a fallback for air-gapped targets; the primary cross-host transport is the internal `janus::tether` module (bidirectional `remain-on-exit` PTY), used wherever the remote can sustain a Tether session.
+> In scenarios where the remote physical target is behind strict air-gapped network isolation and cannot host Git credentials or establish a reverse connection to the Absurd Postgres database, the following **uni-directional stateless Diff pipeline** is recommended as an implementation pattern. This is a fallback for air-gapped targets; the primary cross-host transport is the internal `janus::tmux` module (bidirectional `remain-on-exit` PTY), used wherever the remote can sustain a tmux session.
 >
 > 1. When the local `janus-daemon` encounters a cross-host Step, it generates a full source-tree snapshot at the dispatch-pinned `target_sha` (Contract 3.1) via `git archive`, ensuring the remote receives a complete, self-contained working tree — not just an incremental patch.
 > 2. The archive is projected uni-directionally through an SSH pipe onto the remote host's `/tmp/sandbox`:
@@ -249,11 +249,11 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
 
 ### Step 6.2: Verify `remain-on-exit` Process Immortality
 
-1. Execute `janus tether open --command "sleep 100"` to launch a background physical process via the internal Tether module.
+1. Execute `janus tmux open --command "sleep 100"` to launch a background physical process via the internal tmux module.
 2. Force-close the Herdr foreground view window, or directly execute `killall -9 herdr` on the host.
 3. Run `tmux list-sessions` in a system terminal.
 
-- **Pass:** The background still clearly shows a tmux session named `tether-janus-task-<uuid>` in active running state. Re-enter Herdr and execute `janus tether attach`; scene restores 100% in milliseconds.
+- **Pass:** The background still clearly shows a tmux session named `tmux-janus-task-<uuid>` in active running state. Re-enter Herdr and execute `janus tmux attach`; scene restores 100% in milliseconds.
 
 ### Step 6.3: Verify Cold-Start Self-Healing
 

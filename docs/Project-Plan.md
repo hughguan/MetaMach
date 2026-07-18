@@ -2,7 +2,7 @@
 
 > Milestone roadmap (M0–M4) of independently check-in-able, physically network-able factory units.
 >
-> **Governing architecture baseline:** This plan is aligned to the **0.3.0 consensus** (`docs/ARCH-0.3.0.md`): de-containerized host-native Postgres at `~/.metamach/db/`, One-PG-Multi-DB topology, internalized `janus::tether`, `DELETE` + global `absurd_audit_log` Offboard, retained SQLite fallback, Fail-Closed 30s interception, 16KB dual defense. Earlier 0.1.0/0.2.0 proposals (Docker, external `herdr-tether`, `DROP DATABASE`, `melt`/`VACUUM`-only Offboard) are **superseded**.
+> **Governing architecture baseline:** This plan is aligned to the **0.3.0 consensus** (`docs/ARCH-0.3.0.md`): de-containerized host-native Postgres at `~/.metamach/db/`, One-PG-Multi-DB topology, internalized `janus::tmux`, `DELETE` + global `absurd_audit_log` Offboard, retained SQLite fallback, Fail-Closed 30s interception, 16KB dual defense. Earlier 0.1.0/0.2.0 proposals (Docker, external `herdr-tether`, `DROP DATABASE`, `melt`/`VACUUM`-only Offboard) are **superseded**.
 
 This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 core milestone phases (M0–M4)**. Each milestone is sliced by "compilable, independently commit/check-in-able, 100% Immutable-vs-Mutable compliant" physical features or functional modules (Feature Units), with explicit physical verification methods to ensure the Richmond Hill workshop's grid-connection is seamless and steady.
 
@@ -71,10 +71,10 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **UAT:** Execute `herdr plugin link` to mount the plugin; press `prefix+j` inside Herdr; a floating overlay Popup appears at screen center (sized by Herdr's overlay defaults, not the manifest).
 
 #### Task 1.3: Scaffold Config Files (Check-in Unit 3)
-- **Description:** Create the three required config files in `configs/` that the daemon, tether, and agents depend on.
+- **Description:** Create the three required config files in `configs/` that the daemon, tmux, and agents depend on.
 - **Implementation:**
     - `configs/agents.toml`: Agent Pool registration with role permissions, bash blacklists, and network allowlists per Contract 3.6. Include default `scout`, `coder`, and `deployer` roles.
-    - `configs/tmux.conf`: Tether tmux init config with `remain-on-exit on` per ARCH §6.1, bound to socket `metamach-tether`.
+    - `configs/tmux.conf`: tmux init config with `remain-on-exit on` per ARCH §6.1, bound to socket `metamach-tmux`.
     - `configs/global_rules.md`: Factory-wide developer rules loaded into Agent System Prompts on onboarding.
 - **UAT:** `configs/agents.toml` is valid TOML and parseable by the daemon; `configs/tmux.conf` sets `remain-on-exit on`; `configs/global_rules.md` is non-empty Markdown.
 
@@ -83,7 +83,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - CI runs on `ubuntu-24.04` with `postgres:16` service container (health check: `pg_isready`).
     - Steps: `apt-get install -y tmux postgresql-client`, `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo build --release --locked`, `cargo test --workspace`.
-    - SSH-gated tether tests run with `-- --ignored` and `continue-on-error: true`.
+    - SSH-gated tmux tests run with `-- --ignored` and `continue-on-error: true`.
     - Cache cargo registry and target directory for faster builds.
 - **UAT:** Push to `main` triggers CI; all gates pass (fmt, clippy, test); SSH-gated tests are skipped gracefully.
 
@@ -115,21 +115,21 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 #### Task 2.3: Workflow Progress Query & Dashboard Rendering (Check-in Unit 4b)
 - **Description:** Implement the read-only `progress` query primitive on the Daemon side; add "Progress" view to the Popup and `janus status` CLI on the `herdr-janus` side.
 - **Implementation:**
-    - Daemon exposes `progress` UDS query: uses a read-only transaction to aggregate `absurd_tasks JOIN absurd_steps` (filtering non-terminal), overlaid with Tether `tmux has-session` liveness signals; returns the Contract 3.3-defined payload. This query uses an independent read-only channel, never contending with workflow write transactions.
+    - Daemon exposes `progress` UDS query: uses a read-only transaction to aggregate `absurd_tasks JOIN absurd_steps` (filtering non-terminal), overlaid with tmux `tmux has-session` liveness signals; returns the Contract 3.3-defined payload. This query uses an independent read-only channel, never contending with workflow write transactions.
     - `herdr-janus` Popup adds Progress view; `Tab` toggles between "Dispatch / Progress" views; Progress view polls `progress` at 1–2s cadence and renders using `ratatui` tables grouped by blueprint. `SUSPENDED` steps highlighted with `[A]ttach` / `[R]esume` entries.
     - Implement `janus status [--blueprint <name>] [--json]` CLI reusing the same `progress` primitive, outputting plain-text/JSON snapshots.
 - **UAT:** After dispatching a multi-step workflow, switch to Progress view; step states should progress with real execution within 2s (`PENDING -> RUNNING -> COMPLETED`); artificially trigger `SUSPENDED`-that row highlights within 1s. In an SSH environment, `janus status` should output an in-flight task snapshot consistent with the dashboard.
 
 > Note: This task lands the query and rendering skeleton in M2; the real Task/Step data it reads becomes progressively richer through M3 (janush step execution) and M4 (cross-host workflows). M2 can use migration seed tasks to validate rendering. **Multi-DB fan-out:** because `absurd_tasks`/`absurd_steps` live in per-blueprint DBs, the `progress` query must iterate each `metamach_blueprint_<name>` and union in Rust (a single `JOIN` cannot span databases). The Daemon sets `RUNNING` after returning the `ALLOW` verdict (Contract 3.4) so the dashboard can render the `STARTING -> RUNNING` transition.
 
-#### Task 2.4: Tether Internalization - `janus::tether` Native Module (Check-in Unit 4c)
-- **Description:** Per 0.3.0 §2.4, migrate herdr-tether's core tmux session engine (~3,500 LOC: `DurableBackend` trait + `LifecycleService` + cold-start integration) into the native `janus::tether` Rust module inside `janus-daemon`. The external `herdr-tether` binary is **deprecated and no longer fetched**. New dependency: `thiserror`. Effort ~2 weeks (+~2,600 LOC tests).
+#### Task 2.4: tmux Internalization - `janus::tmux` Native Module (Check-in Unit 4c)
+- **Description:** Per 0.3.0 §2.4, migrate herdr-tether's core tmux session engine (~3,500 LOC: `DurableBackend` trait + `LifecycleService` + cold-start integration) into the native `janus::tmux` Rust module inside `janus-daemon`. The external `herdr-tether` binary is **deprecated and no longer fetched**. New dependency: `thiserror`. Effort ~2 weeks (+~2,600 LOC tests).
 - **Implementation:**
-    - Port session create/attach/kill against an isolated tmux server `tmux -L metamach-tether`, with **per-session** `remain-on-exit on` (no `-g`; never pollutes the director's personal tmux).
-    - Expose the `janus tether open|attach|list` subcommand surface (define the subcommand table in ARCH §3 / Feature-Spec and cross-reference from Deployment-Spec §6.2).
+    - Port session create/attach/kill against an isolated tmux server `tmux -L metamach-tmux`, with **per-session** `remain-on-exit on` (no `-g`; never pollutes the director's personal tmux).
+    - Expose the `janus tmux open|attach|list` subcommand surface (define the subcommand table in ARCH §3 / Feature-Spec and cross-reference from Deployment-Spec §6.2).
     - In-process signal linkage to Tool Guard (<1ms) replaces the prior ~5-15ms external UDS IPC path.
-- **UAT:** `janus tether open --command "sleep 100"` launches a session in `tmux -L metamach-tether`; force-close the foreground view; `tmux -L metamach-tether list-sessions` still shows `tether-janus-*` alive; `janus tether attach` restores the scene in milliseconds. No `herdr-tether` binary exists in the build.
-- **Note:** Landing `janus::tether` in M2 resolves the prior M3 dependency inversion - `janush` (M3) can now be tested inside real Tether panes.
+- **UAT:** `janus tmux open --command "sleep 100"` launches a session in `tmux -L metamach-tmux`; force-close the foreground view; `tmux -L metamach-tmux list-sessions` still shows `tmux-janus-*` alive; `janus tmux attach` restores the scene in milliseconds. No `herdr-tether` binary exists in the build.
+- **Note:** Landing `janus::tmux` in M2 resolves the prior M3 dependency inversion - `janush` (M3) can now be tested inside real tmux panes.
 
 #### Task 2.5: OpenWiki External Dependency Fetch & RAG Query Verification (Check-in Unit 4d)
 - **Description:** Integrate the external dependency OpenWiki (https://github.com/langchain-ai/openwiki) into the build flow, and connect the Daemon -> OpenWiki RAG query chain-pre-positioning for M4 Offboard write-back and Agent onboarding retrieval.
@@ -168,18 +168,18 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 > **Timebox:** ~4 weeks
 
-- **Goal:** Grid-connect `janus::tether` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
+- **Goal:** Grid-connect `janus::tmux` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
 
 - **Check-in-able directory structure:**
-    `workflows/`, `blueprints/` (product recipes), `janus/src/bin/janus_daemon.rs` (supplement Onboard / Offboard / audit-archive / `target_sha` submodules), `janus/src/tether/` (internalized `janus::tether`)
+    `workflows/`, `blueprints/` (product recipes), `janus/src/bin/janus_daemon.rs` (supplement Onboard / Offboard / audit-archive / `target_sha` submodules), `janus/src/tmux/` (internalized `janus::tmux`)
 
 ### Tasks
 
-#### Task 4.1: Cross-Host `janus::tether` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7)
-- **Description:** Drive cross-host SOP sessions through the internalized `janus::tether`, implement cold-start zero-state self-heal (no tmux-resurrect), and the degraded-mode SQLite fallback + Log Replay per 0.3.0 §1.2/§2.4.
+#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7)
+- **Description:** Drive cross-host SOP sessions through the internalized `janus::tmux`, implement cold-start zero-state self-heal (no tmux-resurrect), and the degraded-mode SQLite fallback + Log Replay per 0.3.0 §1.2/§2.4.
 - **Implementation:**
-    - When a Workflow Step declares a remote compilation server, the Daemon drives the internal `janus::tether` module (not an external binary) to inject the payload env via SSH into a `remain-on-exit` remote session.
-    - **Cold-Start Reconciliation:** on Daemon start, scan each `metamach_blueprint_<name>` DB for non-terminal tasks; read the last `COMPLETED` `result_cache`, assign a fresh Tether Session UUID, and resume at the breakpoint.
+    - When a Workflow Step declares a remote compilation server, the Daemon drives the internal `janus::tmux` module (not an external binary) to inject the payload env via SSH into a `remain-on-exit` remote session.
+    - **Cold-Start Reconciliation:** on Daemon start, scan each `metamach_blueprint_<name>` DB for non-terminal tasks; read the last `COMPLETED` `result_cache`, assign a fresh tmux Session UUID, and resume at the breakpoint.
     - **SQLite Log Replay:** while PG is unreachable, step transitions write to `${HERDR_PLUGIN_STATE_DIR}/fallback.db` (ring buffer, tagged with `blueprint_name`); on PG recovery, the Daemon replays and merges events into the correct per-blueprint DB with zero loss.
 - **UAT:** During a heavy compile, stop native PG (`pg_ctl stop -D ~/.metamach/db/`, NOT `docker compose stop`) and kill the Daemon; dispatch a step during the outage (writes to `fallback.db`); restart PG + Daemon; the Daemon reconstructs from the last `COMPLETED` checkpoint within 0.5s and replays `fallback.db` with no state loss.
 
@@ -195,7 +195,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Description:** Implement `janus onboard --blueprint <name>` per 0.3.0 §1.4 (Multi-DB baseline), symmetric with Offboard.
 - **Implementation:**
     - Read/validate `blueprints/<name>/janus.toml` + `workflows/<default_workflow>.toml` existence; validate blueprint name (charset + length <= 44 bytes, to fit `metamach_blueprint_<name>` within the Postgres 63-byte identifier limit).
-    - Pre-ignition checks: catalog DB reachable, `janus::tether`/tmux ready; best-effort SSH probe for cross-host blueprints (unreachable = `WARN` only).
+    - Pre-ignition checks: catalog DB reachable, `janus::tmux`/tmux ready; best-effort SSH probe for cross-host blueprints (unreachable = `WARN` only).
     - **Multi-DB tenant registration (F1):** `CREATE DATABASE metamach_blueprint_<name>` (catch SQLSTATE 42P04 => idempotent success; standard PG has no `CREATE DATABASE IF NOT EXISTS`), then `absurdctl init` (installs the absurd engine into the DB) + run `002_blueprint.sql` (the `metamach_step_meta` overlay), and `INSERT ... ON CONFLICT (name) DO UPDATE` a `status='ACTIVE'` row in the **global catalog** `blueprints` table; also `absurd.create_queue('<name>.<workflow>')` per bound workflow. Because `CREATE DATABASE` cannot run inside a transaction, wrap post-create steps in compensation: on any failure after the DB is created, `DROP DATABASE` to avoid a half-activated state.
     - **Knowledge inheritance:** index `blueprints/<name>/openwiki/`; if a prior `production_report.md` exists, inject key patterns as `## Previous Incidents` few-shot into the Agent System Prompt.
     - Broadcast `blueprint_registered` UDS event; Popup dispatch menu refreshes.
@@ -204,11 +204,11 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 #### Task 4.4: `target_sha` Optimistic Locking Enforcement (Check-in Unit 8e)
 - **Description:** Enforce Git-SHA optimistic locking on remote step reports per ARCH §6.5 / Feature-Spec, closing the race where a slow remote report overwrites locally-evolved code. (Schema/migration is preparatory from M1 Task 1.1; this task lands enforcement.)
 - **Implementation:**
-    - Define the Daemon -> `janus::tether` **dispatch payload** and the **remote step-report payload** contracts (each carries `dispatch_sha`/`target_sha`, `execution_id`, `exit_code`, `stdout_tail`) - currently absent from Contracts 3.2/3.4.
+    - Define the Daemon -> `janus::tmux` **dispatch payload** and the **remote step-report payload** contracts (each carries `dispatch_sha`/`target_sha`, `execution_id`, `exit_code`, `stdout_tail`) - currently absent from Contracts 3.2/3.4.
     - On dispatch, pin `HEAD` into `metamach_step_meta.target_sha` (all-zeros sentinel = non-git blueprint, skip the lock); echo `dispatch_sha` in the report.
     - On report return, compare `report.dispatch_sha == current HEAD`; mismatch => discard the stale report, mark the step `SUSPENDED`, emit `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule by writing a **new** `absurd_tasks` row against the new `HEAD` (the `UPDATE ... WHERE target_sha = $4` guard zeroes out for stale pre-reschedule reports).
 - **UAT:** Dispatch a step with `target_sha=X`; mutate the underlying git ref to `Y`; submit a report with stale `dispatch_sha=X`; the Daemon rejects it (SHA-mismatch), marks `SUSPENDED`, fires `CONCURRENCY_RACE_ALERT`, and a fresh dispatch against `Y` succeeds.
-- **Note:** ARCH §6.5 and Feature-Spec cite "Task 2.4" for this enforcement; that cross-reference is stale (Task 2.4 is now Tether Internalization) and should point here (Task 4.4).
+- **Note:** ARCH §6.5 and Feature-Spec cite "Task 2.4" for this enforcement; that cross-reference is stale (Task 2.4 is now tmux Internalization) and should point here (Task 4.4).
 
 ## Milestone 5: Integration Testing & Release Gate
 
@@ -224,7 +224,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 #### Task 5.1: Integration Test Suite (Check-in Unit 9)
 - **Description:** Implement the integration test suite covering all test cases from `docs/Test-Spec.md`.
 - **Implementation:**
-    - Test Suites 2.1–2.9: UTC-01-xx through UTC-09-xx, covering daemon, sandbox, tether, HITL, lifecycle, dashboard, benchmarks, degraded mode, and tether module.
+    - Test Suites 2.1–2.9: UTC-01-xx through UTC-09-xx, covering daemon, sandbox, tmux, HITL, lifecycle, dashboard, benchmarks, degraded mode, and tmux module.
     - SSH-gated tests (UTC-09-04) use `#[ignore = "requires SSH credentials"]`.
     - Benchmark harness (UTC-07-xx) uses `criterion`; deferred to P2, not a release gate.
 - **UAT:** `cargo test --workspace` passes all non-ignored tests; `cargo test --workspace -- --ignored` skips SSH-gated tests gracefully.
@@ -233,7 +233,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Description:** Verify all UDS contracts (3.2–3.5), schema contracts (3.1/3.1b), and lifecycle contracts (Onboard/Offboard) hold across module boundaries.
 - **Implementation:**
     - janush ↔ janus-daemon: Contract 3.2/3.4 payload round-trip with all verdict types.
-    - janus::tether ↔ janus-daemon: Contract 3.5 dispatch/report payload with target_sha locking.
+    - janus::tmux ↔ janus-daemon: Contract 3.5 dispatch/report payload with target_sha locking.
     - herdr-janus ↔ janus-daemon: Contract 3.3 progress query payload.
     - Multi-DB: Onboard creates per-blueprint DB, Offboard archives + DELETEs, no cross-contamination.
 - **UAT:** All contract-level integration tests pass; no cross-module deserialization errors.
@@ -243,7 +243,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - Bump version in `janus/Cargo.toml` and `herdr-plugin.toml` to `0.3.0`.
     - Generate `CHANGELOG.md` from conventional commits.
-    - GPG-sign the release tag: `git tag -s v0.3.0 -m "MetaMach 0.3.0 — de-containerized, Multi-DB, internalized tether"`.
+    - GPG-sign the release tag: `git tag -s v0.3.0 -m "MetaMach 0.3.0 — de-containerized, Multi-DB, internalized tmux"`.
     - Final check-in gate sweep: all 5 hygiene gates pass.
 - **UAT:** `git tag -v v0.3.0` verifies the GPG signature; `cargo build --release --locked` produces clean binaries; `make bootstrap` completes end-to-end.
 

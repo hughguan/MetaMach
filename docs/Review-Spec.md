@@ -55,8 +55,8 @@ This review aims to prove: **Under extreme high-frequency loads such as Agent lo
 - **Metric 2.1: PTY Process Anti-Deadlock & `remain-on-exit` Review**
     - _Requirement:_ Prove that on task interruption, error, or network drop, the scene is absolutely preserved and processes are not killed.
     - _Pass Criteria:_
-        1. Audit `configs/tmux.conf` and `janus::tether` invocation init parameters; must 100% configure per-session `remain-on-exit on` inside an independent tmux server (`tmux -L metamach-tether`), with no `-g` global flag.
-        2. Artificially send `kill -9 <agent_process>` to an Agent pane; that tmux window must remain in `[Exited]` suspended state, the window does not auto-close, and the console history cache (stdout) is fully retrievable via `janus tether attach`.
+        1. Audit `configs/tmux.conf` and `janus::tmux` invocation init parameters; must 100% configure per-session `remain-on-exit on` inside an independent tmux server (`tmux -L metamach-tmux`), with no `-g` global flag.
+        2. Artificially send `kill -9 <agent_process>` to an Agent pane; that tmux window must remain in `[Exited]` suspended state, the window does not auto-close, and the console history cache (stdout) is fully retrievable via `janus tmux attach`.
 
 - **Metric 2.2: 16 KiB Storage Volume Budget Anti-Bloat Audit**
     - _Requirement:_ Verify that the system can forcibly cut off infinite-loop log spam before database insertion, preventing physical disk bloat leading to OOM crash.
@@ -65,12 +65,12 @@ This review aims to prove: **Under extreme high-frequency loads such as Agent lo
         2. The truncation point must carry the explicit marker `[MetaMach Log Budget Exceeded]`.
         3. The database must not crash or trigger abnormal connection pool exhaustion due to dirty oversized data.
 
-- **Metric 2.3: Tether Internalization (janus::tether) Audit**
-    - _Requirement:_ Prove that the internalized `janus::tether` module independently manages tmux sessions without the deprecated external `herdr-tether` plugin.
+- **Metric 2.3: tmux Internalization (janus::tmux) Audit**
+    - _Requirement:_ Prove that the internalized `janus::tmux` module independently manages tmux sessions without the deprecated external `herdr-tether` plugin.
     - _Pass Criteria:_
         1. `herdr-tether` binary is not present in `bin/` or `$PATH`.
-        2. `janus tether open|attach|list` CLI subcommands function correctly.
-        3. tmux sessions use `-L metamach-tether` socket name.
+        2. `janus tmux open|attach|list` CLI subcommands function correctly.
+        3. tmux sessions use `-L metamach-tmux` socket name.
         4. Session keep-alive survives popup close and terminal close (SIGHUP immunity).
         5. `LifecycleService::restart_session` correctly restores sessions from AbsurdDB checkpoints.
 
@@ -153,7 +153,7 @@ The Factory Director and Architect must physically verify and sign off each item
 | **REV-SEC-05** | Network Egress Control | Scout-level Agent attempts `curl`/`python3 urllib`/`/dev/tcp` egress — all blocked; document control layer. | `[ ]` Verified | **Medium (Yellow)** |
 | **REV-SEC-06** | Fail-Closed 30s UDS Timeout | Stop `janus-daemon`; execute any command through `janush`; verify error returned within 30s, command NOT executed, no indefinite hang. | `[ ]` Verified | **Critical (Red)** |
 | **REV-STB-01** | 16KB Size Budget | Run `cat /dev/urandom` spam; verify JSON written to Postgres is forcibly truncated with Budget marker. | `[ ]` Verified | **Medium (Yellow)** |
-| **REV-STB-02** | Tether Internalization (janus::tether) | Verify `herdr-tether` binary absent; `janus tether open|attach|list` functional; tmux uses `-L metamach-tether`; session survives popup close. | `[ ]` Verified | **Critical (Red)** |
+| **REV-STB-02** | tmux Internalization (janus::tmux) | Verify `herdr-tether` binary absent; `janus tmux open|attach|list` functional; tmux uses `-L metamach-tmux`; session survives popup close. | `[ ]` Verified | **Critical (Red)** |
 | **REV-STB-03** | Load & Resource Stress | 5 concurrent `dev-flow` complete without deadlock; 24h Daemon memory < 256MB; UDS verdict p99 < 10ms. | `[ ]` Verified | **Medium (Yellow)** |
 | **REV-STB-04** | Optimistic Locking (target_sha) | Dispatch step at SHA-A; commit new change → SHA-B; verify stale report discarded, `CONCURRENCY_RACE_ALERT` emitted, auto-reschedule creates new task_id. | `[ ]` Verified | **High (Orange)** |
 | **REV-DIS-01** | Cold-Start Zero-State Self-Healing | `killall -9 janus-daemon` and kill only MetaMach tmux sessions; stop PG via `pg_ctl -D ~/.metamach/db/ stop` to simulate power loss; restart PG and Daemon; verify smooth breakpoint resumption. | `[ ]` Verified | **High (Orange)** |

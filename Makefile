@@ -1,7 +1,7 @@
 # MetaMach 0.3.0 - Factory master switch (Deployment-Spec §5.1)
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
-# janus-daemon (M2), janush (M3), and janus::tether (0.3.0) are picked up
+# janus-daemon (M2), janush (M3), and janus::tmux (0.3.0) are picked up
 # automatically by `compile` as their binaries land.
 
 .PHONY: all bootstrap prereq symlinks compile db-init db-down db-backup db-restore db-migrate health logs uninstall clean ram-disk

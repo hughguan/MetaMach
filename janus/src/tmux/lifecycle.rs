@@ -19,8 +19,8 @@ impl LifecycleService {
     ///
     /// In M4 this reads the absurd checkpoint to reconstruct the command; for now
     /// the caller passes the resume command + cwd directly, and we mint a fresh
-    /// `tether-janus-task-<task_uuid>` name and create the session on the
-    /// isolated `tmux -L metamach-tether` server.
+    /// `tmux-janus-task-<task_uuid>` name and create the session on the
+    /// isolated `tmux -L metamach-tmux` server.
     pub fn restart_session(
         backend: &dyn DurableBackend,
         task_uuid: &str,

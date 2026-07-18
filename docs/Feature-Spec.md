@@ -12,7 +12,7 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 +-----------------------------------------------------------------------------------------+
 |  1. CONTROL:   janus-daemon (resident UDS service) & herdr-janus (Popup shadow client)   |
 |  2. SANDBOX:   janush (proxy shell) & Event-Driven Tool Guard (synchronous kernel guard) |
-|  3. WORKFLOW:  Absurd Postgres (One PG, Multi-DB) & janus::tether (remain-on-exit)       |
+|  3. WORKFLOW:  Absurd Postgres (One PG, Multi-DB) & janus::tmux (remain-on-exit)       |
 |  4. KNOWLEDGE: Federated OpenWiki Skill & Trace Purge & Audit Archive (DELETE + archive)  |
 +-----------------------------------------------------------------------------------------+
 ```
@@ -34,20 +34,20 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 - **Description:** Provide an out-of-process, independently audited security gate that performs synchronous physical interception before Agent intent reaches Bash, supporting Dry-Run redirection for special operations.
 
 - **Technical Spec:**
-    - **Shell Interception Proxy (janush):** When Tether launches a pane, it forcibly injects the `SHELL` environment variable to point to the **absolute path** of `janush` (`${HERDR_PLUGIN_ROOT}/bin/janush`, installed by `make bootstrap`, see Deployment-Spec §5.1). **Never use the relative path `target/release/janush`**—it fails when CWD is not the repo root, the binary is not yet compiled, or the pane is started from a different directory.
+    - **Shell Interception Proxy (janush):** When tmux launches a pane, it forcibly injects the `SHELL` environment variable to point to the **absolute path** of `janush` (`${HERDR_PLUGIN_ROOT}/bin/janush`, installed by `make bootstrap`, see Deployment-Spec §5.1). **Never use the relative path `target/release/janush`**—it fails when CWD is not the repo root, the binary is not yet compiled, or the pane is started from a different directory.
     - **Synchronous UDS Reconciliation:** When an Agent sends any command-line string, `janush` synchronously suspends execution, packaging the raw `argv` array and dispatching it to `janus.sock`.
     - **Timeout & Deadlock Prevention:** `janush` blocks synchronously waiting for the Daemon verdict with a configurable timeout (default 30s). If the Daemon crashes or the UDS breaks causing a timeout, **fail-closed**: return an error to the Agent without executing the command (never let through), preventing the Agent's shell from hanging indefinitely due to Daemon unreachability. Verdict response format and semantics are defined in Contract 3.4.
     - **Dry-Run Redirection:** The Daemon's Tool Guard module performs security review against core allowlist commands (e.g., commands that modify system-level configuration or flash hardware). For financial-class high-risk operations, forces rewriting `argv` to `--action dry-run` before delivering to the host shell. This redirection is synchronous and transparent to the Agent.
 
 ### Feature 2.3: Durable Workflow State Machine (Tether & Absurd Engine)
 
-- **Description:** Provide a durable, self-healing multi-station pipeline engine combining the internalized `janus::tether` (physical session immortality) and the Absurd Postgres transaction engine (state checkpointing).
+- **Description:** Provide a durable, self-healing multi-station pipeline engine combining the internalized `janus::tmux` (physical session immortality) and the Absurd Postgres transaction engine (state checkpointing).
 
 - **Technical Spec:**
     - **Task Lifecycle:** On dispatch, the Daemon creates a task via `absurd.spawn_task` with `status = 'PENDING'`. Before the first Step begins, it transitions to `STARTING`. When the first Step starts executing, the task transitions to `RUNNING`. Terminal states are `COMPLETED`, `FAILED`, or `SUSPENDED`.
     - **Step Lifecycle:** Each Step independently transitions through `PENDING → STARTING → RUNNING → COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (establishes tmux session, writes pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing in the tmux pane.
     - **Multi-DB Fan-Out:** At dispatch, `janus-daemon` connects to the target blueprint's dedicated database (`metamach_blueprint_<name>`) and spawns a task via `absurd.spawn_task`, writes step checkpoints via `set_task_checkpoint_state`, and adds a `metamach_step_meta` overlay row per step. The global catalog DB (`metamach_db`) tracks only `blueprints` metadata and `absurd_audit_log` entries.
-    - **janus::tether (Internalized):** Physical session management is handled by `janus::tether`, a native Rust module inside `janus-daemon`. It directly creates and manages tmux `remain-on-exit` sessions (socket `-L metamach-tether`) and cross-host SSH transport. The external `herdr-tether` plugin is deprecated and no longer required.
+    - **janus::tmux (Internalized):** Physical session management is handled by `janus::tmux`, a native Rust module inside `janus-daemon`. It directly creates and manages tmux `remain-on-exit` sessions (socket `-L metamach-tmux`) and cross-host SSH transport. The external `herdr-tether` plugin is deprecated and no longer required.
     - **Optimistic Locking (target_sha):** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` SHA-1 into `target_sha` and sends it as `dispatch_sha` in the step payload. On remote report return, the Daemon compares `report.dispatch_sha == current HEAD` — a mismatch means `HEAD` advanced, so the report is stale: discard, mark `SUSPENDED`, emit `CONCURRENCY_RACE_ALERT`, and auto-reschedule. See Contract 3.1 and Contract 3.5 for the full payload contracts.
 
 ### Feature 2.4: Human-in-the-Loop (HITL) Gate
@@ -181,7 +181,7 @@ CREATE TABLE metamach_step_meta (
 CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 ```
 
-> **Optimistic Locking - `target_sha` (app-layer; F4):** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` into `metamach_step_meta.target_sha` and sends it as `dispatch_sha` in the step payload (see Contract 3.5). The remote report echoes `dispatch_sha` back. On return, the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. Absurd has no SHA-lock concept (its checkpoint write is its own upsert), so the guard is an application-level `UPDATE metamach_step_meta SET exit_code = $2, stdout_tail = $3, started_at = $4 WHERE task_id = $5 AND step_name = $6 AND target_sha = $7` (`$7 = report.dispatch_sha`) executed by the Rust daemon **before** calling absurd's `complete_run` / `set_task_checkpoint_state`. **Reschedule semantics:** a reschedule calls `spawn_task` again (new UUID `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail. The `target_sha` column ships in `002_blueprint.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tether` and enforced in M4 Task 4.4.
+> **Optimistic Locking - `target_sha` (app-layer; F4):** At dispatch, the Daemon pins the blueprint repo's current Git `HEAD` into `metamach_step_meta.target_sha` and sends it as `dispatch_sha` in the step payload (see Contract 3.5). The remote report echoes `dispatch_sha` back. On return, the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch (concurrent commit), so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. Absurd has no SHA-lock concept (its checkpoint write is its own upsert), so the guard is an application-level `UPDATE metamach_step_meta SET exit_code = $2, stdout_tail = $3, started_at = $4 WHERE task_id = $5 AND step_name = $6 AND target_sha = $7` (`$7 = report.dispatch_sha`) executed by the Rust daemon **before** calling absurd's `complete_run` / `set_task_checkpoint_state`. **Reschedule semantics:** a reschedule calls `spawn_task` again (new UUID `task_id`) rather than mutating the existing row's `target_sha`, preserving the old task's audit trail. The `target_sha` column ships in `002_blueprint.sql`; dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tmux` and enforced in M4 Task 4.4.
 
 > **Unified Status Enumeration:** The system-wide Step/Task state machine is `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (tmux session creation, pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing. The Blueprint-level state machine is `ACTIVE <-> OFFBOARDED` (Onboard activates / Offboard archives).
 
@@ -215,7 +215,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
       "started_at": "2026-07-15T09:00:00Z",
       "elapsed_seconds": 945,
       "current_step": "cross_compile",
-      "tether_alive": true,
+      "tmux_alive": true,
       "suspended_reason": null,
       "steps": [
         {"name": "scout",         "status": "COMPLETED", "exit_code": 0},
@@ -227,7 +227,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 }
 ```
 
-> `active_tasks` only includes non-terminal tasks (`STARTING` / `RUNNING` / `SUSPENDED`). `stdout_tail` is the most recent terminal output truncated to 1KB summary; `tether_alive` reflects whether the corresponding Tether physical Session is alive. This payload drives both Popup progress dashboard rendering and `janus status --json` CLI output.
+> `active_tasks` only includes non-terminal tasks (`STARTING` / `RUNNING` / `SUSPENDED`). `stdout_tail` is the most recent terminal output truncated to 1KB summary; `tmux_alive` reflects whether the corresponding tmux physical Session is alive. This payload drives both Popup progress dashboard rendering and `janus status --json` CLI output.
 
 ### Contract 3.4: Proxy Shell Sync UDS Response (Daemon → janush)
 
@@ -260,10 +260,10 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 
 > **Verdict semantics:** `ALLOW` — execute the original argv as-is; `REWRITE` — execute `rewritten_argv` instead; `BLOCK` — return an error to the Agent, do not execute anything. The 30s fail-closed timeout applies to the entire round-trip.
 
-### Contract 3.5: Step Dispatch & Remote Report Payloads (Daemon ↔ janus::tether)
+### Contract 3.5: Step Dispatch & Remote Report Payloads (Daemon ↔ janus::tmux)
 
 ```json
-// Dispatch payload (Daemon → tether → remote host)
+// Dispatch payload (Daemon → tmux → remote host)
 {
   "dispatch_sha": "a1b2c3d4e5f6...",
   "task_id": 1042,
@@ -277,7 +277,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
   }
 }
 
-// Remote report payload (remote host → tether → Daemon)
+// Remote report payload (remote host → tmux → Daemon)
 {
   "dispatch_sha": "a1b2c3d4e5f6...",
   "task_id": 1042,
@@ -399,7 +399,7 @@ CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 
 | Fault Boundary | Physical Behavior | System-Level Fault Tolerance & Convergence |
 |---|---|---|
-| **Tether Physical Network/SSH Drop** | Remote compile server offline; `std::process` pipe read/write hangs. | **Session Freeze:** Janus Daemon captures the immortal underlying handle via `janus::tether`, marks Step `SUSPENDED` in Postgres. Never kills the background tmux pane. On network recovery, re-establish SSH pipe and execute `janus tether attach` to wake the scene in seconds. |
+| **Tether Physical Network/SSH Drop** | Remote compile server offline; `std::process` pipe read/write hangs. | **Session Freeze:** Janus Daemon captures the immortal underlying handle via `janus::tmux`, marks Step `SUSPENDED` in Postgres. Never kills the background tmux pane. On network recovery, re-establish SSH pipe and execute `janus tmux attach` to wake the scene in seconds. |
 | **Agent Hallucination, Infinite Log Spam** | Terminal stdout stream generates megabytes of garbage text per second. | **Physical Size Budget Fuse (single authoritative enforcement point):** `janush` has an in-memory streaming counter — when single-Step stdout exceeds **16 KiB**, it early-streaming truncates (optimization only, reducing UDS transfer). The **authoritative 16KiB enforcement point is at `janus-daemon`'s `absurd` module, before the `INSERT` transaction commits** — Daemon re-validates and hard-truncates before database write, appending `[MetaMach Log Budget Exceeded]` tag. Two defense lines targeting the same 16KiB cap; the DB write is the final gate. |
 | **Absurd DB Connection Pool Crash** | Host Postgres encounters extreme physical OOM or native process crash. | **State Machine Anti-Blast Degradation:** Janus Daemon internally has a local in-memory SQLite ring buffer. During PG disconnection, all transition-state Step changes are atomically written to local `fallback.db` first. Upon detecting host PG recovery, auto-triggers batch merge replay (Log Replay), ensuring workshop production never halts. |
 | **Fail-Closed 30s UDS Timeout** | Daemon crashes or UDS socket breaks during janush command check. | **Fail-Closed:** `janush` blocks synchronously with a 30s timeout. If the Daemon does not respond, returns an error to the Agent without executing the command. Never lets through. Agent's shell does not hang indefinitely. |

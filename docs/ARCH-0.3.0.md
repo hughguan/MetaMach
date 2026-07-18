@@ -14,10 +14,10 @@
 | 0.2.0 | `DROP DATABASE` physical shredding | ❌ Rejected | Destroys audit trail; historical interception/sign-off logs must be permanently archived post-Offboard |
 | 0.2.0 | One PG, Multi-DB topology | ✅ Adopted | Independent connection pools, zero cross-blueprint lock contention, resource isolation; performance baseline |
 | 0.3.0 | Fail-Closed 30s Timeout interception | ✅ Force-Retained | Existing Feature-Spec 2.2 design; SIGSTOP/SIGCONT alternative rejected |
-| 0.3.0 | Isolated tmux Server (`-L metamach-tether`) | ✅ Already Implemented | In ARCH.md §6 |
+| 0.3.0 | Isolated tmux Server (`-L metamach-tmux`) | ✅ Already Implemented | In ARCH.md §6 |
 | 0.3.0 | Dual-Binary deployment | ✅ Already Implemented | `janus-daemon` + `herdr-janus` is the current architecture |
 | 0.3.0 | 16KB Flow Budget dual defense line | ✅ Already Implemented | Feature-Spec §4; janush streaming truncation + Daemon authoritative pre-insert truncation |
-| 0.3.0 | Tether Internalization | ✅ Adopted | Four physical requirements: survival autonomy, keep-alive resilience, microsecond signal linkage, zero-dependency distribution; ~3,500 LOC migration |
+| 0.3.0 | tmux Internalization | ✅ Adopted | Four physical requirements: survival autonomy, keep-alive resilience, microsecond signal linkage, zero-dependency distribution; ~3,500 LOC migration |
 
 ---
 
@@ -77,7 +77,7 @@ The host runs a single physical Postgres process (exclusive fixed port). Each Bl
 
 ### 2.2 Isolated tmux Sandbox
 
-`tmux -L metamach-tether` independent server, never polluting the Factory Director's host-global tmux sessions. Every Session enforces `remain-on-exit on`.
+`tmux -L metamach-tmux` independent server, never polluting the Factory Director's host-global tmux sessions. Every Session enforces `remain-on-exit on`.
 
 ### 2.3 16KB Flow Budget Dual Defense Line
 
@@ -85,11 +85,11 @@ The host runs a single physical Postgres process (exclusive fixed port). Each Bl
 - **Second defense line (Daemon pre-insert):** Authoritative 16KB hard truncation + inject `[MetaMach Log Budget Exceeded]` tag
 - Both lines target the same cap; the DB write is the final gate
 
-### 2.4 Tether Internalization: MM-CORE Physical Execution Engine
+### 2.4 tmux Internalization: MM-CORE Physical Execution Engine
 
 **Adopts the `spike/herdr-tether-migration-evaluation.md` assessment conclusion.**
 
-Refine and migrate herdr-tether's core tmux session management engine (~3,500 LOC) into the `janus::tether` native Rust module, completely eliminating the life-or-death dependency on a 3★ external plugin.
+Refine and migrate herdr-tether's core tmux session management engine (~3,500 LOC) into the `janus::tmux` native Rust module, completely eliminating the life-or-death dependency on a 3★ external plugin.
 
 **Four Physical Requirements Driving This Decision:**
 
@@ -106,7 +106,7 @@ Refine and migrate herdr-tether's core tmux session management engine (~3,500 LO
 
 ## 🏁 III. 0.3.0 Sign-Off
 
-> **"Under 0.3.0, MetaMach no longer pursues formal perfectionism, but prioritizes physical-world high availability above all: de-containerization makes deployment zero-dependency, Multi-DB eliminates cross-blueprint lock contention, SQLite Fallback keeps the workshop from ever dying, global audit archiving makes every interception traceable, Fail-Closed makes the security boundary non-negotiable, and Tether Internalization makes the physical execution engine autonomously controllable."**
+> **"Under 0.3.0, MetaMach no longer pursues formal perfectionism, but prioritizes physical-world high availability above all: de-containerization makes deployment zero-dependency, Multi-DB eliminates cross-blueprint lock contention, SQLite Fallback keeps the workshop from ever dying, global audit archiving makes every interception traceable, Fail-Closed makes the security boundary non-negotiable, and tmux Internalization makes the physical execution engine autonomously controllable."**
 
 | Sign-Off Dimension | Status |
 |---|---|

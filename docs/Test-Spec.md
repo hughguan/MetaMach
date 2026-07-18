@@ -1,15 +1,15 @@
 # MetaMach 0.3.0 — Test Specification
 
-> System-level quality assurance for the core scheduler, agent sandbox, durable workflows, degraded-mode fallback, and internalized tether engine.
+> System-level quality assurance for the core scheduler, agent sandbox, durable workflows, degraded-mode fallback, and internalized tmux engine.
 
 ## 1. Testing Strategy
 
 To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-blast capability, this test case design strictly follows four quality defense layers:
 
 1. **Sandbox & Isolation Defense:** Validate 100% synchronous interception and redirection of high-risk commands and sensitive keys by `janush` proxy interception and Tool Guard.
-2. **Durability & Self-Healing Defense:** Simulate extreme physical faults such as PG crashes and server power loss; validate `janus::tether` (internalized) process preservation and native PG cold-start state reconciliation.
+2. **Durability & Self-Healing Defense:** Simulate extreme physical faults such as PG crashes and server power loss; validate `janus::tmux` (internalized) process preservation and native PG cold-start state reconciliation.
 3. **Lifecycle & Anti-Bloat Defense:** Validate Offboard smelting, log 16KB truncation (Size Budget), and SQLite fallback degraded-mode ring buffer.
-4. **Tether Internalization Defense:** Validate the internalized `janus::tether` module's tmux session durability, cross-host SSH, and checkpoint-based restart.
+4. **tmux Internalization Defense:** Validate the internalized `janus::tmux` module's tmux session durability, cross-host SSH, and checkpoint-based restart.
 
 ### Severity Level Definitions
 
@@ -35,7 +35,7 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 
 | ID | Module | Purpose | Precondition | Steps | Expected | Severity |
 |----|--------|--------|-------------|-------|----------|----------|
-| **UTC-02-01** | Shell Proxy Redirection | Validate Tether PTY `SHELL` is forcibly replaced on launch | `dev-flow` pipeline started | In Tether-launched tmux pane, execute `echo $SHELL`. | Terminal outputs the absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`, not system `/bin/bash` or `/bin/sh`. | **Critical** |
+| **UTC-02-01** | Shell Proxy Redirection | Validate tmux PTY `SHELL` is forcibly replaced on launch | `dev-flow` pipeline started | In Tether-launched tmux pane, execute `echo $SHELL`. | Terminal outputs the absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`, not system `/bin/bash` or `/bin/sh`. | **Critical** |
 | **UTC-02-02** | Sync Command Interception | Validate `janush` successfully intercepts and blocks unauthorized sensitive/dangerous commands | `gatemetric` `dev-flow` task started | In Agent pane: first create sentinel `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`, then force-execute blacklisted `rm -rf /tmp/metamach-test-guard-$(uuidgen)` (or system `esptool.py erase_flash` simulation). | 1. Terminal command synchronously suspended. 2. `janus-daemon` log triggers interception and returns rejection (Status: Blocked); original physical shell intact; sentinel file survives (not deleted). | **Blocker** |
 | **UTC-02-03** | Financial Dry-Run Redirection | Validate high-risk operations forced-redirected to dry-run mode before approval | Financial-class product rebalance pipeline started | In unauthorized state, attempt to execute order command: `hi5bot --action execute`. | 1. `janush` captures the command in UDS sync. 2. Tool Guard forcibly rewrites argv to `hi5bot --action dry-run` and delivers to host shell. 3. Physical console outputs dry-run preview; no real transaction executed. | **Blocker** |
 | **UTC-02-04** | UDS Protocol Robustness | Validate Daemon does not crash on malformed/unauthorized/oversized UDS payloads | Daemon running | 1. Send invalid JSON (missing field/broken UTF-8) to `janus.sock`. 2. Send 1000 requests in 1 second. 3. Send 64KB oversized payload. | 1. Invalid JSON: Daemon logs `WARN`, returns error response, does not crash. 2. High-frequency: rate-limited, no OOM. 3. Oversized: rejected (message too large). | **Critical** |
@@ -46,10 +46,10 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 
 | ID | Module | Purpose | Precondition | Steps | Expected | Severity |
 |----|--------|--------|-------------|-------|----------|----------|
-| **UTC-03-01** | Local Step Execution | Validate local Tether session launches and Step state transitions correctly | Daemon running, Postgres healthy | Dispatch `dev-flow` pipeline for `gatemetric` blueprint. | 1. `janus::tether` creates tmux session. 2. `absurd_tasks` row transitions `PENDING → STARTING → RUNNING`. 3. `absurd_steps` row transitions through `PENDING → STARTING → RUNNING → COMPLETED`. | **Blocker** |
+| **UTC-03-01** | Local Step Execution | Validate local tmux session launches and Step state transitions correctly | Daemon running, Postgres healthy | Dispatch `dev-flow` pipeline for `gatemetric` blueprint. | 1. `janus::tmux` creates tmux session. 2. `absurd_tasks` row transitions `PENDING → STARTING → RUNNING`. 3. `absurd_steps` row transitions through `PENDING → STARTING → RUNNING → COMPLETED`. | **Blocker** |
 | **UTC-03-01b** | STARTING→RUNNING Transition | Validate the brief STARTING gate before RUNNING state | Daemon running, Postgres healthy | Dispatch a step and observe the status transitions via `janus status --json`. | 1. Step transitions `PENDING → STARTING → RUNNING`. 2. `STARTING` state is brief (< 500ms; tmux session creation + pre-flight log). 3. `started_at` timestamp is set when state transitions to `RUNNING`. 4. `exit_code` is NULL during `STARTING` and `RUNNING`. | **Critical** |
 
-| **UTC-03-02** | Cross-Host Process Protection | Validate physical tmux Session remains intact on network disconnect/SSH restart | Task running on remote SSH compile host | 1. Programmatically drop packets to remote host (e.g., `iptables -A OUTPUT -d <remote> -j DROP`). 2. Wait 10s then restore and re-execute `janus tether attach`. | 1. Remote host compile process not killed (`remain-on-exit` effective). 2. After re-attach, compile scene 100% restored; data lossless. | **Critical** |
+| **UTC-03-02** | Cross-Host Process Protection | Validate physical tmux Session remains intact on network disconnect/SSH restart | Task running on remote SSH compile host | 1. Programmatically drop packets to remote host (e.g., `iptables -A OUTPUT -d <remote> -j DROP`). 2. Wait 10s then restore and re-execute `janus tmux attach`. | 1. Remote host compile process not killed (`remain-on-exit` effective). 2. After re-attach, compile scene 100% restored; data lossless. | **Critical** |
 | **UTC-03-03** | Cold-Start Self-Healing | Simulate physical power loss; validate breakpoint resumption from last Step | Local host running heavy compile; task state `RUNNING` | 1. Force-stop PG (`pg_ctl -D ~/.metamach/db/ stop`) and kill `janus-daemon`. 2. Restart PG (`pg_ctl -D ~/.metamach/db/ start`) and directly restart `janus-daemon` to trigger cold-start self-healing (**do NOT run `make bootstrap`**—full recompilation masks the real cold-start code path). | 1. Daemon rejects `tmux-resurrect`. 2. Daemon reads `~/.metamach/db/` checkpoints from native PG. 3. Reads last `COMPLETED` Step Checkpoint from `absurd_steps`; assigns new UUID; resumes at physical breakpoint. 4. `~/.metamach/db/` path exists with PG data intact. | **Critical** |
 | **UTC-03-04** | Daemon Crash Recovery | Validate tmux scene survives Daemon crash during active Step; orphan step correctly handled | Step `RUNNING`; Daemon is parent of tmux session | `killall -9 janus-daemon`. | 1. tmux session survives (remain-on-exit). 2. `herdr-janus` lazy-restarts Daemon. 3. Daemon scans orphan steps; transitions orphan to `SUSPENDED`; notifies Director. | **Critical** |
 | **UTC-03-05** | Concurrent Workflow Isolation | Validate multi-blueprint concurrent dispatch without cross-contamination | 2 blueprints both `ACTIVE` | Simultaneously dispatch `dev-flow` for both blueprints. | 1. 2 independent tmux sessions, 2 independent `absurd_tasks` records. 2. UDS requests correctly attributed by `task_id`; `result_cache` no cross-blueprint pollution. | **Critical** |
@@ -60,7 +60,7 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 |----|--------|--------|-------------|-------|----------|----------|
 | **UTC-03-06** | Optimistic Locking (target_sha) | Validate stale remote reports are discarded when HEAD advances during step execution | Blueprint repo with git history; step dispatched at SHA-A | 1. Dispatch a step at SHA-A. 2. While step is running, commit a new change so HEAD advances to SHA-B. 3. Remote report returns with `dispatch_sha` = SHA-A. | 1. Daemon detects SHA-A != SHA-B, discards the report. 2. Step marked `SUSPENDED` with `CONCURRENCY_RACE_ALERT`. 3. Auto-reschedule creates a new `absurd_tasks` row (new `task_id`) against SHA-B. 4. Old task audit trail preserved. | **Critical** |
 
-| **UTC-04-01** | Non-Destructive Suspension | Validate physical scene preserved on compile break or privilege interception; process not killed | Compile script intentionally contains syntax error to trigger failure | Run compile pipeline; trigger failure. | 1. DB state locks to `SUSPENDED`. 2. Tether physical tmux Session suspended; error scene, memory variables, and console cache do not vanish. | **Critical** |
+| **UTC-04-01** | Non-Destructive Suspension | Validate physical scene preserved on compile break or privilege interception; process not killed | Compile script intentionally contains syntax error to trigger failure | Run compile pipeline; trigger failure. | 1. DB state locks to `SUSPENDED`. 2. tmux physical tmux Session suspended; error scene, memory variables, and console cache do not vanish. | **Critical** |
 | **UTC-04-02** | Async Bidirectional Approval | Validate mobile (Telegram) receives high-density card and executes HITL Resume | Compliant external Telegram Webhook key configured | 1. Trigger task suspension. 2. On mobile Telegram, read error details and tap **`[Resume]`**. | 1. Telegram callback reaches Daemon polling port in seconds. 2. Daemon verifies Correlation ID signature; sends `metamach-resume` signal to pane; pipeline seamlessly hands off to next step (never blindly re-executes blocked command). | **Major** |
 | **UTC-04-03** | Teams Notification & Resume | Validate Teams secondary adapter receives card and executes HITL Resume | Compliant external Teams Webhook key configured | 1. Trigger task suspension. 2. On Teams mobile, read error details and tap **`[Resume]`**. | 1. Teams callback reaches Daemon polling port. 2. Daemon verifies Correlation ID signature; pipeline resumes to next step. | **Major** |
 
@@ -102,16 +102,16 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 | **UTC-08-02** | PG Restored → Log Replay | Validate fallback.db events are merged into PG when PG recovers | PG was down; `fallback.db` has queued events; PG restarted | 1. Start PG (`pg_ctl -D ~/.metamach/db/ start`). 2. Daemon detects PG recovery. 3. Observe batch log replay. | 1. All events from `fallback.db` are replayed into `absurd_steps` in PG. 2. Post-replay, `fallback.db` events are marked as replayed (not duplicated). 3. Daemon transitions from degraded to normal mode. 4. Popup banner updates from "degraded" to "normal". | **Critical** |
 | **UTC-08-03** | Ring Buffer Overflow | Validate oldest events are dropped when SQLite ring buffer exceeds capacity | PG down; Daemon in degraded mode; ring buffer near capacity | 1. Rapidly dispatch 1000+ steps while PG is down. 2. Verify ring buffer behavior. | 1. Ring buffer enforces bounded FIFO: oldest events are dropped when capacity is exceeded. 2. `fallback.db` file size stays within configured limit. 3. Daemon logs `WARN` when events are dropped. 4. Surviving events are still replayable after PG recovery. | **Major** |
 
-### Test Suite 2.9: Tether Module (janus::tether — Internalized)
+### Test Suite 2.9: tmux Module (janus::tmux — Internalized)
 
 | ID | Module | Purpose | Precondition | Steps | Expected | Severity |
 |----|--------|--------|-------------|-------|----------|----------|
-| **UTC-09-01** | DurableBackend::create_session | Validate tmux session creation with `-L metamach-tether` socket name | Daemon running; tmux available | Dispatch a step that triggers `DurableBackend::create_session`. | 1. tmux session created with socket name `metamach-tether`. 2. Session appears in `tmux -L metamach-tether list-sessions`. 3. Session ID is a valid `TmuxSessionId`. | **Blocker** |
-| **UTC-09-02** | Session Keep-Alive (SIGHUP Immunity) | Validate tmux session survives popup close / terminal close | Active tmux session via `janus::tether` | 1. Close the Herdr popup window. 2. Kill the terminal emulator. 3. Check if tmux session survived. | 1. `tmux -L metamach-tether list-sessions` still shows the session. 2. Session PID is still alive. 3. Re-attaching restores the scene 100%. | **Critical** |
+| **UTC-09-01** | DurableBackend::create_session | Validate tmux session creation with `-L metamach-tmux` socket name | Daemon running; tmux available | Dispatch a step that triggers `DurableBackend::create_session`. | 1. tmux session created with socket name `metamach-tmux`. 2. Session appears in `tmux -L metamach-tmux list-sessions`. 3. Session ID is a valid `TmuxSessionId`. | **Blocker** |
+| **UTC-09-02** | Session Keep-Alive (SIGHUP Immunity) | Validate tmux session survives popup close / terminal close | Active tmux session via `janus::tmux` | 1. Close the Herdr popup window. 2. Kill the terminal emulator. 3. Check if tmux session survived. | 1. `tmux -L metamach-tmux list-sessions` still shows the session. 2. Session PID is still alive. 3. Re-attaching restores the scene 100%. | **Critical** |
 | **UTC-09-03** | LifecycleService::restart_session | Validate session restart from AbsurdDB checkpoints after Daemon restart | Session was running; Daemon restarted; checkpoint in `absurd_steps` | 1. Restart `janus-daemon`. 2. Trigger `LifecycleService::restart_session` from checkpoint. | 1. New tmux session created with new UUID. 2. Session picks up from last `COMPLETED` step checkpoint. 3. Old session UUID is logged in audit trail. | **Critical** |
-| **UTC-09-04** | Cross-Host SSH Session Creation | Validate SSH-based tmux session on remote host | Remote host reachable via SSH; SSH keys configured | Dispatch a cross-host step. | 1. `janus::tether` creates tmux session on remote host via SSH. 2. `remain-on-exit` is enabled on remote session. 3. Remote session is visible via `ssh <remote> tmux -L metamach-tether list-sessions`. | **Critical** |
+| **UTC-09-04** | Cross-Host SSH Session Creation | Validate SSH-based tmux session on remote host | Remote host reachable via SSH; SSH keys configured | Dispatch a cross-host step. | 1. `janus::tmux` creates tmux session on remote host via SSH. 2. `remain-on-exit` is enabled on remote session. 3. Remote session is visible via `ssh <remote> tmux -L metamach-tmux list-sessions`. | **Critical** |
 | **UTC-09-05** | Session Status Polling | Validate `DurableBackend::inspect` returns accurate session status | Active tmux session | 1. Call `inspect(session_id)`. 2. Kill the session. 3. Call `inspect(session_id)` again. | 1. First call returns `Alive` with correct PID. 2. Second call returns `Dead`. 3. Polling latency < 5ms. | **Major** |
-| **UTC-09-06** | Concurrent Session Isolation | Validate multiple sessions per blueprint are isolated | 2 blueprints `ACTIVE`; each has an in-flight tether session | 1. Dispatch steps for both blueprints simultaneously. 2. Verify session isolation. | 1. Each blueprint gets its own tmux session. 2. Killing one session does not affect the other. 3. `inspect` correctly distinguishes sessions by `blueprint_id`. | **Critical** |
+| **UTC-09-06** | Concurrent Session Isolation | Validate multiple sessions per blueprint are isolated | 2 blueprints `ACTIVE`; each has an in-flight tmux session | 1. Dispatch steps for both blueprints simultaneously. 2. Verify session isolation. | 1. Each blueprint gets its own tmux session. 2. Killing one session does not affect the other. 3. `inspect` correctly distinguishes sessions by `blueprint_id`. | **Critical** |
 
 ## 3. Testing Environment
 
@@ -119,7 +119,7 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 
 - **PostgreSQL 16+ (host-native):** Native PG instance managed by `janus-daemon`. No Docker required. Data stored at `~/.metamach/db/`.
 - **Rust (v1.88+):** Local locked-version compile test binaries.
-- **Tmux (v3.3+):** Underlying dependency for `janus::tether` session immortality and integration tests.
+- **Tmux (v3.3+):** Underlying dependency for `janus::tmux` session immortality and integration tests.
 - **SQLite (bundled via rusqlite):** Degraded-mode fallback ring buffer; no external dependency.
 - **Local webhook receiver:** A simple HTTP server on localhost for notification callback testing (replaces ngrok/Cloudflare Tunnel for CI; actual Teams/TG integration tested in separate manual UAT phase, not automated CI).
 
@@ -154,7 +154,7 @@ Before testing begins, verify the following physical paths have no state cross-c
 
 | Test | Depends On | Notes |
 |------|-----------|-------|
-| UTC-03-02 (Cross-Host Process Protection) | UTC-09-xx (Tether Module) | Blocked until janus::tether tests pass |
+| UTC-03-02 (Cross-Host Process Protection) | UTC-09-xx (tmux Module) | Blocked until janus::tmux tests pass |
 | UTC-09-04 (Cross-Host SSH) | SSH credentials | Use `#[ignore = "requires SSH credentials"]` in CI |
 | UTC-07-xx (Benchmarks) | criterion harness | Deferred to P2; no 0.3.0 gate impact |
 

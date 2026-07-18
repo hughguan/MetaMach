@@ -45,9 +45,9 @@ Workflows are standardized, declarative collections of process steps. The Factor
 
 - **CLI Fallback:** In non-TUI environments (SSH / CI), `janus status` provides a plain-text or JSON snapshot of all in-flight tasks — the same data source as the dashboard.
 
-### 2.3 Durable Physical Sessions (Tether Engine)
+### 2.3 Durable Physical Sessions (tmux Engine)
 
-The system's underlying physical execution layer is powered by `janus::tether`, a native engine inside the resident daemon that directly manages tmux `remain-on-exit` sessions. Key business guarantees:
+The system's underlying physical execution layer is powered by `janus::tmux`, a native engine inside the resident daemon that directly manages tmux `remain-on-exit` sessions. Key business guarantees:
 
 - **Session Never Dies:** Even if the Factory Director closes the terminal, sleeps the laptop, or the SSH connection drops, the background compilation, flashing, or testing process continues uninterrupted. Re-attaching restores the scene 100% in milliseconds.
 - **Cross-Host Deployment:** For blueprints with remote targets (e.g., `gatemetric` deploying to a remote ESP32 compile server), the system automatically tunnels the instruction via SSH and maintains session durability on the remote host.

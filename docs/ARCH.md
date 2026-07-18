@@ -10,7 +10,7 @@ In the era of distributed AI co-development, traditional AI programming or agent
 
 - **Brain-as-a-Daemon (Janus Daemon) — Central Nervous System:** Core control flow and state transitions are entirely owned by the always-running background daemon **`janus-daemon`**, which holds an exclusive database connection pool and event listener gateway. The Herdr-side plugin is merely a lightweight shadow client (`herdr-janus`) dedicated to terminal rendering and interaction.
 
-- **Cross-Host Session Durability (Tether Engine) — Body and Bones Intact:** Combined with **Tether Engine (Tmux/SSH)** to erase network boundaries. Underlying physical process sites are locked down by native `remain-on-exit` tmux sessions—even if the physical network or SSH connection drops, the session never dies. Re-attach and restore the scene at any moment.
+- **Cross-Host Session Durability (tmux Engine) — Body and Bones Intact:** Combined with **tmux Engine (Tmux/SSH)** to erase network boundaries. Underlying physical process sites are locked down by native `remain-on-exit` tmux sessions—even if the physical network or SSH connection drops, the session never dies. Re-attach and restore the scene at any moment.
 
 - **Durable Workflows & HITL — Resilient Closed Loop:** Workflow state does not degrade with single-execution outcomes. When the AI encounters an insurmountable obstacle (e.g., compile errors, privilege violations), the pipeline auto-suspends at the breakpoint, preserves the terminal scene, and introduces **Human-in-the-Loop** intervention. After the fix, one-click Resume for seamless handoff.
 
@@ -38,7 +38,7 @@ All AI resources and security permissions are registered and managed globally by
 Declarative configuration files define high-cohesion, high-reusability assembly lines:
 
 - **Multi-Station Chaining:** Declare which Agent type each Step executes (e.g., `run_agent(scout)` → `run_agent(coder)` → `run_test`).
-- **Cross-Host Deployment:** Support declaring physical machine environments. A pipeline can dispatch an Agent locally on Step 1 to modify code, then in Step 2 automatically tunnel the instruction via Tether over OpenSSH to a remote compilation server for heavy builds.
+- **Cross-Host Deployment:** Support declaring physical machine environments. A pipeline can dispatch an Agent locally on Step 1 to modify code, then in Step 2 automatically tunnel the instruction via tmux over OpenSSH to a remote compilation server for heavy builds.
 
 #### C. Blueprints
 
@@ -64,17 +64,17 @@ Product lines reside under `blueprints/`, maintaining absolute physical cleanlin
 MetaMach 0.3.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
 
 - **Control Plane:**
-    - **`janus-daemon` (resident process):** Responsible for core logic scheduling, maintaining a persistent connection to Absurd Postgres, listening for external Teams/TG async messages. Also exposes the `progress` query primitive: aggregating real-time status from `absurd_tasks` JOIN `absurd_steps` plus Tether physical session liveness signals, serving as the sole authoritative data source for the workflow progress dashboard.
+    - **`janus-daemon` (resident process):** Responsible for core logic scheduling, maintaining a persistent connection to Absurd Postgres, listening for external Teams/TG async messages. Also exposes the `progress` query primitive: aggregating real-time status from `absurd_tasks` JOIN `absurd_steps` plus tmux physical session liveness signals, serving as the sole authoritative data source for the workflow progress dashboard.
     - **`herdr-janus` (shadow plugin):** Passive execution. Declared in `herdr-plugin.toml` as a `[[panes]]` entrypoint with `placement = "overlay"` (validated Herdr 0.7.3 directive; see `docs/herdr-v1-contract.md`), dedicated to launching session-modal interaction popups, sending commands to the Daemon via UDS socket. The Popup has two built-in views: **Dispatch** and **Progress**, switchable by the Factory Director with one key. The Progress view polls the Daemon's `progress` primitive at a fixed cadence (1–2s) to render the workflow progress dashboard.
 
 - **Physical Execution Plane:**
-    - **`janus::tether` (physical engine):** A native Rust module inside `janus-daemon`, directly managing tmux `remain-on-exit` sessions and cross-host SSH transport. Formerly the external `herdr-tether` plugin; now internalized as part of MM-CORE per the 0.3.0 architecture consensus.
+    - **`janus::tmux` (physical engine):** A native Rust module inside `janus-daemon`, directly managing tmux `remain-on-exit` sessions and cross-host SSH transport. Formerly the external `herdr-tether` plugin; now internalized as part of MM-CORE per the 0.3.0 architecture consensus.
 
 - **Persistence Plane:**
     - **Absurd Postgres (Absurd DB):** One PG, Multi-DB topology. A single physical Postgres instance (native, no Docker) hosts independent logical databases per blueprint (`CREATE DATABASE metamach_blueprint_<name>` on Onboard). Each blueprint's database is fully isolated with its own connection pool, eliminating cross-blueprint lock contention. Data persists at `~/.metamach/db/`.
     - **OpenWiki (shared RAG skill):** Packaged as a standard Agent Skill. When an Agent encounters a code blind spot, it initiates a precise RAG retrieval via the `openwiki_query` tool; Janus intercepts and preferentially looks up in a Postgres-level cache (Git-SHA deduplication), returning precise AST code snippets with zero latency.
 
-> **CLI & Binary Architecture (unified entrypoint + dedicated binaries):** The system uses a unified `janus` CLI as the single entrypoint for the Factory Director and management surface, with subcommands in two categories: (1) **lifecycle/query subcommands**—`janus onboard`, `janus offboard`, `janus status`—all lightweight clients communicating with the resident `janus-daemon` via UDS (**Daemon must be running**; `janus daemon` explicitly launches it); (2) underlying dedicated binaries—`janus-daemon` (resident brain), `herdr-janus` (shadow client, loaded by Herdr), `janush` (proxy shell, injected as `SHELL` by Tether); (4) `janus::tether` — physical execution engine, now a native module inside `janus-daemon` per 0.3.0. Thus `janus offboard` is equivalent to "client sends offboard command to Daemon via UDS," not a standalone direct DB connection. All Tether operations are internal to `janus-daemon`; the `herdr-tether` CLI binary is no longer a separate external dependency.
+> **CLI & Binary Architecture (unified entrypoint + dedicated binaries):** The system uses a unified `janus` CLI as the single entrypoint for the Factory Director and management surface, with subcommands in two categories: (1) **lifecycle/query subcommands**—`janus onboard`, `janus offboard`, `janus status`—all lightweight clients communicating with the resident `janus-daemon` via UDS (**Daemon must be running**; `janus daemon` explicitly launches it); (2) underlying dedicated binaries—`janus-daemon` (resident brain), `herdr-janus` (shadow client, loaded by Herdr), `janush` (proxy shell, injected as `SHELL` by Tether); (4) `janus::tmux` — physical execution engine, now a native module inside `janus-daemon` per 0.3.0. Thus `janus offboard` is equivalent to "client sends offboard command to Daemon via UDS," not a standalone direct DB connection. All tmux operations are internal to `janus-daemon`; the `herdr-tether` CLI binary is no longer a separate external dependency.
 
 ## 4. Component Interactivity
 
@@ -90,7 +90,7 @@ sequenceDiagram
     participant Daemon as janus-daemon
     participant Absurd as Absurd Postgres
     participant Guard as Tool Guard (janush)
-    participant Tether as janus::tether (internal)
+    participant tmux as janus::tmux (internal)
     participant OW as OpenWiki
     participant Teams as MS Teams / TUI
 
@@ -107,7 +107,7 @@ sequenceDiagram
     OW-->>Daemon: Inject Coder Agent System Prompt (avoid I2C pin conflicts)
 
     Note over Daemon, Tether: [Phase 2: Local Coder Station]
-    Daemon->>Tether: Create local tmux session: "tether-janus-step1-uuid"
+    Daemon->>Tether: Create local tmux session: "tmux-janus-step1-uuid"
     Tether->>Tether: Force remain-on-exit
     Daemon->>Tether: Run Coder Agent, inject filter algorithm patch
     Tether-->>Daemon: Write complete, output Git Diff
@@ -127,7 +127,7 @@ sequenceDiagram
 
     Note over Daemon, Absurd: [Phase 5: Offboard Smelting & Experience Evolution]
     Teams-->>Daemon: Receive resume command
-    Daemon->>Tether: Drive Tether to re-run "make cross-compile" remotely
+    Daemon->>Tether: Drive tmux to re-run "make cross-compile" remotely
     Tether-->>Daemon: Compile passes, QA success!
     Daemon->>Daemon: janus offboard --blueprint gatemetric
     Daemon->>Absurd: Execute DELETE + archive: purge operational data, write absurd_audit_log, DB footprint shrinks
@@ -196,7 +196,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │   # ====================================================================
 ├── configs/                      # Global static config
 │   ├── agents.toml               # Agent Pool registration & permission allowlist
-│   ├── tmux.conf                 # Tether tmux init config (remain-on-exit)
+│   ├── tmux.conf                 # tmux init config (remain-on-exit)
 │   └── global_rules.md           # Factory-wide developer rules (Agent onboarding safety lines)
 │
 ├── openwiki/                     # External: langchain-ai/openwiki — RAG knowledge federation engine
@@ -238,12 +238,12 @@ metamach/ (Single monorepo — silicon factory headquarters)
 #    Federated knowledge RAG engine: shared skill retrieval, production_report indexing
 #
 # herdr-tether (DEPRECATED in 0.3.0): the tmux session engine has been internalized
-# into janus::tether; the external herdr-tether binary is no longer required.
+# into janus::tmux; the external herdr-tether binary is no longer required.
 ```
 ```
 
 > **External Dependencies & Mutable Configuration:**
-> - `absurd` and `openwiki` are independent external repositories, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking these dependencies. `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tether`.
+> - `absurd` and `openwiki` are independent external repositories, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking these dependencies. `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tmux`.
 > - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/config/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). **Database persistence** uses `~/.metamach/db/` — an independent global directory decoupled from the Herdr plugin lifecycle, ensuring PG data survives plugin upgrades and power-cycle restarts.
 
 ## 6. Resilience Invariants
@@ -254,6 +254,6 @@ metamach/ (Single monorepo — silicon factory headquarters)
 
 3. **Zero-Privilege-Escalation — Physical janush Interception:** No reliance on AI self-restraint. All high-risk commands must pass through `janush` for synchronous reconciliation with Janus Daemon over a UDS pipe before reaching the underlying Bash. Without Teams/TUI approval detected, commands are forcibly rewritten in memory or rejected entirely.
 
-4. **Stateless Cold Start — Absolute Rejection of tmux-resurrect:** The sole source of truth for state is Postgres. After a server room restart, the system directly reads the last Completed Step's JSON cache from the database, assigns a brand-new Tether Session UUID, and instantly picks up seamlessly at the physical breakpoint.
+4. **Stateless Cold Start — Absolute Rejection of tmux-resurrect:** The sole source of truth for state is Postgres. After a server room restart, the system directly reads the last Completed Step's JSON cache from the database, assigns a brand-new tmux Session UUID, and instantly picks up seamlessly at the physical breakpoint.
 
-5. **Version Reconciliation - Git SHA Optimistic Locking (preparatory; enforcement lands with Task 4.4):** To prevent slow remote test reports (potentially minutes-long) from overwriting locally-evolved code state upon return, the system enforces SHA-1 optimistic locking at the `metamach_step_meta` level (app-layer; absurd has no SHA concept). Each Step dispatch pins the current `HEAD` SHA into `target_sha` (the all-zeros sentinel marks a non-git blueprint, which skips the lock) and sends it as `dispatch_sha` with the step payload; the remote report echoes it back. On return the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch, so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. The `UPDATE … WHERE target_sha = $4` (`$4 = report.dispatch_sha`) is the reschedule guard; a reschedule writes a **new** `absurd_tasks` row rather than mutating the existing `target_sha`, so stale pre-reschedule reports zero-row correctly. Dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tether` (internalized in 0.3.0).
+5. **Version Reconciliation - Git SHA Optimistic Locking (preparatory; enforcement lands with Task 4.4):** To prevent slow remote test reports (potentially minutes-long) from overwriting locally-evolved code state upon return, the system enforces SHA-1 optimistic locking at the `metamach_step_meta` level (app-layer; absurd has no SHA concept). Each Step dispatch pins the current `HEAD` SHA into `target_sha` (the all-zeros sentinel marks a non-git blueprint, which skips the lock) and sends it as `dispatch_sha` with the step payload; the remote report echoes it back. On return the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch, so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. The `UPDATE … WHERE target_sha = $4` (`$4 = report.dispatch_sha`) is the reschedule guard; a reschedule writes a **new** `absurd_tasks` row rather than mutating the existing `target_sha`, so stale pre-reschedule reports zero-row correctly. Dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tmux` (internalized in 0.3.0).

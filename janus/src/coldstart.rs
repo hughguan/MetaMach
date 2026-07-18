@@ -29,11 +29,7 @@ pub async fn reconcile(db: &AbsurdDb) -> Result<usize> {
     }
     let mut resumable = 0usize;
     for t in &tasks {
-        let session = format!(
-            "tether-janus-task-{}-{}",
-            t.task_id,
-            Uuid::new_v4().simple()
-        );
+        let session = format!("tmux-janus-task-{}-{}", t.task_id, Uuid::new_v4().simple());
         match &t.last_completed_step {
             Some(step) => {
                 info!(
@@ -67,8 +63,8 @@ mod tests {
     #[test]
     fn session_name_shape() {
         // Cold-start assigns a fresh session UUID per resumable task.
-        let s = format!("tether-janus-task-1042-{}", uuid::Uuid::new_v4().simple());
-        assert!(s.starts_with("tether-janus-task-1042-"));
+        let s = format!("tmux-janus-task-1042-{}", uuid::Uuid::new_v4().simple());
+        assert!(s.starts_with("tmux-janus-task-1042-"));
         // simple() UUID has no dashes, so only the 4 name separators remain.
         assert_eq!(s.matches('-').count(), 4);
     }

@@ -34,7 +34,7 @@ MetaMach 1.0 is a durable AI "software factory" OS. The core mental model (sprea
 
 - **`janus-daemon` (resident brain):** the sole owner of state, the DB connection pool, and the UDS gateway. All Step state transitions are transactional in Absurd Postgres. Exposes a read-only `progress` primitive for the dashboard.
 - **`herdr-janus` (shadow client):** a lightweight Herdr plugin that only renders the Popup (two views: **Dispatch** and **Progress**). Crashes never lose state — it just re-attaches. Lazy-starts the Daemon via `std::process::Command::spawn()` + detach.
-- **`janush` (proxy shell):** Tether injects this as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`). Every Agent command is synchronously reconciled with the Daemon over UDS **before** reaching bash. Verdict: `ALLOW` / `BLOCK` / `REWRITE` (Contract 3.4). 30s timeout = fail-closed `BLOCK`.
+- **`janush` (proxy shell):** tmux injects this as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`). Every Agent command is synchronously reconciled with the Daemon over UDS **before** reaching bash. Verdict: `ALLOW` / `BLOCK` / `REWRITE` (Contract 3.4). 30s timeout = fail-closed `BLOCK`.
 - **`herdr-tether` (physical execution, external):** tmux `remain-on-exit` sessions (dedicated server `tmux -L metamach-tether`), cross-host SSH. Sessions survive network drops/power loss.
 - **Absurd Postgres (Absurd DB):** single-DB, multi-tenant by `blueprint_id`. Sole source of truth; cold start reads the last `COMPLETED` checkpoint (never `tmux-resurrect`).
 - **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Onboard.
@@ -59,7 +59,7 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml`), **Workfl
 Cross-doc identifiers to keep consistent when editing:
 - **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (Feature-Spec Contract 3.1); `fallback_events` SQLite ring buffer (Contract 3.8).
 - **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
-- **CLI:** unified `janus` CLI with subcommands `janus onboard` / `offboard` / `status` / `daemon` (all require the Daemon running — they are UDS clients, never direct DB access). Tether commands are always `herdr-tether <subcommand>`.
+- **CLI:** unified `janus` CLI with subcommands `janus onboard` / `offboard` / `status` / `daemon` (all require the Daemon running — they are UDS clients, never direct DB access). tmux commands are always `herdr-tether <subcommand>`.
 - **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) — not "Unified DB/PG". Project is branded **MetaMach 1.0**.
 - **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see `Review-Spec.md` REV-SEC-02, `Test-Spec.md` UTC-02-02).
 

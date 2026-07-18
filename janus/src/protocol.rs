@@ -93,7 +93,7 @@ pub struct ActiveTask {
     pub elapsed_seconds: Option<i64>,
     pub current_step: Option<String>,
     /// Tether physical-session liveness; lands with Task 2.4 (always false in M2).
-    pub tether_alive: bool,
+    pub tmux_alive: bool,
     pub suspended_reason: Option<String>,
     pub steps: Vec<StepStatus>,
 }

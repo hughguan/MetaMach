@@ -5,10 +5,10 @@
 //!   `janus daemon` - launch the resident `janus-daemon` in the foreground.
 //!   `janus onboard --blueprint <name>` - register/reactivate a blueprint (Task 4.3).
 //!   `janus offboard --blueprint <name>` - smelt + prune a blueprint (Task 4.2).
-//!   `janus tether open|attach|list` - manage Tether physical sessions (Task 2.4).
+//!   `janus tmux open|attach|list` - manage tmux physical sessions (Task 2.4).
 //!
 //! `status`/`onboard`/`offboard` require the Daemon reachable (lazy-started if
-//! absent); `tether` talks to the isolated tmux server directly, no Daemon needed.
+//! absent); `tmux` talks to the isolated tmux server directly, no Daemon needed.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -18,8 +18,8 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
 use janus::protocol::{ActiveTask, ProgressPayload, Request, Response};
-use janus::tether::DurableBackend;
-use janus::{spawn, tether, uds};
+use janus::tmux::DurableBackend;
+use janus::{spawn, tmux, uds};
 
 #[derive(Parser)]
 #[command(
@@ -57,22 +57,22 @@ enum CliCommand {
         #[arg(long)]
         blueprint: String,
     },
-    /// Manage Tether physical sessions (Task 2.4, `janus::tether`).
-    Tether {
+    /// Manage tmux physical sessions (Task 2.4, `janus::tmux`).
+    Tmux {
         #[command(subcommand)]
-        cmd: TetherCmd,
+        cmd: TmuxCmd,
     },
 }
 
-/// `janus tether` subcommands.
+/// `janus tmux` subcommands.
 #[derive(Subcommand)]
-enum TetherCmd {
+enum TmuxCmd {
     /// Create a detached session running a command (persists via remain-on-exit).
     Open {
         /// Shell command to run in the session.
         #[arg(long)]
         command: String,
-        /// Session name (default: tether-janus-task-<uuid>).
+        /// Session name (default: tmux-janus-task-<uuid>).
         #[arg(long)]
         name: Option<String>,
         /// Working directory.
@@ -94,7 +94,7 @@ fn main() -> Result<()> {
         CliCommand::Daemon => daemon(),
         CliCommand::Onboard { blueprint } => lifecycle_cmd(Request::Onboard { name: blueprint }),
         CliCommand::Offboard { blueprint } => lifecycle_cmd(Request::Offboard { name: blueprint }),
-        CliCommand::Tether { cmd } => tether(cmd),
+        CliCommand::Tmux { cmd } => tmux(cmd),
     }
 }
 
@@ -162,32 +162,32 @@ fn daemon() -> Result<()> {
     Ok(())
 }
 
-/// `janus tether open|attach|list`: drive the isolated `tmux -L metamach-tether`
+/// `janus tmux open|attach|list`: drive the isolated `tmux -L metamach-tmux`
 /// server directly (no Daemon round-trip - Task 2.4).
-fn tether(cmd: TetherCmd) -> Result<()> {
-    let backend = tether::TetherBackend::new();
+fn tmux(cmd: TmuxCmd) -> Result<()> {
+    let backend = tmux::TmuxBackend::new();
     match cmd {
-        TetherCmd::Open { command, name, cwd } => {
+        TmuxCmd::Open { command, name, cwd } => {
             let id = match name {
-                Some(n) => tether::SessionId::from_name(n),
-                None => tether::SessionId::new_for_task(&uuid::Uuid::new_v4().to_string()),
+                Some(n) => tmux::SessionId::from_name(n),
+                None => tmux::SessionId::new_for_task(&uuid::Uuid::new_v4().to_string()),
             };
             backend.create_session(&id, &command, cwd.as_deref())?;
             println!(
-                "created session {} (attach: janus tether attach {})",
+                "created session {} (attach: janus tmux attach {})",
                 id.as_str(),
                 id.as_str()
             );
             Ok(())
         }
-        TetherCmd::Attach { name } => {
-            let id = tether::SessionId::from_name(name);
+        TmuxCmd::Attach { name } => {
+            let id = tmux::SessionId::from_name(name);
             backend.attach(&id)
         }
-        TetherCmd::List => {
+        TmuxCmd::List => {
             let sessions = backend.list_sessions()?;
             if sessions.is_empty() {
-                println!("(no tether sessions on -L {})", tether::TMUX_SOCKET);
+                println!("(no tmux sessions on -L {})", tmux::TMUX_SOCKET);
             } else {
                 for s in sessions {
                     println!("{s}");

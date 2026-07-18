@@ -16,6 +16,10 @@ pub struct BlueprintRecipe {
     pub blueprint: BlueprintSection,
     pub remote: Option<RemoteSection>,
     pub openwiki: OpenwikiSection,
+    /// 0.4.0 Cognitive Provider config (Contract 4.1/4.2). Opt-in; blueprints
+    /// without a `[cognitive]` section get a `NoopProvider` (fail-open).
+    #[serde(default)]
+    pub cognitive: Option<CognitiveSection>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -33,6 +37,29 @@ pub struct RemoteSection {
 #[derive(Debug, Clone, Deserialize)]
 pub struct OpenwikiSection {
     pub scope: Vec<String>,
+}
+
+/// 0.4.0 Cognitive Provider config (Contract 4.1/4.2). Opt-in via
+/// `[cognitive.codebase_memory]` in `janus.toml`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CognitiveSection {
+    pub codebase_memory: Option<CodebaseMemoryConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CodebaseMemoryConfig {
+    /// Transport: `"stdio"` only in 0.4.0 (MCP over the child's stdin/stdout).
+    pub transport: String,
+    /// External `codebase-memory-mcp` binary name or path.
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default = "default_cognitive_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn default_cognitive_timeout() -> u64 {
+    5
 }
 
 impl BlueprintRecipe {

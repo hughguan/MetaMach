@@ -79,9 +79,17 @@ pub enum TetherError {
 }
 
 /// Production backend: drives a real `tmux -L metamach-tether` server.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TetherBackend {
     tmux: PathBuf,
+}
+
+impl Default for TetherBackend {
+    /// Delegates to `new()` so callers never get a non-functional backend with an
+    /// empty path (which would immediately fail with `TetherError::TmuxNotFound`).
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TetherBackend {
@@ -158,8 +166,10 @@ impl DurableBackend for TetherBackend {
     }
 
     fn kill_session(&self, id: &SessionId) -> Result<()> {
-        // kill-session returns non-zero if the session is already gone; treat as success.
-        let _ = self.run(&["kill-session", "-t", id.as_str()]);
+        // Propagate spawn errors (tmux missing, permission denied, etc.) via the `?`.
+        // The tmux exit status is deliberately ignored: kill-session returns non-zero
+        // when the session is already gone, which is a no-op, not a failure.
+        let _ = self.run(&["kill-session", "-t", id.as_str()])?;
         Ok(())
     }
 
@@ -183,6 +193,13 @@ impl DurableBackend for TetherBackend {
 
     fn capture_pane(&self, id: &SessionId) -> Result<String> {
         let out = self.run(&["capture-pane", "-p", "-t", id.as_str()])?;
+        // Check exit status like every other method. If the session does not exist,
+        // `tmux capture-pane` exits with code 1 and writes an error to stderr;
+        // without this check, callers would silently get an empty string and
+        // misinterpret it as "no output yet" rather than "session missing".
+        if !out.status.success() {
+            bail!(TetherError::Command(lossy_stderr(&out)));
+        }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 }

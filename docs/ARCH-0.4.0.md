@@ -2,7 +2,14 @@
 
 **Gateway & Ecosystem Integrations** | **Status: Proposal / Under Review**
 
-> **0.4.0 Strategic Delta:** This document defines the **incremental architectural changes** from the 0.3.0 consensus baseline (`docs/ARCH-0.3.0.md`). It introduces the Cognitive Provider SPI, MCP-based symbol indexing, and an out-of-band Stateless HITL Gateway with Microsoft Teams Active Cards integration.
+> **0.4.0 Strategic Delta:** This document defines the **incremental architectural changes** from the 0.3.0 consensus baseline (`docs/ARCH-0.3.0.md`). It introduces the Cognitive Provider SPI, MCP-based symbol indexing, and an out-of-band HITL Gateway with Microsoft Teams Active Cards integration.
+
+> **⚠️ Governance Note — Contracts 4.x Propagation:** Contracts 4.1, 4.2, and 4.3a–c defined herein are **provisional** and live only in this delta document. Per `CLAUDE.md` governance rules, before 0.4.0 implementation begins, these contracts must be formally propagated to:
+> - `docs/Feature-Spec.md` — new Contract 4.x section (source of truth for data contracts)
+> - `docs/Test-Spec.md` — new UTC-10-xx test suite (Gateway + Cognitive Provider)
+> - `docs/Review-Spec.md` — new REV-GW-xx and REV-COG-xx review rows
+>
+> The cross-referencing fabric is currently broken for 4.x; this note is the tracked prerequisite.
 
 ---
 
@@ -12,9 +19,9 @@
 |---|---|---|---|
 | **Knowledge Base** | In-memory context (blueprint-scoped) | **OpenWiki Cognitive Provider** (SPI, opt-in) | 🔌 New |
 | **Symbol Indexing** | Not addressed | **codebase-memory-mcp** (MCP transport, opt-in) | 🔌 New |
-| **HITL Routing** | Telegram webhook + local TUI (`tool_guard/webhook.rs`) | **Stateless HITL Gateway module** (`janus::gateway`) | ✅ Extended |
-| **Alert Protocol** | Custom `WebhookPayload` JSON (Contract 3.4 bundles) | **Hermes Run API schema** (`/v1/runs`) — compatible envelope | 🔄 Aligned |
-| **Enterprise Reach** | Telegram Bot API | **Microsoft Teams Active Cards** (Outgoing Webhook adapter) | 🌐 New |
+| **HITL Routing** | Telegram webhook + local TUI (`tool_guard/webhook.rs`) | **HITL Gateway module** (`janus::gateway`) — payload-complete, no DB dependency | ✅ Extended |
+| **Alert Protocol** | Custom `WebhookPayload` JSON (Contract 3.4 bundles) | **Hermes Run API schema** (`/v1/runs`) — compatible envelope with enriched fields | 🔄 Aligned |
+| **Enterprise Reach** | Telegram Bot API | **Microsoft Teams Active Cards** (Outgoing Webhook adapter with HTTP ingress) | 🌐 New |
 | **Binary Names** | `janush`, `janus-daemon`, `herdr-janus` | **Unchanged from 0.3.0** | ✅ Baseline |
 | **Physical Engine** | `janus::tmux` (`tmux -L metamach-tmux`) | **Unchanged from 0.3.0** | ✅ Baseline |
 
@@ -42,24 +49,26 @@ The 0.4.0 delta adds two modules and extends one:
 
 ```
 janus/src/
-├── gateway/                  # 🌐 NEW — Stateless HITL Gateway
-│   ├── mod.rs                #   Hermes Run envelope, Teams adapter, dispatch
+├── gateway/                  # 🌐 NEW — HITL Gateway (payload-complete)
+│   ├── mod.rs                #   Hermes Run envelope, Teams adapter, HTTP listener
 │   └── teams.rs              #   Microsoft Teams Outgoing Webhook + Adaptive Cards
 ├── cognitive/                # 🔌 NEW — Cognitive Provider SPI
 │   └── mod.rs                #   CognitiveProvider trait + OpenWiki adapter
 ├── tool_guard/               # 🛡️ EXTENDED — (existing 0.3.0)
 │   ├── mod.rs                #   Rule engine (unchanged)
 │   └── webhook.rs            #   ➕ HITL dispatch now delegates to gateway
-└── protocol.rs               #   📜 EXTENDED — Contract 4.x additions
+└── protocol.rs               #   📜 EXTENDED — Contract 4.x additions + shared types
 ```
 
 ### Module Responsibilities
 
 | Module | `pub mod` | Depends On | Purpose |
 |---|---|---|---|
-| `janus::gateway` | ✅ | `tool_guard` (for `WebhookPayload`), `protocol` (for Contract 4.x) | Out-of-band HITL dispatch: receives HITL trigger from `tool_guard`, formats per destination (TUI, Teams, Telegram), receives remote `Approve`/`Reject`, toggles `janus::tmux` session. |
+| `janus::gateway` | ✅ | `protocol` (for shared `WebhookPayload` and `GatewayVerdict` types) | Out-of-band HITL dispatch: receives enriched HITL trigger from `tool_guard`, formats per destination (TUI, Teams, Telegram), hosts an HTTP listener for Teams callback ingress, receives remote `Approve`/`Reject`, toggles `janus::tmux` session. |
 | `janus::cognitive` | ✅ | `protocol` | SPI trait for domain knowledge providers. Queryable by `tool_guard` when a command requires blueprint-specific context validation. |
-| `tool_guard::webhook` | Existing | `gateway` (new dep) | Refactored: instead of directly dispatching to Telegram, constructs `WebhookPayload` and calls `gateway::dispatch(payload)`. Existing `TelegramSender` becomes a `gateway` adapter. |
+| `tool_guard::webhook` | Existing | `gateway` (new dep) | Refactored: instead of directly dispatching to Telegram, constructs enriched `WebhookPayload` (now in `protocol.rs`) and calls `gateway::dispatch(payload)`. Existing `TelegramSender` becomes a `gateway` adapter. |
+
+> **Dependency cycle resolved:** `WebhookPayload` and `GatewayVerdict` are moved to `protocol.rs` (the shared-types crate root). Both `tool_guard` and `gateway` depend on `protocol` — no circular dependency. The `tool_guard → gateway` edge is one-way: `tool_guard` calls `gateway::dispatch()` but `gateway` never imports `tool_guard`.
 
 ---
 
@@ -86,96 +95,61 @@ pub trait CognitiveProvider: Send + Sync {
         cwd: Option<&str>,
     ) -> Result<Option<String>, CognitiveError>;
 
-    /// On Offboard, produce a consolidated knowledge artifact from the
-    /// blueprint's execution history. Called once; output written to
-    /// `blueprints/<name>/openwiki/production_report.md`.
+    /// On Offboard, produce a condensed knowledge artifact for the blueprint.
+    /// The returned string is written to `production_report.md` **in addition
+    /// to** (not replacing) the existing LLM smelt output from `lifecycle::offboard()`.
+    /// This is a supplement, not a substitute — the LLM smelt path (Contract 3.9)
+    /// remains the primary report generator.
     fn extract_knowledge(
         &self,
         blueprint: &str,
-        task_history: &[TaskSummary],
     ) -> Result<String, CognitiveError>;
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum CognitiveError {
-    #[error("provider unreachable: {0}")]
+    #[error("provider not reachable: {0}")]
     Unreachable(String),
-    #[error("provider timeout")]
+    #[error("query timeout")]
     Timeout,
-    #[error("provider internal error: {0}")]
-    Internal(String),
 }
 ```
 
 **Design invariants:**
-- **Fail-open on provider absence.** If no CognitiveProvider is configured for a blueprint, command validation skips with no penalty — `tool_guard`'s existing rule engine remains the sole gate.
-- **Timeout-bounded.** Every IPC call to a provider carries a configurable deadline (default 5s). On timeout, the provider's verdict is discarded and the rule engine proceeds.
-- **No persistent connection.** Providers are stateless from the daemon's perspective — each query is a self-contained request/response round-trip.
+
+- **Cannot block the tmux session.** `validate_command` runs in the `tool_guard` verdict path but with a hard timeout (default 2s). If the provider times out, the daemon proceeds with the standard Tool Guard verdict — the cognitive check is advisory, not gating. The tmux session is never frozen waiting for a cognitive provider.
+- **Cannot read database state.** The provider receives only the `argv` + `cwd` + `blueprint` name. It has no access to `absurd_steps`, `blueprints` metadata, or any other PG table.
+- **Opt-in per blueprint.** Providers are configured in `blueprints/<name>/janus.toml` under a `[cognitive]` section. Blueprints without this section have no cognitive provider.
 
 ---
 
-## IV. codebase-memory-mcp Integration (Contract 4.2)
+## IV. codebase-memory-mcp (Contract 4.2)
 
-AST/Tree-sitter processing is offloaded to a standalone `codebase-memory-mcp` service communicating via Anthropic MCP (JSON-RPC over stdio or localhost HTTP).
+The **codebase-memory-mcp** MCP server provides symbol-level indexing for the blueprint's codebase. Integration is via the MCP transport protocol.
 
 ```
-[janush command trap] → [tool_guard::Engine]
-                              │
-                              │ (if fault trace detected)
-                              ▼
-                     [cognitive::query_mcp()]
-                              │
-                              │ MCP: tools/call "resolve_symbol"
-                              ▼
-                     [codebase-memory-mcp]  ← external process
-                              │
-                              │ returns: { symbol, file, definition, callers[] }
-                              ▼
-                     [gateway::dispatch()] → Teams / TUI card
+┌──────────────┐  MCP (stdio)  ┌──────────────────────┐
+│ janus-daemon │◄─────────────►│ codebase-memory-mcp  │
+│  cognitive   │               │  (external process)  │
+│  provider    │               │  Symbol index & AST  │
+└──────────────┘               └──────────────────────┘
 ```
 
-**Design invariants:**
-- **Lazy, on-fault only.** MCP is not polled during normal execution. The daemon calls it only when `tool_guard`'s `require_approval` or `blacklist` cause triggers — appending symbol context to the HITL card payload.
-- **Process isolation.** `codebase-memory-mcp` runs as a child process spawned by `janus-daemon` on first use. A crash or OOM in the MCP process never touches the daemon's memory space.
-- **Transport.** MCP over stdio (default) with localhost HTTP fallback. The transport is configured per-blueprint in `janus.toml`:
+The daemon spawns the MCP server as a child process on first use and communicates via stdin/stdout JSON-RPC. The server is terminated on blueprint Offboard.
 
-```toml
-# blueprints/<name>/janus.toml (new optional section)
-[cognitive.codebase_memory]
-transport = "stdio"          # "stdio" | "http"
-command = "codebase-memory-mcp"
-args = ["--workspace", "/path/to/repo"]
-# For HTTP transport:
-# endpoint = "http://127.0.0.1:9191"
-timeout_secs = 5
-```
+**Scope:** The MCP server indexes only the blueprint's own source tree (`blueprints/<name>/`). It has no access to the daemon's source, other blueprints, or the host filesystem outside the blueprint root.
 
 ---
 
-## V. Stateless HITL Gateway (Contract 4.3)
+## V. HITL Gateway (Contracts 4.3a–c)
 
-The Gateway is an out-of-band proxy that decouples notification delivery from core runtime — a Teams webhook timeout or network partition never freezes the local tmux session.
-
-```
-[janush Traps Command]
-        │
-        ▼
-[tool_guard::Engine] ── BLOCK verdict ──► [gateway::dispatch()]
-        │                                        │
-        │ (mark SUSPENDED,                        ├─► TUI (herdr-janus via UDS)
-        │  tmux session frozen)                   ├─► TelegramSender (existing)
-        │                                        └─► TeamsSender (new)
-        ▼
-   [await HITL response]  ◄── /v1/runs callback ── [Teams / TUI button]
-        │
-        ▼
-   [gateway::apply_verdict()] → janus::tmux (release/kill session)
-```
+The HITL Gateway is a **payload-complete** out-of-band dispatch module. It receives a fully-enriched `WebhookPayload` from `tool_guard` (containing all fields needed by every adapter), formats it per destination, and hosts an HTTP listener for inbound Teams callbacks. The gateway performs **no database lookups** — all data it needs is in the request payload.
 
 ### 5.1 Hermes Run API Envelope (Contract 4.3a)
 
-The Gateway exposes a local UDS endpoint (`janus-gateway.sock`) that speaks the Hermes Run API schema:
+The gateway exposes a local HTTP listener on `127.0.0.1` for inbound Teams callbacks. External reachability is provided by a tunnel or reverse proxy (see §5.1b).
 
+**Outbound (Gateway → Teams):**
 ```
 POST /v1/runs
 {
@@ -196,7 +170,7 @@ POST /v1/runs
 }
 ```
 
-**Callback (Teams/TUI → Gateway):**
+**Callback (Teams → Gateway HTTP listener):**
 ```
 POST /v1/runs/{run_id}/actions
 {
@@ -207,9 +181,51 @@ POST /v1/runs/{run_id}/actions
 }
 ```
 
+**`expires_at` semantics:** The `expires_at` timestamp is set to `now + HITL_TIMEOUT` (default 30 minutes). If the callback arrives after `expires_at`, the gateway returns `410 Gone`. This bounds the window for replay attacks and prevents stale approvals from resurrecting long-abandoned sessions. The timeout is configurable via `JANUS_HITL_TIMEOUT_SECS`.
+
+### 5.1b HTTP Ingress (Teams Callback Path)
+
+The gateway includes a built-in HTTP listener (`tokio::net::TcpListener`) that binds to `127.0.0.1:<port>` (default `8443`, configurable via `JANUS_GATEWAY_LISTEN_PORT`). This listener exposes exactly one endpoint:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/runs/{run_id}/actions` | Teams callback ingress |
+
+**External reachability:** Microsoft Teams Outgoing Webhooks require an HTTPS URL. The gateway's internal HTTP listener is **not** directly reachable by Teams. A tunnel or reverse proxy must bridge the gap:
+
+- **Recommended (development/CI):** cloudflared tunnel (`cloudflared tunnel --url http://127.0.0.1:8443`)
+- **Recommended (production):** nginx/Caddy reverse proxy with Let's Encrypt TLS termination
+- **Documented in:** `docs/Deployment-Spec.md` §7 (new "Gateway Ingress" section, to be added)
+
+The tunnel/proxy is a **deployment prerequisite**, not part of the daemon binary. The daemon itself never handles TLS or exposes a public port — it only binds to loopback.
+
+### 5.1c await_verdict Threading Model
+
+The `await_verdict` method blocks the **gateway's dedicated verdict thread**, not the tmux control thread. The threading architecture:
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  tool_guard      │────►│  gateway          │     │  janus::tmux    │
+│  (control-loop)  │     │  ┌──────────────┐ │     │  (session mgr)  │
+│                  │     │  │ verdict thread│ │     │                 │
+│  dispatch() ─────┼────►│  │ await_verdict │ │     │  tmux session   │
+│  (non-blocking)  │     │  │ (blocks here) │ │     │  (runs freely)  │
+│  return          │     │  └──────────────┘ │     │                 │
+│  continue loop   │     │  HTTP listener    │     │  never frozen    │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+```
+
+1. `tool_guard` calls `gateway::dispatch(payload)` — non-blocking; the gateway spawns a verdict thread and returns immediately.
+2. The tmux session continues running uninterrupted — the Agent's process is not paused.
+3. The verdict thread blocks on `await_verdict(correlation_id, timeout)`.
+4. When the callback arrives (or timeout expires), the verdict thread signals `tool_guard` via a oneshot channel.
+5. `tool_guard` applies the verdict (Approve/Reject/Override) to the next `janush` command check.
+
+**Invariant: the tmux session is never frozen waiting for a HITL verdict.** The control loop continues processing other requests; only the specific step's verdict is gated.
+
 ### 5.2 Microsoft Teams Active Cards (Contract 4.3b)
 
-The `TeamsSender` adapter translates the `WebhookPayload` into an Adaptive Card.
+The `TeamsSender` adapter translates the enriched `WebhookPayload` into an Adaptive Card.
 
 | Card Field | Source |
 |---|---|
@@ -221,9 +237,9 @@ The `TeamsSender` adapter translates the `WebhookPayload` into an Adaptive Card.
 
 **Security model:**
 
-- **Authentication.** The Teams Outgoing Webhook uses HMAC payload signing with a pre-shared secret (`JANUS_TEAMS_HMAC_SECRET`, provisioned in `/dev/shm`). The Gateway validates the HMAC on every inbound callback; unsigned or mismatched payloads are discarded.
+- **Authentication.** The Teams Outgoing Webhook uses HMAC payload signing with a pre-shared secret (`JANUS_TEAMS_HMAC_SECRET`, provisioned in the platform-appropriate secret directory: `/dev/shm` on Linux, `$TMPDIR` on macOS per the existing `make ram-disk` workaround in Deployment-Spec §1). The Gateway validates the HMAC on every inbound callback; unsigned or mismatched payloads are discarded.
 - **Replay protection.** Each `run_id` accepts exactly one callback. Duplicate approvals for the same `run_id` return `409 Conflict`.
-- **Scope isolation.** The callback payload carries the `run_id` only — it cannot reference other blueprints, tasks, or internal paths. The Gateway resolves the `run_id` to its owning blueprint and `tmux` session ID internally, structurally preventing cross-blueprint interference.
+- **Scope isolation.** The callback payload carries the `run_id` only — it cannot reference other blueprints, tasks, or internal paths. The Gateway resolves the `run_id` to its owning blueprint and `tmux` session ID via an in-memory pending-verdict map (populated by `dispatch()`, indexed by `run_id`), structurally preventing cross-blueprint interference.
 - **No reverse probe.** The Teams endpoint can only POST `action` verdicts to the `/actions` callback URI. There is no GET endpoint, no status query, and no mechanism to read environment variables or database state.
 
 ### 5.3 Gateway Trait (Contract 4.3c)
@@ -233,19 +249,22 @@ The `TeamsSender` adapter translates the `WebhookPayload` into an Adaptive Card.
 pub trait HitlGateway: Send + Sync {
     /// Dispatch a HITL card to all configured channels. Returns the
     /// correlation_id used to match the inbound callback.
+    /// Non-blocking: spawns a verdict thread and returns immediately.
     fn dispatch(&self, payload: &WebhookPayload) -> Result<String, GatewayError>;
 
     /// Block until a verdict arrives for the given correlation_id, or
     /// until the timeout expires (fail-closed: timeout = BLOCK).
+    /// Called from the gateway's dedicated verdict thread, never from
+    /// the tmux control thread.
     fn await_verdict(
         &self,
         correlation_id: &str,
         timeout: Duration,
-    ) -> Result<Verdict, GatewayError>;
+    ) -> Result<GatewayVerdict, GatewayError>;
 }
 
 #[derive(Debug, Clone)]
-pub enum Verdict {
+pub enum GatewayVerdict {
     Approve,
     Reject,
     Override { rewritten_argv: Vec<String> },
@@ -262,18 +281,49 @@ pub enum GatewayError {
 }
 ```
 
+> **Name collision note:** `GatewayVerdict` is distinct from `tool_guard::Verdict` (the existing `ALLOW | BLOCK | REWRITE` enum). The gateway's verdict is about HITL approval (Approve/Reject/Override); the tool guard's verdict is about command interception. They are separate types in separate modules with no overlap.
+
+### 5.4 Enriched WebhookPayload (moved to protocol.rs)
+
+The existing `WebhookPayload` is extended with the fields needed by the Hermes envelope and moved to `protocol.rs` to break the `tool_guard ↔ gateway` dependency cycle. Both modules depend on `protocol`, not on each other.
+
+```rust
+/// Shared HITL card type (in `protocol.rs`).
+/// Enriched with Hermes Run API fields for Teams adapter compatibility.
+#[derive(Debug, Clone, Serialize)]
+pub struct WebhookPayload {
+    // Existing fields (unchanged from 0.3.0)
+    pub task_id: Option<Uuid>,
+    pub execution_id: String,
+    pub correlation_id: String,        // == Hermes run_id
+    pub cause: String,
+    pub command: String,
+    pub reason: String,
+    pub scene: String,                 // 16KB-truncated; maps to Hermes stdout_tail
+    pub resume_key: String,            // "metamach-resume:{correlation_id}"
+
+    // 0.4.0 enrichment for Hermes / Teams adapter
+    pub blueprint: String,             // owning blueprint name
+    pub step: String,                  // current step name
+    pub stdout_tail: String,           // alias for scene (Hermes naming)
+    pub expires_at: String,            // ISO 8601; now + HITL_TIMEOUT
+}
+```
+
+> **`correlation_id` semantics:** `correlation_id` is the single source of truth for matching outbound cards to inbound callbacks. It is generated once by `tool_guard` per HITL event and passed through the entire chain (`tool_guard → gateway::dispatch → Hermes run_id → Teams card → callback → gateway::await_verdict`). It is never re-assigned or duplicated. The `resume_key` field is a derived convenience (`"metamach-resume:{correlation_id}"`) for the Telegram inline keyboard.
+
 ---
 
 ## VI. Integration with Existing 0.3.0 Infrastructure
 
 | 0.3.0 Component | 0.4.0 Change |
 |---|---|
-| `tool_guard::webhook::WebhookPayload` | **Unchanged.** Still the abstract HITL card. `webhook.rs` now calls `gateway::dispatch(payload)` instead of directly instantiating `TelegramSender`. |
+| `tool_guard::webhook::WebhookPayload` | **Moved** to `protocol.rs` and **enriched** with `blueprint`, `step`, `stdout_tail`, `expires_at`. `webhook.rs` now calls `gateway::dispatch(payload)` instead of directly instantiating `TelegramSender`. |
 | `tool_guard::webhook::TelegramSender` | **Moved** to `gateway/` as a `HitlGateway` adapter. |
 | `tool_guard::webhook::LoggingSender` | **Reclassified** as the gateway's `null` channel (always fires; guarantees audit trail even when Teams/Telegram are down). |
 | `absurd::SIZE_BUDGET` (16KB) | **Unchanged.** HITL cards honor the same budget. `stdout_tail` in the Hermes envelope is truncated by `truncate_16k()`. |
 | `protocol::Response::GuardVerdict` | **Extended** — adds optional `cognitive_context` field (populated by CognitiveProvider when available). |
-| `lifecycle::offboard()` | **Extended** — calls `CognitiveProvider::extract_knowledge()` if a provider is configured for the blueprint. |
+| `lifecycle::offboard()` | **Extended** — calls `CognitiveProvider::extract_knowledge()` if a provider is configured for the blueprint. The output is **appended** to the LLM smelt `production_report.md` (supplement, not replacement). |
 
 ---
 
@@ -285,10 +335,14 @@ pub enum GatewayError {
 | Physical execution engine | ✅ 0.3.0 baseline — `janus::tmux` only |
 | Cognitive Provider SPI | 🔌 New — Contract 4.1 |
 | codebase-memory-mcp integration | 🔌 New — Contract 4.2 |
-| HITL Gateway | 🌐 New — Contract 4.3a/b/c |
+| HITL Gateway (payload-complete) | 🌐 New — Contract 4.3a/b/c |
+| HTTP ingress for Teams callbacks | 🌐 New — §5.1b (loopback listener + tunnel prerequisite) |
 | Teams Active Cards | 🌐 New — Contract 4.3b |
 | Hermes Run API alignment | 🔄 Compatible — Contract 4.3a |
+| WebhookPayload enrichment | 🔄 Extended — blueprint, step, stdout_tail, expires_at |
 | Module tree placement | ✅ Defined in §II |
+| Dependency cycle (tool_guard ↔ gateway) | ✅ Resolved — shared types in `protocol.rs` |
 | Integration with 0.3.0 infra | ✅ Defined in §VI |
+| Contracts 4.x governance propagation | ⚠️ Prerequisite — must add to Feature-Spec, Test-Spec, Review-Spec before implementation |
 
-> **"0.4.0 keeps the 0.3.0 core lean — no AST parsing in the daemon heap, no notification I/O on the control-loop thread. The Cognitive SPI and HITL Gateway are external extensions that mount only when needed, insulating the physical tmux session from upstream service failures."**
+> **"0.4.0 keeps the 0.3.0 core lean — no AST parsing in the daemon heap, no notification I/O on the control-loop thread. The Cognitive SPI and HITL Gateway are external extensions that mount only when needed, insulating the physical tmux session from upstream service failures. The gateway's verdict thread blocks independently; the tmux session is never frozen."**

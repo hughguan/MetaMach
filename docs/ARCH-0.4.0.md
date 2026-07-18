@@ -262,6 +262,10 @@ pub trait HitlGateway: Send + Sync {
     /// until the timeout expires (fail-closed: timeout = BLOCK).
     /// Called from the gateway's dedicated verdict thread, never from
     /// the tmux control thread.
+    ///
+    /// `timeout` is `Duration::from_secs(JANUS_HITL_TIMEOUT_SECS)` —
+    /// the same deadline as `expires_at`. A late callback gets `410 Gone`
+    /// from the HTTP listener; the awaiter gets `Err(Timeout)` → BLOCK.
     fn await_verdict(
         &self,
         correlation_id: &str,

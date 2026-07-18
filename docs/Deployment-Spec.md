@@ -11,7 +11,7 @@ This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable 
 | Component | Minimum Version | Purpose | Verify |
 |-----------|----------------|---------|--------|
 | **OS** | Linux / macOS | POSIX-compatible environment & UDS support | `uname -a` |
-| **Rust Toolchain** | Rust 1.88+ (Edition 2024) | Compile `janus-daemon`, `herdr-janus`, `janus-sh` | `rustc --version` |
+| **Rust Toolchain** | Rust 1.88+ (Edition 2024) | Compile `janus-daemon`, `herdr-janus`, `janush` | `rustc --version` |
 | **Tmux** | Tmux 3.3+ | Physical carrier for Tether PTY session immortality | `tmux -V` |
 | **PostgreSQL** | PG 15+ | Native host Postgres instance (no Docker); managed by `janus-daemon` on first startup | `psql --version` |
 | **Python** | 3.11+ | `absurdctl` CLI (applies `absurd.sql` to each per-blueprint DB on Onboard); absurd engine install | `python3 --version` |
@@ -152,13 +152,13 @@ symlinks:
 
 # 4. Local compile Janus Core binary components
 compile:
-	@echo "🦀 Compiling Janus Daemon, Client, and janus-sh proxy..."
+	@echo "🦀 Compiling Janus Daemon, Client, and janush proxy..."
 	@cd janus && cargo build --release --locked
 	@echo "🛡️ Installing binaries to ${HERDR_PLUGIN_ROOT}/bin/..."
 	@mkdir -p ${HERDR_PLUGIN_ROOT}/bin
 	@cp janus/target/release/janus-daemon ${HERDR_PLUGIN_ROOT}/bin/janus-daemon
 	@cp janus/target/release/herdr-janus ${HERDR_PLUGIN_ROOT}/bin/herdr-janus
-	@cp janus/target/release/janus-sh ${HERDR_PLUGIN_ROOT}/bin/janus-sh
+	@cp janus/target/release/janush ${HERDR_PLUGIN_ROOT}/bin/janush
 
 # 5. Initialize native Postgres (no Docker)
 db-up:
@@ -234,13 +234,13 @@ clean:
 
 After completing `make bootstrap`, the Factory Director must execute the following physical reconciliation steps to confirm the workshop pipeline possesses absolute immunity to power loss, intrusion, and database bloat.
 
-### Step 6.1: Verify `janus-sh` Physical Interception
+### Step 6.1: Verify `janush` Physical Interception
 
 ```bash
 # Create sentinel dir & file, then attempt to delete it with a blacklisted command (NEVER real system-level delete)
 SENTINEL_DIR=/tmp/metamach-deploy-guard-$(uuidgen)
 mkdir -p "$SENTINEL_DIR" && echo sentinel > "$SENTINEL_DIR/sentinel"
-export SHELL=./janus/target/release/janus-sh
+export SHELL=./janus/target/release/janush
 $SHELL -c "rm -rf $SENTINEL_DIR"
 test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was intercepted"
 ```

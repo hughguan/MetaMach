@@ -12,7 +12,7 @@ Before MetaMach 0.3.0 formally connects to the grid, the Architect and Factory D
 +-----------------------------------------------------------------------------------------+
 |                           METAMACH 0.3.0 REVIEW PILLARS                                  |
 +-----------------------------------------------------------------------------------------+
-|  1. Security    → Validate physical janus-sh interception & /dev/shm RAM disk key protection |
+|  1. Security    → Validate physical janush interception & /dev/shm RAM disk key protection |
 |  2. Stability   → Validate remain-on-exit process guardianship & 16KB anti-bloat defense    |
 |  3. Disaster    → Validate Multi-DB isolation, zero-state cold start & Fallback cache        |
 |  4. Evolution   → Validate Offboard DELETE+audit archive & OpenWiki genetic inheritance      |
@@ -33,20 +33,20 @@ This review aims to prove: **No matter how the AI hallucinates or attempts malic
         3. Audit file permissions via `ls -l`; must be `0600` (only the `janus-daemon` runtime user can read/write); strictly prohibit `others` access.
         4. After `janus-daemon` process termination or task completion, the system must atomically execute `shm_unlink` or directly clear that memory block.
 
-- **Metric 1.2: `janus-sh` Proxy Interception & Tool Guard Reconciliation Audit**
+- **Metric 1.2: `janush` Proxy Interception & Tool Guard Reconciliation Audit**
     - _Requirement:_ Prove that interception does not rely on LLM self-restraint; interception occurs synchronously before the real physical shell.
     - _Pass Criteria:_
-        1. Inspect every PTY pane launched by Tether; its `SHELL` environment variable must be forced to the absolute path `${HERDR_PLUGIN_ROOT}/bin/janus-sh`.
-        2. Audit the UDS synchronous blocking call mechanism between `janus-sh` and `janus.sock`. When sending an interception command, `janus-sh` must remain in a Blocked suspended state, never preemptively forking a child process.
+        1. Inspect every PTY pane launched by Tether; its `SHELL` environment variable must be forced to the absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`.
+        2. Audit the UDS synchronous blocking call mechanism between `janush` and `janus.sock`. When sending an interception command, `janush` must remain in a Blocked suspended state, never preemptively forking a child process.
         3. Audit the Tool Guard decision matrix: high-risk commands (e.g., unauthorized network egress, physical flash erasure, non-Dry-Run trading order execution) must 100% trigger rewrite redirection or direct error blocking before a **Correlation ID digital signature** approved by Teams/TUI is detected.
 
 - **Metric 1.3: Fail-Closed 30s UDS Timeout Audit**
-    - _Requirement:_ Prove that when the Daemon is unreachable, `janus-sh` never lets commands through and never hangs indefinitely.
+    - _Requirement:_ Prove that when the Daemon is unreachable, `janush` never lets commands through and never hangs indefinitely.
     - _Pass Criteria:_
-        1. Stop `janus-daemon`; execute any command through `janus-sh`.
-        2. Within 30s, `janus-sh` must return an error to the Agent.
+        1. Stop `janus-daemon`; execute any command through `janush`.
+        2. Within 30s, `janush` must return an error to the Agent.
         3. The command must NOT be executed; the Agent's shell must not hang.
-        4. Restart Daemon; verify `janus-sh` resumes normal operation without manual intervention.
+        4. Restart Daemon; verify `janush` resumes normal operation without manual intervention.
 
 ### Domain 2: Physical System Stability (Stability & Budget Review)
 
@@ -147,11 +147,11 @@ The Factory Director and Architect must physically verify and sign off each item
 | Review ID | Audit Item | Verification Method | Status | Risk |
 |---|---|---|---|---|
 | **REV-SEC-01** | `/dev/shm` Permission Isolation | Run `stat /dev/shm/*.decrypted` on the host; verify permissions `0600` and owner is the daemon user. | `[ ]` Verified | **Critical (Red)** |
-| **REV-SEC-02** | `janus-sh` Privilege Blocking | Create sentinel `mkdir -p /tmp/metamach-review-$(uuidgen) && echo s > /tmp/metamach-review-$(uuidgen)/sentinel`; via Agent pane, force-execute blacklisted `rm -rf /tmp/metamach-review-*`; verify Daemon UDS synchronously intercepts and locks, and sentinel file survives. | `[ ]` Verified | **Critical (Red)** |
+| **REV-SEC-02** | `janush` Privilege Blocking | Create sentinel `mkdir -p /tmp/metamach-review-$(uuidgen) && echo s > /tmp/metamach-review-$(uuidgen)/sentinel`; via Agent pane, force-execute blacklisted `rm -rf /tmp/metamach-review-*`; verify Daemon UDS synchronously intercepts and locks, and sentinel file survives. | `[ ]` Verified | **Critical (Red)** |
 | **REV-SEC-03** | UDS Channel Integrity | `stat janus.sock` verify permissions `0600`; connection attempt as different user must be rejected; verify Daemon validates peer PID/UID. | `[ ]` Verified | **High (Orange)** |
 | **REV-SEC-04** | Post-Crash Key Hygiene | Load keys, then `kill -9 janus-daemon`; audit `/dev/shm/*.decrypted` cleanup or tmpfiles rule; after reboot, `/dev/shm` is empty. | `[ ]` Verified | **High (Orange)** |
 | **REV-SEC-05** | Network Egress Control | Scout-level Agent attempts `curl`/`python3 urllib`/`/dev/tcp` egress — all blocked; document control layer. | `[ ]` Verified | **Medium (Yellow)** |
-| **REV-SEC-06** | Fail-Closed 30s UDS Timeout | Stop `janus-daemon`; execute any command through `janus-sh`; verify error returned within 30s, command NOT executed, no indefinite hang. | `[ ]` Verified | **Critical (Red)** |
+| **REV-SEC-06** | Fail-Closed 30s UDS Timeout | Stop `janus-daemon`; execute any command through `janush`; verify error returned within 30s, command NOT executed, no indefinite hang. | `[ ]` Verified | **Critical (Red)** |
 | **REV-STB-01** | 16KB Size Budget | Run `cat /dev/urandom` spam; verify JSON written to Postgres is forcibly truncated with Budget marker. | `[ ]` Verified | **Medium (Yellow)** |
 | **REV-STB-02** | Tether Internalization (janus::tether) | Verify `herdr-tether` binary absent; `janus tether open|attach|list` functional; tmux uses `-L metamach-tether`; session survives popup close. | `[ ]` Verified | **Critical (Red)** |
 | **REV-STB-03** | Load & Resource Stress | 5 concurrent `dev-flow` complete without deadlock; 24h Daemon memory < 256MB; UDS verdict p99 < 10ms. | `[ ]` Verified | **Medium (Yellow)** |

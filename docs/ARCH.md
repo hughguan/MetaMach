@@ -22,7 +22,7 @@ In the era of distributed AI co-development, traditional AI programming or agent
 
 - **Absurd Transaction Reconciliation:** Before every Step begins, a transition state (e.g., `STARTING` / `STOPPING`) must be declared in **Absurd Postgres**. Upon success, the `result_cache` JSON payload is atomically committed, guaranteeing idempotent self-healing after any disaster restart.
 
-- **Agent Security Sandbox (janus-sh):** Abandoning the fantasy of asynchronous interception within the Herdr process, Janus points the underlying `SHELL` to a custom proxy shell `janus-sh`. Any command an Agent attempts to execute in tmux must pass through a synchronous UDS socket reconciliation with Janus Daemon, undergoing **Event-Driven Tool Guard** in-memory review before safe execution.
+- **Agent Security Sandbox (janush):** Abandoning the fantasy of asynchronous interception within the Herdr process, Janus points the underlying `SHELL` to a custom proxy shell `janush`. Any command an Agent attempts to execute in tmux must pass through a synchronous UDS socket reconciliation with Janus Daemon, undergoing **Event-Driven Tool Guard** in-memory review before safe execution.
 
 ### 2.2 Three-Dimensional Customization
 
@@ -74,7 +74,7 @@ MetaMach 0.3.0 implements an industrial-grade isolation scheme of "independent b
     - **Absurd Postgres (Absurd DB):** One PG, Multi-DB topology. A single physical Postgres instance (native, no Docker) hosts independent logical databases per blueprint (`CREATE DATABASE metamach_blueprint_<name>` on Onboard). Each blueprint's database is fully isolated with its own connection pool, eliminating cross-blueprint lock contention. Data persists at `~/.metamach/db/`.
     - **OpenWiki (shared RAG skill):** Packaged as a standard Agent Skill. When an Agent encounters a code blind spot, it initiates a precise RAG retrieval via the `openwiki_query` tool; Janus intercepts and preferentially looks up in a Postgres-level cache (Git-SHA deduplication), returning precise AST code snippets with zero latency.
 
-> **CLI & Binary Architecture (unified entrypoint + dedicated binaries):** The system uses a unified `janus` CLI as the single entrypoint for the Factory Director and management surface, with subcommands in two categories: (1) **lifecycle/query subcommands**—`janus onboard`, `janus offboard`, `janus status`—all lightweight clients communicating with the resident `janus-daemon` via UDS (**Daemon must be running**; `janus daemon` explicitly launches it); (2) underlying dedicated binaries—`janus-daemon` (resident brain), `herdr-janus` (shadow client, loaded by Herdr), `janus-sh` (proxy shell, injected as `SHELL` by Tether); (4) `janus::tether` — physical execution engine, now a native module inside `janus-daemon` per 0.3.0. Thus `janus offboard` is equivalent to "client sends offboard command to Daemon via UDS," not a standalone direct DB connection. All Tether operations are internal to `janus-daemon`; the `herdr-tether` CLI binary is no longer a separate external dependency.
+> **CLI & Binary Architecture (unified entrypoint + dedicated binaries):** The system uses a unified `janus` CLI as the single entrypoint for the Factory Director and management surface, with subcommands in two categories: (1) **lifecycle/query subcommands**—`janus onboard`, `janus offboard`, `janus status`—all lightweight clients communicating with the resident `janus-daemon` via UDS (**Daemon must be running**; `janus daemon` explicitly launches it); (2) underlying dedicated binaries—`janus-daemon` (resident brain), `herdr-janus` (shadow client, loaded by Herdr), `janush` (proxy shell, injected as `SHELL` by Tether); (4) `janus::tether` — physical execution engine, now a native module inside `janus-daemon` per 0.3.0. Thus `janus offboard` is equivalent to "client sends offboard command to Daemon via UDS," not a standalone direct DB connection. All Tether operations are internal to `janus-daemon`; the `herdr-tether` CLI binary is no longer a separate external dependency.
 
 ## 4. Component Interactivity
 
@@ -89,7 +89,7 @@ sequenceDiagram
     participant Client as herdr-janus
     participant Daemon as janus-daemon
     participant Absurd as Absurd Postgres
-    participant Guard as Tool Guard (janus-sh)
+    participant Guard as Tool Guard (janush)
     participant Tether as janus::tether (internal)
     participant OW as OpenWiki
     participant Teams as MS Teams / TUI
@@ -187,7 +187,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │       │   ├── herdr_janus.rs    # Ultra-lightweight Herdr shadow client
 │       │   └── janus_sh.rs       # Proxy shell
 │       │
-│       ├── tool_guard/           # janus-sh in-memory interception & allowlist filtering
+│       ├── tool_guard/           # janush in-memory interception & allowlist filtering
 │       ├── absurd/               # Exclusive sqlx Postgres connection pool, reconciliation & GC
 │       └── tui/                  # Popup keyboard UI (Ratatui)
 │
@@ -252,7 +252,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 
 2. **Capacity Anti-Bloat — 16KB Budget & SQL Pruning:** Absurd Postgres never expands without bounds. All Step Checkpoint large JSON caches and terminal stdout captures exceeding 16KB are forcibly truncated. A daily `Janus GC` transaction auto-cleans all Blueprint cache fields for tasks completed more than 3 days ago.
 
-3. **Zero-Privilege-Escalation — Physical janus-sh Interception:** No reliance on AI self-restraint. All high-risk commands must pass through `janus-sh` for synchronous reconciliation with Janus Daemon over a UDS pipe before reaching the underlying Bash. Without Teams/TUI approval detected, commands are forcibly rewritten in memory or rejected entirely.
+3. **Zero-Privilege-Escalation — Physical janush Interception:** No reliance on AI self-restraint. All high-risk commands must pass through `janush` for synchronous reconciliation with Janus Daemon over a UDS pipe before reaching the underlying Bash. Without Teams/TUI approval detected, commands are forcibly rewritten in memory or rejected entirely.
 
 4. **Stateless Cold Start — Absolute Rejection of tmux-resurrect:** The sole source of truth for state is Postgres. After a server room restart, the system directly reads the last Completed Step's JSON cache from the database, assigns a brand-new Tether Session UUID, and instantly picks up seamlessly at the physical breakpoint.
 

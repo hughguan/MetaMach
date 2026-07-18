@@ -1,7 +1,7 @@
 //! Tool Guard rule engine (Feature-Spec §2.2; Contracts 3.4/3.5; Project-Plan
 //! M3 Task 3.2).
 //!
-//! The Daemon consults this engine for every command `janus-sh` forwards.
+//! The Daemon consults this engine for every command `janush` forwards.
 //! Decision priority (Feature-Spec §3.5 note):
 //!   1. `bash_blacklist` hit         -> BLOCK  (SUSPENDED + HITL card)
 //!   2. `require_approval` hit       -> BLOCK  (SUSPENDED + HITL card)
@@ -76,7 +76,7 @@ struct State {
 impl Engine {
     /// Load + compile rules from `path`. If the file is missing or unparseable,
     /// the engine runs empty (fail-open on missing config; the Daemon logs WARN)
-    /// - `janus-sh` itself is the fail-CLOSED boundary when the Daemon is down.
+    /// - `janush` itself is the fail-CLOSED boundary when the Daemon is down.
     pub fn load(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         let state = Self::load_fresh(&path);

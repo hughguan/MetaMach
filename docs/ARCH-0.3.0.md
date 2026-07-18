@@ -16,7 +16,7 @@
 | 0.3.0 | Fail-Closed 30s Timeout interception | ✅ Force-Retained | Existing Feature-Spec 2.2 design; SIGSTOP/SIGCONT alternative rejected |
 | 0.3.0 | Isolated tmux Server (`-L metamach-tether`) | ✅ Already Implemented | In ARCH.md §6 |
 | 0.3.0 | Dual-Binary deployment | ✅ Already Implemented | `janus-daemon` + `herdr-janus` is the current architecture |
-| 0.3.0 | 16KB Flow Budget dual defense line | ✅ Already Implemented | Feature-Spec §4; janus-sh streaming truncation + Daemon authoritative pre-insert truncation |
+| 0.3.0 | 16KB Flow Budget dual defense line | ✅ Already Implemented | Feature-Spec §4; janush streaming truncation + Daemon authoritative pre-insert truncation |
 | 0.3.0 | Tether Internalization | ✅ Adopted | Four physical requirements: survival autonomy, keep-alive resilience, microsecond signal linkage, zero-dependency distribution; ~3,500 LOC migration |
 
 ---
@@ -36,12 +36,12 @@ On first startup, `janus-daemon` directly launches the sole local Postgres physi
 **Retain Contract 3.8's SQLite Fallback design.**
 
 ```
-Normal:    janus-sh → UDS → janus-daemon → Absurd PG (primary read/write)
-Degraded:  janus-sh → UDS → janus-daemon → fallback.db (SQLite ring buffer)
+Normal:    janush → UDS → janus-daemon → Absurd PG (primary read/write)
+Degraded:  janush → UDS → janus-daemon → fallback.db (SQLite ring buffer)
 Recovery:  PG restored → Log Replay → fallback.db events merged into PG → ring buffer truncated
 ```
 
-> **Design Red Line:** SQLite is not meant to replace PG's state machine capabilities — it exists so the workshop **stays alive** during PG outages. The PG container may crash due to memory OOM, disk exhaustion, or connection pool depletion; without SQLite fallback, the interception proxy `janus-sh` would completely deadlock the current Shell, paralyzing the physical workshop on the spot.
+> **Design Red Line:** SQLite is not meant to replace PG's state machine capabilities — it exists so the workshop **stays alive** during PG outages. The PG container may crash due to memory OOM, disk exhaustion, or connection pool depletion; without SQLite fallback, the interception proxy `janush` would completely deadlock the current Shell, paralyzing the physical workshop on the spot.
 
 ### 1.3 Compliance Audit: DELETE + Global Audit Archive
 
@@ -70,7 +70,7 @@ The host runs a single physical Postgres process (exclusive fixed port). Each Bl
 
 **Reject SIGSTOP/SIGCONT; retain Feature-Spec 2.2's Fail-Closed 30s Timeout.**
 
-- `janus-sh` synchronously suspends, initiates UDS reconciliation with the Daemon
+- `janush` synchronously suspends, initiates UDS reconciliation with the Daemon
 - Default 30s timeout threshold
 - Timeout or Daemon unreachable → **Fail-Closed**: return error to Agent and refuse execution, absolutely never let through
 - PTY session survives via `remain-on-exit`; Factory Director can `attach` at any time for troubleshooting
@@ -81,7 +81,7 @@ The host runs a single physical Postgres process (exclusive fixed port). Each Bl
 
 ### 2.3 16KB Flow Budget Dual Defense Line
 
-- **First defense line (janus-sh):** In-memory streaming counter, early truncation at 16KB (optimizes UDS transfer)
+- **First defense line (janush):** In-memory streaming counter, early truncation at 16KB (optimizes UDS transfer)
 - **Second defense line (Daemon pre-insert):** Authoritative 16KB hard truncation + inject `[MetaMach Log Budget Exceeded]` tag
 - Both lines target the same cap; the DB write is the final gate
 

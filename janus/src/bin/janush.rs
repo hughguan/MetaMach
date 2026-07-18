@@ -1,12 +1,12 @@
-//! `janus-sh` - proxy shell (Project-Plan M3 Task 3.1; Feature-Spec §2.2).
+//! `janush` - proxy shell (Project-Plan M3 Task 3.1; Feature-Spec §2.2).
 //!
-//! Injected by Tether as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janus-sh`).
+//! Injected by Tether as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`).
 //! It never executes a command directly: it forwards the argv to `janus-daemon`
 //! over `janus.sock`, blocks for a verdict (default 30s), then:
 //!   ALLOW   -> exec `/bin/sh` with the original argv
 //!   REWRITE -> exec `/bin/sh -c "<rewritten command>"`
 //!   BLOCK   -> exit non-zero WITHOUT executing (fail-closed)
-//! If the Daemon is unreachable or the 30s window elapses, `janus-sh`
+//! If the Daemon is unreachable or the 30s window elapses, `janush`
 //! fail-closes as BLOCK (never lets the command through - Feature-Spec §2.2).
 
 use std::collections::HashMap;
@@ -37,7 +37,7 @@ fn main() {
     let resp = match uds::request_to(&paths::sock_path(), &req, VERDICT_TIMEOUT) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("janus-sh: daemon unreachable ({e}); fail-closed BLOCK");
+            eprintln!("janush: daemon unreachable ({e}); fail-closed BLOCK");
             exit(EXIT_BLOCKED);
         }
     };
@@ -56,18 +56,18 @@ fn main() {
             }
             "BLOCK" => {
                 eprintln!(
-                    "janus-sh: BLOCKED by Tool Guard: {}",
+                    "janush: BLOCKED by Tool Guard: {}",
                     reason.unwrap_or_else(|| "unspecified".to_string())
                 );
                 exit(EXIT_BLOCKED);
             }
             other => {
-                eprintln!("janus-sh: unknown verdict '{other}'; fail-closed BLOCK");
+                eprintln!("janush: unknown verdict '{other}'; fail-closed BLOCK");
                 exit(EXIT_BLOCKED);
             }
         },
         _ => {
-            eprintln!("janus-sh: unexpected daemon response; fail-closed BLOCK");
+            eprintln!("janush: unexpected daemon response; fail-closed BLOCK");
             exit(EXIT_BLOCKED);
         }
     }
@@ -118,6 +118,6 @@ fn exec_sh(args: &[String]) -> ! {
     cmd.args(args);
     let err = cmd.exec();
     // Reached only if exec failed.
-    eprintln!("janus-sh: exec /bin/sh failed: {err}");
+    eprintln!("janush: exec /bin/sh failed: {err}");
     exit(EXIT_BLOCKED);
 }

@@ -54,7 +54,7 @@ The system's underlying physical execution layer is powered by `janus::tether`, 
 
 ### 2.4 Intelligent Security Guard & HITL Approval Gate
 
-The system intercepts every command the AI attempts to execute before it reaches the real shell (via `janus-sh` proxy shell). The security guard (`Tool Guard`) evaluates each command against the Agent's role permissions, blacklist, and approval requirements:
+The system intercepts every command the AI attempts to execute before it reaches the real shell (via `janush` proxy shell). The security guard (`Tool Guard`) evaluates each command against the Agent's role permissions, blacklist, and approval requirements:
 
 - **Blacklisted Commands:** Immediately blocked; the physical shell never sees them.
 - **High-Risk Operations:** Automatically redirected to dry-run mode (e.g., financial trade orders).
@@ -97,7 +97,7 @@ After Offboard, the system automatically generates a `production_report.md` cont
 
 1. **09:00 — Dispatch Work Order:** Factory Director enters the Richmond Hill workshop, opens terminal, presses `prefix+j`. In the popup, selects product `gatemetric` and dispatches `dev-flow` (R&D assembly SOP).
 2. **09:05 — Check Progress:** After dispatching, the director does not wait blind; switches to "Progress" view in the Popup. The dashboard shows `dev-flow` has entered Step 1 (Scout scan, `RUNNING`), with real-time scrolling of recent terminal output. Director confirms normal pipeline progression and leaves the station.
-3. **09:15 — AI Auto-Assembly & Safety Interception:** AI enters, writing ESP32 filter algorithms in the local sandbox. The AI attempts to directly modify the board's core pin configuration via command line to debug peripherals. At this moment, `janus-sh` security guard raises alarm: _"Pin conflict detected — risk of physical board burn!"_ The task is auto-suspended non-destructively; local and remote physical sessions remain alive. The progress dashboard highlights that step red as `SUSPENDED` within 1 second, popping up `[Attach Scene]` / `[Resume]` entries.
+3. **09:15 — AI Auto-Assembly & Safety Interception:** AI enters, writing ESP32 filter algorithms in the local sandbox. The AI attempts to directly modify the board's core pin configuration via command line to debug peripherals. At this moment, `janush` security guard raises alarm: _"Pin conflict detected — risk of physical board burn!"_ The task is auto-suspended non-destructively; local and remote physical sessions remain alive. The progress dashboard highlights that step red as `SUSPENDED` within 1 second, popping up `[Attach Scene]` / `[Resume]` entries.
 4. **09:16 — Multi-Endpoint HITL (two realistic paths, no contradiction):**
     - **Path A (Mobile — director in a meeting, only phone available):** Director reads error context on phone, taps **`[Mark for Manual Fix]`**. System replies "Awaiting director return to terminal for in-place fix"; step remains `SUSPENDED`, physical session alive. After meeting, director returns to station, `attach`-es into the error pane, fixes the C++ header pin definition in-place, types `metamach-resume` as completion signal; Daemon dispatches the next step.
     - **Path B (Desktop — director already at terminal):** Director receives the same card directly in TUI, immediately `attach`-es to the error pane, fixes in-place, types `metamach-resume` (or clicks **`[Resume]`**) to recover; pipeline seamlessly hands off.

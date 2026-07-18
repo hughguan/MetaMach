@@ -1,6 +1,6 @@
 # MetaMach 0.3.0 — Engineering Feature Specification
 
-> Cognitive scheduler, agent sandbox (janus-sh), durable workflows, data contracts, and fault matrix.
+> Cognitive scheduler, agent sandbox (janush), durable workflows, data contracts, and fault matrix.
 
 ## 1. Module Architecture Overview
 
@@ -11,7 +11,7 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 |                                METAMACH CORE LAYERS                                      |
 +-----------------------------------------------------------------------------------------+
 |  1. CONTROL:   janus-daemon (resident UDS service) & herdr-janus (Popup shadow client)   |
-|  2. SANDBOX:   janus-sh (proxy shell) & Event-Driven Tool Guard (synchronous kernel guard) |
+|  2. SANDBOX:   janush (proxy shell) & Event-Driven Tool Guard (synchronous kernel guard) |
 |  3. WORKFLOW:  Absurd Postgres (One PG, Multi-DB) & janus::tether (remain-on-exit)       |
 |  4. KNOWLEDGE: Federated OpenWiki Skill & Trace Purge & Audit Archive (DELETE + archive)  |
 +-----------------------------------------------------------------------------------------+
@@ -29,14 +29,14 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
     - **UI Popup Constraints:** Via `herdr-plugin.toml`'s `[[panes]] placement = "overlay"` (validated Herdr 0.7.3 directive; `popup`/`width`/`height` are **not** valid manifest fields - see `docs/herdr-v1-contract.md`), open the `herdr-janus` shadow client in a Herdr overlay pane. Pane sizing is managed by Herdr; the ratatui app renders within it. Use `ratatui` as pure keyboard UI rendering engine; input focus auto-locked; pressing `Esc` reports to Daemon via the shadow client then safely pops the stack.
     - **PG-Unreachable Startup Self-Healing:** Daemon retries Absurd Postgres connection with exponential backoff on startup (5 attempts, 2s interval). If still unreachable, enters **degraded mode**: writes only to local `fallback.db` (ring buffer), logs `WARN`, and notifies the Factory Director via Popup: "DB offline, running degraded." All Step state changes during this period land in `fallback.db`; upon detecting PG recovery, auto-triggers batch Log Replay merging into the primary database (consistent with §4 fault matrix), keeping the workshop running.
 
-### Feature 2.2: In-Memory Agent Sandbox (janus-sh & Tool Guard)
+### Feature 2.2: In-Memory Agent Sandbox (janush & Tool Guard)
 
 - **Description:** Provide an out-of-process, independently audited security gate that performs synchronous physical interception before Agent intent reaches Bash, supporting Dry-Run redirection for special operations.
 
 - **Technical Spec:**
-    - **Shell Interception Proxy (janus-sh):** When Tether launches a pane, it forcibly injects the `SHELL` environment variable to point to the **absolute path** of `janus-sh` (`${HERDR_PLUGIN_ROOT}/bin/janus-sh`, installed by `make bootstrap`, see Deployment-Spec §5.1). **Never use the relative path `target/release/janus-sh`**—it fails when CWD is not the repo root, the binary is not yet compiled, or the pane is started from a different directory.
-    - **Synchronous UDS Reconciliation:** When an Agent sends any command-line string, `janus-sh` synchronously suspends execution, packaging the raw `argv` array and dispatching it to `janus.sock`.
-    - **Timeout & Deadlock Prevention:** `janus-sh` blocks synchronously waiting for the Daemon verdict with a configurable timeout (default 30s). If the Daemon crashes or the UDS breaks causing a timeout, **fail-closed**: return an error to the Agent without executing the command (never let through), preventing the Agent's shell from hanging indefinitely due to Daemon unreachability. Verdict response format and semantics are defined in Contract 3.4.
+    - **Shell Interception Proxy (janush):** When Tether launches a pane, it forcibly injects the `SHELL` environment variable to point to the **absolute path** of `janush` (`${HERDR_PLUGIN_ROOT}/bin/janush`, installed by `make bootstrap`, see Deployment-Spec §5.1). **Never use the relative path `target/release/janush`**—it fails when CWD is not the repo root, the binary is not yet compiled, or the pane is started from a different directory.
+    - **Synchronous UDS Reconciliation:** When an Agent sends any command-line string, `janush` synchronously suspends execution, packaging the raw `argv` array and dispatching it to `janus.sock`.
+    - **Timeout & Deadlock Prevention:** `janush` blocks synchronously waiting for the Daemon verdict with a configurable timeout (default 30s). If the Daemon crashes or the UDS breaks causing a timeout, **fail-closed**: return an error to the Agent without executing the command (never let through), preventing the Agent's shell from hanging indefinitely due to Daemon unreachability. Verdict response format and semantics are defined in Contract 3.4.
     - **Dry-Run Redirection:** The Daemon's Tool Guard module performs security review against core allowlist commands (e.g., commands that modify system-level configuration or flash hardware). For financial-class high-risk operations, forces rewriting `argv` to `--action dry-run` before delivering to the host shell. This redirection is synchronous and transparent to the Agent.
 
 ### Feature 2.3: Durable Workflow State Machine (Tether & Absurd Engine)
@@ -185,7 +185,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 
 > **Unified Status Enumeration:** The system-wide Step/Task state machine is `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`. The `STARTING` state is a brief transitional gate (tmux session creation, pre-flight log); the `RUNNING` state indicates the Agent's command is actively executing. The Blueprint-level state machine is `ACTIVE <-> OFFBOARDED` (Onboard activates / Offboard archives).
 
-### Contract 3.2: Proxy Shell Sync UDS Request Payload (janus-sh → Daemon)
+### Contract 3.2: Proxy Shell Sync UDS Request Payload (janush → Daemon)
 
 ```json
 {
@@ -197,7 +197,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
   "argv": ["esptool.py", "--chip", "esp32", "write_flash", "0x1000", "firmware.bin"],
   "env_snapshot": {
     "USER": "factory_agent",
-    "SHELL": "${HERDR_PLUGIN_ROOT}/bin/janus-sh"
+    "SHELL": "${HERDR_PLUGIN_ROOT}/bin/janush"
   }
 }
 ```
@@ -229,7 +229,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
 
 > `active_tasks` only includes non-terminal tasks (`STARTING` / `RUNNING` / `SUSPENDED`). `stdout_tail` is the most recent terminal output truncated to 1KB summary; `tether_alive` reflects whether the corresponding Tether physical Session is alive. This payload drives both Popup progress dashboard rendering and `janus status --json` CLI output.
 
-### Contract 3.4: Proxy Shell Sync UDS Response (Daemon → janus-sh)
+### Contract 3.4: Proxy Shell Sync UDS Response (Daemon → janush)
 
 ```json
 {
@@ -272,7 +272,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
   "command": "make cross-compile",
   "cwd": "/workspaces/metamach/blueprints/gatemetric/firmware",
   "env": {
-    "SHELL": "/path/to/bin/janus-sh",
+    "SHELL": "/path/to/bin/janush",
     "METAMACH_TASK_ID": "1042"
   }
 }
@@ -312,7 +312,7 @@ allow_network    = true
 require_approval = ["esptool.py write_flash", "make flash", "*production*"]
 ```
 
-> **Decision Priority:** Tool Guard evaluates each `janus-sh`-reported argv in order — (1) `bash_blacklist` hit → `BLOCK`; (2) `require_approval` hit → `BLOCK` and set `SUSPENDED` awaiting HITL; (3) command capability not in current role `permissions` allowlist → `BLOCK`; (4) financial-class high-risk command → `REWRITE` to Dry-Run; (5) remainder → `ALLOW`. Rules are configurable (not hardcoded Rust); Daemon loads via `configs/agents.toml` symlink (Mutable Config zone).
+> **Decision Priority:** Tool Guard evaluates each `janush`-reported argv in order — (1) `bash_blacklist` hit → `BLOCK`; (2) `require_approval` hit → `BLOCK` and set `SUSPENDED` awaiting HITL; (3) command capability not in current role `permissions` allowlist → `BLOCK`; (4) financial-class high-risk command → `REWRITE` to Dry-Run; (5) remainder → `ALLOW`. Rules are configurable (not hardcoded Rust); Daemon loads via `configs/agents.toml` symlink (Mutable Config zone).
 
 ### Contract 3.7: Blueprint Recipe Schema (`blueprints/<name>/janus.toml`)
 
@@ -400,6 +400,6 @@ CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 | Fault Boundary | Physical Behavior | System-Level Fault Tolerance & Convergence |
 |---|---|---|
 | **Tether Physical Network/SSH Drop** | Remote compile server offline; `std::process` pipe read/write hangs. | **Session Freeze:** Janus Daemon captures the immortal underlying handle via `janus::tether`, marks Step `SUSPENDED` in Postgres. Never kills the background tmux pane. On network recovery, re-establish SSH pipe and execute `janus tether attach` to wake the scene in seconds. |
-| **Agent Hallucination, Infinite Log Spam** | Terminal stdout stream generates megabytes of garbage text per second. | **Physical Size Budget Fuse (single authoritative enforcement point):** `janus-sh` has an in-memory streaming counter — when single-Step stdout exceeds **16 KiB**, it early-streaming truncates (optimization only, reducing UDS transfer). The **authoritative 16KiB enforcement point is at `janus-daemon`'s `absurd` module, before the `INSERT` transaction commits** — Daemon re-validates and hard-truncates before database write, appending `[MetaMach Log Budget Exceeded]` tag. Two defense lines targeting the same 16KiB cap; the DB write is the final gate. |
+| **Agent Hallucination, Infinite Log Spam** | Terminal stdout stream generates megabytes of garbage text per second. | **Physical Size Budget Fuse (single authoritative enforcement point):** `janush` has an in-memory streaming counter — when single-Step stdout exceeds **16 KiB**, it early-streaming truncates (optimization only, reducing UDS transfer). The **authoritative 16KiB enforcement point is at `janus-daemon`'s `absurd` module, before the `INSERT` transaction commits** — Daemon re-validates and hard-truncates before database write, appending `[MetaMach Log Budget Exceeded]` tag. Two defense lines targeting the same 16KiB cap; the DB write is the final gate. |
 | **Absurd DB Connection Pool Crash** | Host Postgres encounters extreme physical OOM or native process crash. | **State Machine Anti-Blast Degradation:** Janus Daemon internally has a local in-memory SQLite ring buffer. During PG disconnection, all transition-state Step changes are atomically written to local `fallback.db` first. Upon detecting host PG recovery, auto-triggers batch merge replay (Log Replay), ensuring workshop production never halts. |
-| **Fail-Closed 30s UDS Timeout** | Daemon crashes or UDS socket breaks during janus-sh command check. | **Fail-Closed:** `janus-sh` blocks synchronously with a 30s timeout. If the Daemon does not respond, returns an error to the Agent without executing the command. Never lets through. Agent's shell does not hang indefinitely. |
+| **Fail-Closed 30s UDS Timeout** | Daemon crashes or UDS socket breaks during janush command check. | **Fail-Closed:** `janush` blocks synchronously with a 30s timeout. If the Daemon does not respond, returns an error to the Agent without executing the command. Never lets through. Agent's shell does not hang indefinitely. |

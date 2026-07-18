@@ -18,7 +18,7 @@ pub enum Request {
     Blueprints,
     /// Workflow progress snapshot (Contract 3.3). `blueprint` filters by name.
     Progress { blueprint: Option<String> },
-    /// `janus-sh` -> Daemon: ask for a verdict on a command (Contract 3.2).
+    /// `janush` -> Daemon: ask for a verdict on a command (Contract 3.2).
     /// `task_id`/`step_name` are `Option` because M3 has no running workflow
     /// context yet (Tether/Onboard land in M2.4/M4); they carry the SUSPENDED
     /// target when present.
@@ -48,7 +48,7 @@ pub enum Response {
     Progress {
         active_tasks: Vec<ActiveTask>,
     },
-    /// Daemon -> `janus-sh`: verdict (Contract 3.4). `verdict` is
+    /// Daemon -> `janush`: verdict (Contract 3.4). `verdict` is
     /// `"ALLOW"` | `"BLOCK"` | `"REWRITE"`; `rewritten_argv` is set on REWRITE.
     GuardVerdict {
         execution_id: String,

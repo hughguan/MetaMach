@@ -1,7 +1,7 @@
 # MetaMach 0.3.0 - Factory master switch (Deployment-Spec §5.1)
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
-# janus-daemon (M2), janus-sh (M3), and janus::tether (0.3.0) are picked up
+# janus-daemon (M2), janush (M3), and janus::tether (0.3.0) are picked up
 # automatically by `compile` as their binaries land.
 
 .PHONY: all bootstrap prereq symlinks compile db-init db-down db-backup db-restore db-migrate health logs uninstall clean ram-disk
@@ -58,7 +58,7 @@ compile:
 	@cd janus && cargo build --release --locked
 	@echo "🛡️ Installing built binaries to $(HERDR_PLUGIN_ROOT)/bin/..."
 	@mkdir -p $(HERDR_PLUGIN_ROOT)/bin
-	@for bin in janus janus-daemon herdr-janus janus-sh; do \
+	@for bin in janus janus-daemon herdr-janus janush; do \
 		if [ -f janus/target/release/$$bin ]; then \
 			cp janus/target/release/$$bin $(HERDR_PLUGIN_ROOT)/bin/$$bin; \
 			echo "   installed $$bin"; \
@@ -151,7 +151,7 @@ uninstall:
 	@rm -rf $(METAMACH_DB_DIR)
 	@rm -rf $(HERDR_PLUGIN_CONFIG_DIR)
 	@rm -rf $(HERDR_PLUGIN_STATE_DIR)
-	@rm -f $(HERDR_PLUGIN_ROOT)/bin/janus-daemon $(HERDR_PLUGIN_ROOT)/bin/herdr-janus $(HERDR_PLUGIN_ROOT)/bin/janus-sh $(HERDR_PLUGIN_ROOT)/bin/janus
+	@rm -f $(HERDR_PLUGIN_ROOT)/bin/janus-daemon $(HERDR_PLUGIN_ROOT)/bin/herdr-janus $(HERDR_PLUGIN_ROOT)/bin/janush $(HERDR_PLUGIN_ROOT)/bin/janus
 	@echo "🗑️  MetaMach fully uninstalled."
 
 # 15. Clean local compile cache.

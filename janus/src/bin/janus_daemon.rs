@@ -158,7 +158,7 @@ async fn handle_request(
                 message: e.to_string(),
             },
         },
-        // janus-sh -> Daemon: synchronous Tool Guard verdict (Contract 3.2/3.4).
+        // janush -> Daemon: synchronous Tool Guard verdict (Contract 3.2/3.4).
         Request::GuardCheck {
             execution_id,
             blueprint_id,
@@ -171,7 +171,7 @@ async fn handle_request(
             let verdict = engine.evaluate(&execution_id, &argv, &env_snapshot);
             // Non-destructive HITL suspension + webhook for dangerous blocks
             // (Feature-Spec §2.4). Fired in the background so the BLOCK verdict
-            // returns to janus-sh immediately (fail-closed, no PTY kill).
+            // returns to janush immediately (fail-closed, no PTY kill).
             if matches!(
                 verdict.cause.as_deref(),
                 Some("blacklist") | Some("require_approval")

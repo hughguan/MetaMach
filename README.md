@@ -21,7 +21,7 @@ MetaMach 0.1.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as is
   Postgres runs as a host-native Sandbox process, not a Docker container. `make bootstrap` compiles, symlinks, and launches PG directly — no Docker, no Compose, no container network overhead. Physical persistence at `~/.metamach/db/` survives power-cycle restarts.
 
 - **📊 Dual-Track Data Survival**
-  Normal writes go through `janus-sh → UDS → janus-daemon → Absurd PG`. If PG goes down, the SQLite ring buffer (`fallback.db`) keeps the workshop alive. On PG recovery, the ring buffer replays into PG automatically.
+  Normal writes go through `janush → UDS → janus-daemon → Absurd PG`. If PG goes down, the SQLite ring buffer (`fallback.db`) keeps the workshop alive. On PG recovery, the ring buffer replays into PG automatically.
 
 ---
 
@@ -50,7 +50,7 @@ metamach/
 │       ├── bin/
 │       │   ├── janus_daemon.rs  # 🪐 Control-plane daemon
 │       │   └── herdr_janus.rs   # 🔌 Herdr shadow client
-│       ├── tool_guard/          # janus-sh UDS proxy shell
+│       ├── tool_guard/          # janush UDS proxy shell
 │       ├── absurd/              # Postgres transaction ledger
 │       └── tui/                 # Ratatui popup interface
 ├── openwiki/                 # Shared RAG knowledge base
@@ -98,7 +98,7 @@ make bootstrap   # Compile + symlink + init DB
 ```
 `make bootstrap` **auto-provisions** everything:
 1. Creates immutable/mutable directory separation with symlinks (`~/.metamach/db/`)
-2. Compiles `janus-daemon`, `herdr-janus`, and `janus-sh` in release mode
+2. Compiles `janus-daemon`, `herdr-janus`, and `janush` in release mode
 3. Launches host-native Postgres and runs all migrations
 
 After bootstrap, press `prefix+j` inside Herdr to open the Dispatcher console and dispatch a workflow.
@@ -154,7 +154,7 @@ See `docs/ARCH-0.3.0.md` for full details and `spike/herdr-tether-migration-eval
 
 - **Remain-on-Exit**: Every Tether-powered session is 100% crash-proof. AI process segfaults? Syntax errors? The tmux terminal stays alive, preserving full context.
 - **16KB Budget**: Step checkpoints and stdout capture are strictly capped at 16KB. Database `Janus GC` prunes expired entries every 24 hours—no unbounded bloat.
-- **janus-sh Proxy Shell**: Agent commands are intercepted via a UDS sync protocol before reaching bash. High-risk operations are physically suspended until HITL approval via Teams/Telegram.
+- **janush Proxy Shell**: Agent commands are intercepted via a UDS sync protocol before reaching bash. High-risk operations are physically suspended until HITL approval via Teams/Telegram.
 - **Stateless Cold Start**: Postgres is the sole source of truth. After a full power loss, `janus-daemon` reconnects, identifies the last completed checkpoint, and resumes execution at the breakpoint—no `tmux-resurrect` reliance.
 - **SQLite Fallback**: If PG crashes, the SQLite ring buffer (`fallback.db`) keeps the workshop alive. On PG recovery, events are replayed into PG and the ring buffer is truncated.
 - **Global Audit Archive**: Offboarded blueprint data is not dropped (`DROP DATABASE` rejected); instead, `result_cache` is DELETEd, and step execution traces are archived in `absurd_audit_log` for legal traceability.

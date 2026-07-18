@@ -4,7 +4,7 @@
 //!   - `janus-daemon` (resident brain, server) - hosts the UDS listener + AbsurdDb.
 //!   - `herdr-janus` (shadow client) - UDS client + lazy-start + TUI.
 //!   - `janus` (unified CLI) - UDS client for `status` / `daemon`.
-//!   - `janus-sh` (proxy shell) - UDS client; synchronously reconciles each
+//!   - `janush` (proxy shell) - UDS client; synchronously reconciles each
 //!     command with the Daemon's Tool Guard before exec (Feature-Spec §2.2).
 //!
 //! Architecture (Feature-Spec §2.1, ARCH §3): the Daemon is the sole owner of

@@ -23,8 +23,8 @@ name = "janus"
 path = "src/bin/janus.rs"
 
 [[bin]]
-name = "janus-sh"
-path = "src/bin/janus_sh.rs"
+name = "janush"
+path = "src/bin/janush.rs"
 
 [dependencies]
 ratatui = "0.29"

@@ -39,7 +39,7 @@ No commands are runnable today (repo is docs-only). The intended toolchain, per 
 ## Coding Style & Naming
 
 - **Rust 2024 Edition** with `rustfmt` defaults. All code must pass `cargo fmt` and `cargo clippy`.
-- Binaries use kebab-case: `janus-daemon`, `herdr-janus`, `janus-sh`.
+- Binaries use kebab-case: `janus-daemon`, `herdr-janus`, `janush`.
 - Config files are TOML (`agents.toml`, `janus.toml`, `workflows/*.toml`).
 
 ## Testing Guidelines
@@ -60,7 +60,7 @@ MetaMach is a durable AI software factory OS. Core components:
 
 - **`janus-daemon`** — control-plane daemon (Rust), sole owner of state and DB connection pool.
 - **`herdr-janus`** — Herdr plugin (shadow client), UI rendering only.
-- **`janus-sh`** — UDS proxy shell that reconciles agent commands with the daemon before execution.
+- **`janush`** — UDS proxy shell that reconciles agent commands with the daemon before execution.
 - **`herdr-tether`** (external) — tmux-based cross-host execution with session durability.
 - **Absurd Postgres** — transactional single-DB, multi-tenant by `blueprint_id`.
 

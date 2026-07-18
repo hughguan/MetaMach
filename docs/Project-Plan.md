@@ -120,7 +120,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - Implement `janus status [--blueprint <name>] [--json]` CLI reusing the same `progress` primitive, outputting plain-text/JSON snapshots.
 - **UAT:** After dispatching a multi-step workflow, switch to Progress view; step states should progress with real execution within 2s (`PENDING -> RUNNING -> COMPLETED`); artificially trigger `SUSPENDED`-that row highlights within 1s. In an SSH environment, `janus status` should output an in-flight task snapshot consistent with the dashboard.
 
-> Note: This task lands the query and rendering skeleton in M2; the real Task/Step data it reads becomes progressively richer through M3 (janus-sh step execution) and M4 (cross-host workflows). M2 can use migration seed tasks to validate rendering. **Multi-DB fan-out:** because `absurd_tasks`/`absurd_steps` live in per-blueprint DBs, the `progress` query must iterate each `metamach_blueprint_<name>` and union in Rust (a single `JOIN` cannot span databases). The Daemon sets `RUNNING` after returning the `ALLOW` verdict (Contract 3.4) so the dashboard can render the `STARTING -> RUNNING` transition.
+> Note: This task lands the query and rendering skeleton in M2; the real Task/Step data it reads becomes progressively richer through M3 (janush step execution) and M4 (cross-host workflows). M2 can use migration seed tasks to validate rendering. **Multi-DB fan-out:** because `absurd_tasks`/`absurd_steps` live in per-blueprint DBs, the `progress` query must iterate each `metamach_blueprint_<name>` and union in Rust (a single `JOIN` cannot span databases). The Daemon sets `RUNNING` after returning the `ALLOW` verdict (Contract 3.4) so the dashboard can render the `STARTING -> RUNNING` transition.
 
 #### Task 2.4: Tether Internalization - `janus::tether` Native Module (Check-in Unit 4c)
 - **Description:** Per 0.3.0 §2.4, migrate herdr-tether's core tmux session engine (~3,500 LOC: `DurableBackend` trait + `LifecycleService` + cold-start integration) into the native `janus::tether` Rust module inside `janus-daemon`. The external `herdr-tether` binary is **deprecated and no longer fetched**. New dependency: `thiserror`. Effort ~2 weeks (+~2,600 LOC tests).
@@ -129,7 +129,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - Expose the `janus tether open|attach|list` subcommand surface (define the subcommand table in ARCH §3 / Feature-Spec and cross-reference from Deployment-Spec §6.2).
     - In-process signal linkage to Tool Guard (<1ms) replaces the prior ~5-15ms external UDS IPC path.
 - **UAT:** `janus tether open --command "sleep 100"` launches a session in `tmux -L metamach-tether`; force-close the foreground view; `tmux -L metamach-tether list-sessions` still shows `tether-janus-*` alive; `janus tether attach` restores the scene in milliseconds. No `herdr-tether` binary exists in the build.
-- **Note:** Landing `janus::tether` in M2 resolves the prior M3 dependency inversion - `janus-sh` (M3) can now be tested inside real Tether panes.
+- **Note:** Landing `janus::tether` in M2 resolves the prior M3 dependency inversion - `janush` (M3) can now be tested inside real Tether panes.
 
 #### Task 2.5: OpenWiki External Dependency Fetch & RAG Query Verification (Check-in Unit 4d)
 - **Description:** Integrate the external dependency OpenWiki (https://github.com/langchain-ai/openwiki) into the build flow, and connect the Daemon -> OpenWiki RAG query chain-pre-positioning for M4 Offboard write-back and Agent onboarding retrieval.
@@ -143,25 +143,25 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 > **Timebox:** ~2 weeks
 
-- **Goal:** Push the security gate from outside the Herdr process down into the physical boundary of tmux, implementing `janus-sh` synchronous interception and Tool Guard allowlist filtering.
+- **Goal:** Push the security gate from outside the Herdr process down into the physical boundary of tmux, implementing `janush` synchronous interception and Tool Guard allowlist filtering.
 
 - **Check-in-able directory structure:**
-    `janus/src/tool_guard/`, `janus/target/release/janus-sh` (independent compilation target)
+    `janus/src/tool_guard/`, `janus/target/release/janush` (independent compilation target)
 
 ### Tasks
 
-#### Task 3.1: Compile Proxy Shell `janus-sh` (Check-in Unit 5)
+#### Task 3.1: Compile Proxy Shell `janush` (Check-in Unit 5)
 - **Description:** Implement a lightweight system command synchronous proxy in Rust.
 - **Implementation:**
-    - `janus-sh` itself is a minimal CLI program. When awakened, it does not execute the command; instead, it throws the current `argv` array to `janus-daemon` via UDS.
-    - `janus-sh` remains in a blocked state until it receives an `ALLOW` or `REWRITE` verdict from `janus-daemon`, then delivers to the real host `/bin/sh` for execution.
+    - `janush` itself is a minimal CLI program. When awakened, it does not execute the command; instead, it throws the current `argv` array to `janus-daemon` via UDS.
+    - `janush` remains in a blocked state until it receives an `ALLOW` or `REWRITE` verdict from `janus-daemon`, then delivers to the real host `/bin/sh` for execution.
 
 #### Task 3.2: Tool Guard In-Memory Rule Engine & Teams Approval Suspension (Check-in Unit 6)
 - **Description:** Implement the security guard decision matrix and non-destructive suspension in the Daemon.
 - **Implementation:**
-    - When the Daemon receives a command thrown by `janus-sh` (e.g., unauthorized network download, high-risk physical deletion, live financial order execution), it checks against `configs/agents.toml` qualification restrictions.
-    - **Non-Destructive Suspension:** If the command is an unauthorized high-risk instruction, mark the state as `SUSPENDED`. The Daemon does not kill the underlying PTY, prevents `janus-sh` from dispatching downward, and simultaneously sends a card with a `[Resume]` button via Telegram (primary) / Teams (secondary) webhook.
-    - **Fail-Closed 30s Timeout (0.3.0 §2.1):** `janus-sh` synchronously blocks on UDS reconciliation with a 30s default threshold. If the Daemon is unreachable or the round-trip exceeds 30s, `janus-sh` returns an error to the Agent and **refuses execution** (never lets the command through); the PTY survives via `remain-on-exit` for director troubleshooting. SIGSTOP/SIGCONT alternatives are rejected.
+    - When the Daemon receives a command thrown by `janush` (e.g., unauthorized network download, high-risk physical deletion, live financial order execution), it checks against `configs/agents.toml` qualification restrictions.
+    - **Non-Destructive Suspension:** If the command is an unauthorized high-risk instruction, mark the state as `SUSPENDED`. The Daemon does not kill the underlying PTY, prevents `janush` from dispatching downward, and simultaneously sends a card with a `[Resume]` button via Telegram (primary) / Teams (secondary) webhook.
+    - **Fail-Closed 30s Timeout (0.3.0 §2.1):** `janush` synchronously blocks on UDS reconciliation with a 30s default threshold. If the Daemon is unreachable or the round-trip exceeds 30s, `janush` returns an error to the Agent and **refuses execution** (never lets the command through); the PTY survives via `remain-on-exit` for director troubleshooting. SIGSTOP/SIGCONT alternatives are rejected.
 - **UAT:** In an Agent pane, first create a sentinel: `mkdir -p /tmp/metamach-test-guard-$(uuidgen) && echo s > /tmp/metamach-test-guard-$(uuidgen)/sentinel`, then force-execute a blacklisted `rm -rf /tmp/metamach-test-guard-$(uuidgen)`; the terminal should instantly synchronously suspend (Remain-on-Exit), the sentinel survives, and the phone receives the approval card.
 
 ## Milestone 4: Cross-Host Durability, Cold Self-Heal & Offboard Archive (Advanced & Prune)
@@ -232,7 +232,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 #### Task 5.2: Cross-Module Contract Verification (Check-in Unit 10)
 - **Description:** Verify all UDS contracts (3.2–3.5), schema contracts (3.1/3.1b), and lifecycle contracts (Onboard/Offboard) hold across module boundaries.
 - **Implementation:**
-    - janus-sh ↔ janus-daemon: Contract 3.2/3.4 payload round-trip with all verdict types.
+    - janush ↔ janus-daemon: Contract 3.2/3.4 payload round-trip with all verdict types.
     - janus::tether ↔ janus-daemon: Contract 3.5 dispatch/report payload with target_sha locking.
     - herdr-janus ↔ janus-daemon: Contract 3.3 progress query payload.
     - Multi-DB: Onboard creates per-blueprint DB, Offboard archives + DELETEs, no cross-contamination.

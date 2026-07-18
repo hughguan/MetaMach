@@ -1,5 +1,5 @@
 # MetaMach 0.3.0 — CI Pipeline
-# Native PG, no Docker. Tests janus-daemon, herdr-janus, janus-sh, and janus::tether.
+# Native PG, no Docker. Tests janus-daemon, herdr-janus, janush, and janus::tether.
 # Per the 0.3.0 architecture: One PG, Multi-DB, tmux for tether tests, SQLite bundled.
 
 name: MetaMach CI

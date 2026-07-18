@@ -7,7 +7,7 @@
 ## Safety red lines
 
 1. **Never execute destructive commands without Daemon approval.** All commands
-   flow through `janus-sh`; high-risk operations (root wipes, disk writes, flash
+   flow through `janush`; high-risk operations (root wipes, disk writes, flash
    erase, financial orders) are blocked or rewritten to dry-run until the Factory
    Director approves via HITL. Do not attempt to bypass the proxy shell.
 

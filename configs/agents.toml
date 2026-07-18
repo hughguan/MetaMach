@@ -2,7 +2,7 @@
 # (Feature-Spec Contract 3.5). Loaded by the Daemon on startup (hot-reload on
 # mtime change). Symlinked into ${HERDR_PLUGIN_CONFIG_DIR} by `make symlinks`.
 #
-# Decision priority (Feature-Spec §3.5 note), evaluated per janus-sh command:
+# Decision priority (Feature-Spec §3.5 note), evaluated per janush command:
 #   1. bash_blacklist hit        -> BLOCK  (SUSPENDED + HITL card)
 #   2. require_approval hit      -> BLOCK  (SUSPENDED + HITL card)
 #   3. capability not permitted  -> BLOCK  (denied, no HITL)

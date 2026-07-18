@@ -24,7 +24,7 @@ Per `docs/Deployment-Spec.md` §1 and `docs/Project-Plan.md` (Check-in Gates):
 - **Docker Compose v2.20+** — `docker compose up -d` brings up the Absurd Postgres container (Unix socket only, no TCP).
 - **tmux 3.3+**, **Herdr 0.7.3** (plugin host; M0-validated contract in `docs/herdr-v1-contract.md`).
 - **External dependencies** (separate repos, fetched/built by `make bootstrap`, NOT in this repo): `herdr-tether` (tmux/SSH execution engine), `absurd` (Postgres engine / `melt_blueprint_data`), `openwiki` (RAG knowledge engine).
-- The intended bootstrap entrypoint is `make bootstrap` (symlinks → compile → db-up). The intended binaries are `janus-daemon`, `herdr-janus`, `janus-sh`, `herdr-tether`.
+- The intended bootstrap entrypoint is `make bootstrap` (symlinks → compile → db-up). The intended binaries are `janus-daemon`, `herdr-janus`, `janush`, `herdr-tether`.
 
 There are no commands to run today. For doc work, edit the Markdown directly.
 
@@ -34,7 +34,7 @@ MetaMach 1.0 is a durable AI "software factory" OS. The core mental model (sprea
 
 - **`janus-daemon` (resident brain):** the sole owner of state, the DB connection pool, and the UDS gateway. All Step state transitions are transactional in Absurd Postgres. Exposes a read-only `progress` primitive for the dashboard.
 - **`herdr-janus` (shadow client):** a lightweight Herdr plugin that only renders the Popup (two views: **Dispatch** and **Progress**). Crashes never lose state — it just re-attaches. Lazy-starts the Daemon via `std::process::Command::spawn()` + detach.
-- **`janus-sh` (proxy shell):** Tether injects this as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janus-sh`). Every Agent command is synchronously reconciled with the Daemon over UDS **before** reaching bash. Verdict: `ALLOW` / `BLOCK` / `REWRITE` (Contract 3.4). 30s timeout = fail-closed `BLOCK`.
+- **`janush` (proxy shell):** Tether injects this as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`). Every Agent command is synchronously reconciled with the Daemon over UDS **before** reaching bash. Verdict: `ALLOW` / `BLOCK` / `REWRITE` (Contract 3.4). 30s timeout = fail-closed `BLOCK`.
 - **`herdr-tether` (physical execution, external):** tmux `remain-on-exit` sessions (dedicated server `tmux -L metamach-tether`), cross-host SSH. Sessions survive network drops/power loss.
 - **Absurd Postgres (Absurd DB):** single-DB, multi-tenant by `blueprint_id`. Sole source of truth; cold start reads the last `COMPLETED` checkpoint (never `tmux-resurrect`).
 - **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Onboard.

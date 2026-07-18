@@ -1,6 +1,6 @@
-//! Tether lifecycle service - cold-start restart integration (0.3.0 §2.4).
+//! tmux lifecycle service - cold-start restart integration (0.3.0 §2.4).
 //!
-//! On daemon restart, [`LifecycleService::restart_session`] mints a fresh Tether
+//! On daemon restart, [`LifecycleService::restart_session`] mints a fresh tmux
 //! session UUID and re-creates the session from the absurd checkpoint (the last
 //! `COMPLETED` step's `result_cache`). Full checkpoint-driven re-exec lands with
 //! M4 workflow execution; this provides the session-creation hook the cold-start

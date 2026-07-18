@@ -152,7 +152,7 @@ See `docs/ARCH-0.3.0.md` for full details and `spike/herdr-tether-migration-eval
 
 ## 🛡️ Resilience Invariants
 
-- **Remain-on-Exit**: Every Tether-powered session is 100% crash-proof. AI process segfaults? Syntax errors? The tmux terminal stays alive, preserving full context.
+- **Remain-on-Exit**: Every tmux-powered session is 100% crash-proof. AI process segfaults? Syntax errors? The tmux terminal stays alive, preserving full context.
 - **16KB Budget**: Step checkpoints and stdout capture are strictly capped at 16KB. Database `Janus GC` prunes expired entries every 24 hours—no unbounded bloat.
 - **janush Proxy Shell**: Agent commands are intercepted via a UDS sync protocol before reaching bash. High-risk operations are physically suspended until HITL approval via Teams/Telegram.
 - **Stateless Cold Start**: Postgres is the sole source of truth. After a full power loss, `janus-daemon` reconnects, identifies the last completed checkpoint, and resumes execution at the breakpoint—no `tmux-resurrect` reliance.

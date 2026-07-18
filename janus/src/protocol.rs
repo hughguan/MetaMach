@@ -20,7 +20,7 @@ pub enum Request {
     Progress { blueprint: Option<String> },
     /// `janush` -> Daemon: ask for a verdict on a command (Contract 3.2).
     /// `task_id`/`step_name` are `Option` because M3 has no running workflow
-    /// context yet (Tether/Onboard land in M2.4/M4); they carry the SUSPENDED
+    /// context yet (tmux/Onboard land in M2.4/M4); they carry the SUSPENDED
     /// target when present.
     GuardCheck {
         execution_id: String,
@@ -92,7 +92,7 @@ pub struct ActiveTask {
     pub started_at: Option<String>,
     pub elapsed_seconds: Option<i64>,
     pub current_step: Option<String>,
-    /// Tether physical-session liveness; lands with Task 2.4 (always false in M2).
+    /// tmux physical-session liveness; lands with Task 2.4 (always false in M2).
     pub tmux_alive: bool,
     pub suspended_reason: Option<String>,
     pub steps: Vec<StepStatus>,

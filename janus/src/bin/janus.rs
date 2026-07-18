@@ -84,7 +84,7 @@ enum TmuxCmd {
         /// Session name to attach.
         name: String,
     },
-    /// List live Tether sessions on the isolated tmux server.
+    /// List live tmux sessions on the isolated tmux server.
     List,
 }
 

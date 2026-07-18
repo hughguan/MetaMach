@@ -3,7 +3,7 @@
 //!
 //! On startup the Daemon scans Absurd Postgres for non-terminal tasks
 //! (`STARTING`/`RUNNING`/`SUSPENDED`). For each, it reads the last `COMPLETED`
-//! Step checkpoint and assigns a fresh Tether session UUID, picking up at the
+//! Step checkpoint and assigns a fresh tmux session UUID, picking up at the
 //! breakpoint. `tmux-resurrect` is NEVER used - Postgres is the sole source of
 //! truth (ARCH §6.4).
 //!

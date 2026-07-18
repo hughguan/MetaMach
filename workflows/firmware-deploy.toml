@@ -1,5 +1,5 @@
 # MetaMach firmware cross-compile & flash pipeline (Feature-Spec Contract 3.7).
-# Step `cross-compile` runs on the blueprint's `[remote]` host via Tether SSH.
+# Step `cross-compile` runs on the blueprint's `[remote]` host via tmux SSH.
 
 [workflow]
 name = "firmware-deploy"

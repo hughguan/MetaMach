@@ -36,7 +36,7 @@ This review aims to prove: **No matter how the AI hallucinates or attempts malic
 - **Metric 1.2: `janush` Proxy Interception & Tool Guard Reconciliation Audit**
     - _Requirement:_ Prove that interception does not rely on LLM self-restraint; interception occurs synchronously before the real physical shell.
     - _Pass Criteria:_
-        1. Inspect every PTY pane launched by Tether; its `SHELL` environment variable must be forced to the absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`.
+        1. Inspect every PTY pane launched by tmux; its `SHELL` environment variable must be forced to the absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`.
         2. Audit the UDS synchronous blocking call mechanism between `janush` and `janus.sock`. When sending an interception command, `janush` must remain in a Blocked suspended state, never preemptively forking a child process.
         3. Audit the Tool Guard decision matrix: high-risk commands (e.g., unauthorized network egress, physical flash erasure, non-Dry-Run trading order execution) must 100% trigger rewrite redirection or direct error blocking before a **Correlation ID digital signature** approved by Teams/TUI is detected.
 

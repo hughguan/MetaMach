@@ -1,6 +1,6 @@
 //! `janush` - proxy shell (Project-Plan M3 Task 3.1; Feature-Spec §2.2).
 //!
-//! Injected by Tether as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`).
+//! Injected by tmux as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`).
 //! It never executes a command directly: it forwards the argv to `janus-daemon`
 //! over `janus.sock`, blocks for a verdict (default 30s), then:
 //!   ALLOW   -> exec `/bin/sh` with the original argv
@@ -28,7 +28,7 @@ fn main() {
     let args = &argv[1..];
 
     // An interactive invocation (no args) isn't intercepted - just run /bin/sh.
-    // (Tether-launched agent panes always use `-c "<cmd>"`.)
+    // (tmux-launched agent panes always use `-c "<cmd>"`.)
     if args.is_empty() {
         exec_sh(args);
     }

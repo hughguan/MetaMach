@@ -206,7 +206,7 @@ impl AbsurdDb {
                     started_at: started_at.map(|s| s.to_rfc3339()),
                     elapsed_seconds: elapsed,
                     current_step,
-                    tmux_alive: false, // Tether liveness lands with Task 2.4.
+                    tmux_alive: false, // tmux liveness lands with Task 2.4.
                     suspended_reason: if suspended {
                         Some("awaiting HITL".to_string())
                     } else {

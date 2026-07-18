@@ -74,7 +74,7 @@ MetaMach 0.3.0 implements an industrial-grade isolation scheme of "independent b
     - **Absurd Postgres (Absurd DB):** One PG, Multi-DB topology. A single physical Postgres instance (native, no Docker) hosts independent logical databases per blueprint (`CREATE DATABASE metamach_blueprint_<name>` on Onboard). Each blueprint's database is fully isolated with its own connection pool, eliminating cross-blueprint lock contention. Data persists at `~/.metamach/db/`.
     - **OpenWiki (shared RAG skill):** Packaged as a standard Agent Skill. When an Agent encounters a code blind spot, it initiates a precise RAG retrieval via the `openwiki_query` tool; Janus intercepts and preferentially looks up in a Postgres-level cache (Git-SHA deduplication), returning precise AST code snippets with zero latency.
 
-> **CLI & Binary Architecture (unified entrypoint + dedicated binaries):** The system uses a unified `janus` CLI as the single entrypoint for the Factory Director and management surface, with subcommands in two categories: (1) **lifecycle/query subcommands**—`janus onboard`, `janus offboard`, `janus status`—all lightweight clients communicating with the resident `janus-daemon` via UDS (**Daemon must be running**; `janus daemon` explicitly launches it); (2) underlying dedicated binaries—`janus-daemon` (resident brain), `herdr-janus` (shadow client, loaded by Herdr), `janush` (proxy shell, injected as `SHELL` by Tether); (4) `janus::tmux` — physical execution engine, now a native module inside `janus-daemon` per 0.3.0. Thus `janus offboard` is equivalent to "client sends offboard command to Daemon via UDS," not a standalone direct DB connection. All tmux operations are internal to `janus-daemon`; the `herdr-tether` CLI binary is no longer a separate external dependency.
+> **CLI & Binary Architecture (unified entrypoint + dedicated binaries):** The system uses a unified `janus` CLI as the single entrypoint for the Factory Director and management surface, with subcommands in two categories: (1) **lifecycle/query subcommands**—`janus onboard`, `janus offboard`, `janus status`—all lightweight clients communicating with the resident `janus-daemon` via UDS (**Daemon must be running**; `janus daemon` explicitly launches it); (2) underlying dedicated binaries—`janus-daemon` (resident brain), `herdr-janus` (shadow client, loaded by Herdr), `janush` (proxy shell, injected as `SHELL` by tmux); (4) `janus::tmux` — physical execution engine, now a native module inside `janus-daemon` per 0.3.0. Thus `janus offboard` is equivalent to "client sends offboard command to Daemon via UDS," not a standalone direct DB connection. All tmux operations are internal to `janus-daemon`; the `herdr-tether` CLI binary is no longer a separate external dependency.
 
 ## 4. Component Interactivity
 
@@ -106,29 +106,29 @@ sequenceDiagram
     Daemon->>OW: Wake OpenWiki RAG: load prior production_report.md avoidance patterns
     OW-->>Daemon: Inject Coder Agent System Prompt (avoid I2C pin conflicts)
 
-    Note over Daemon, Tether: [Phase 2: Local Coder Station]
-    Daemon->>Tether: Create local tmux session: "tmux-janus-step1-uuid"
-    Tether->>Tether: Force remain-on-exit
-    Daemon->>Tether: Run Coder Agent, inject filter algorithm patch
-    Tether-->>Daemon: Write complete, output Git Diff
+    Note over Daemon, tmux: [Phase 2: Local Coder Station]
+    Daemon->>tmux: Create local tmux session: "tmux-janus-step1-uuid"
+    tmux->>tmux: Force remain-on-exit
+    Daemon->>tmux: Run Coder Agent, inject filter algorithm patch
+    tmux-->>Daemon: Write complete, output Git Diff
 
-    Note over Daemon, Tether: [Phase 3: Cross-Host Compilation (Remote SSH)]
+    Note over Daemon, tmux: [Phase 3: Cross-Host Compilation (Remote SSH)]
     Daemon->>Absurd: Write Step 1 Checkpoint: result_cache = Git Diff JSON (hash dedup)
-    Daemon->>Tether: Wake remote compile server session via OpenSSH BatchMode
-    Daemon->>Tether: Read Diff JSON from Absurd, inject into remote shell, run "make cross-compile"
-    Tether->>Tether: Remote cross-compile fails, pin config missing (Exit Code != 0)
-    Tether-->>Daemon: Capture error scene (auto-capped at 16KB budget)
+    Daemon->>tmux: Wake remote compile server session via OpenSSH BatchMode
+    Daemon->>tmux: Read Diff JSON from Absurd, inject into remote shell, run "make cross-compile"
+    tmux->>tmux: Remote cross-compile fails, pin config missing (Exit Code != 0)
+    tmux-->>Daemon: Capture error scene (auto-capped at 16KB budget)
 
     Note over Guard, Teams: [Phase 4: HITL Safety Fuse & Manual Takeover]
     Daemon->>Absurd: Lock state to SUSPENDED (non-destructive, remote tmux session never killed)
     Daemon->>Teams: Send alert card: [Compile failed! Pin 21 conflict. Click Resume or TUI debug]
-    Human->>Tether: Via Herdr TUI, attach into the still-alive remote tmux scene, manually fix C++ header
+    Human->>tmux: Via Herdr TUI, attach into the still-alive remote tmux scene, manually fix C++ header
     Human->>Teams: Click [Resume Workflow] on mobile
 
     Note over Daemon, Absurd: [Phase 5: Offboard Smelting & Experience Evolution]
     Teams-->>Daemon: Receive resume command
-    Daemon->>Tether: Drive tmux to re-run "make cross-compile" remotely
-    Tether-->>Daemon: Compile passes, QA success!
+    Daemon->>tmux: Drive tmux to re-run "make cross-compile" remotely
+    tmux-->>Daemon: Compile passes, QA success!
     Daemon->>Daemon: janus offboard --blueprint gatemetric
     Daemon->>Absurd: Execute DELETE + archive: purge operational data, write absurd_audit_log, DB footprint shrinks
     Daemon->>OW: Write pin conflict fix into blueprints/gatemetric/openwiki/production_report.md
@@ -248,7 +248,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 
 ## 6. Resilience Invariants
 
-1. **Physical Non-Destruction — tmux Remain-on-Exit:** Every Tether-managed physical Session is injected with `remain-on-exit on`. When an AI process exits due to a segfault or syntax error, the terminal scene is 100% preserved. The physical process is never killed, preventing development context from vanishing into thin air.
+1. **Physical Non-Destruction — tmux Remain-on-Exit:** Every tmux-managed physical Session is injected with `remain-on-exit on`. When an AI process exits due to a segfault or syntax error, the terminal scene is 100% preserved. The physical process is never killed, preventing development context from vanishing into thin air.
 
 2. **Capacity Anti-Bloat — 16KB Budget & SQL Pruning:** Absurd Postgres never expands without bounds. All Step Checkpoint large JSON caches and terminal stdout captures exceeding 16KB are forcibly truncated. A daily `Janus GC` transaction auto-cleans all Blueprint cache fields for tasks completed more than 3 days ago.
 

@@ -105,11 +105,11 @@ This lets `herdr-janus` know which agent/pane/workspace invoked it - useful for 
 - `herdr api schema` - full request/response/event schema (223KB; defines `PluginPanePlacement`, events, etc.).
 - The plugin CLI (`herdr plugin pane ...`) is itself a client of this socket.
 
-`janus-daemon` / `herdr-janus` can use this socket to: open Tether panes for workflow steps, query agent/pane state, focus panes, etc. - complementing MetaMach's own `janus.sock` UDS.
+`janus-daemon` / `herdr-janus` can use this socket to: open tmux panes for workflow steps, query agent/pane state, focus panes, etc. - complementing MetaMach's own `janus.sock` UDS.
 
 ## 8. How MetaMach maps onto this contract
 
-- **`herdr-janus` (shadow client)** = a pane entrypoint: `[[panes]] id="dispatcher" placement="overlay" command=["herdr-janus"]`. Rendered with ratatui inside a Herdr overlay pane. Connects to `janus-daemon` via MetaMach's own `janus.sock` (in `HERDR_PLUGIN_STATE_DIR`), and may use `HERDR_SOCKET_PATH` to drive Herdr (open Tether panes, read agent context).
+- **`herdr-janus` (shadow client)** = a pane entrypoint: `[[panes]] id="dispatcher" placement="overlay" command=["herdr-janus"]`. Rendered with ratatui inside a Herdr overlay pane. Connects to `janus-daemon` via MetaMach's own `janus.sock` (in `HERDR_PLUGIN_STATE_DIR`), and may use `HERDR_SOCKET_PATH` to drive Herdr (open tmux panes, read agent context).
 - **Plugin id** = `metamach.janus` (drives the CONFIG_DIR/STATE_DIR paths; matches the spec's tenant naming).
 - **Dispatch** = a Herdr keybinding opens the `dispatcher` overlay pane (`prefix+j`, configured in `config.toml`).
 - **Directory isolation** = Herdr's injected `HERDR_PLUGIN_ROOT/CONFIG_DIR/STATE_DIR` map exactly onto MetaMach's Immutable-ROOT / Mutable-Config / Mutable-State model. No `make bootstrap` symlink tricks needed for config/state - Herdr provides them.

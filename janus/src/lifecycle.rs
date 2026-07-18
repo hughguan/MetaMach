@@ -136,7 +136,7 @@ pub async fn onboard(db: &AbsurdDb, name: &str, repo_root: &Path) -> Result<Onbo
 /// (checked by the caller).
 fn pre_ignition_checks(recipe: &recipe::ValidatedRecipe) {
     if !tmux_ready() {
-        warn!("pre-ignition: tmux not ready (Tether sessions need it) - continuing");
+        warn!("pre-ignition: tmux not ready (tmux sessions need it) - continuing");
     }
     if let Some(host) = recipe.remote_host.as_deref()
         && !ssh_probe(host)

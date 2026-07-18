@@ -282,3 +282,81 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
     ```
 
 - **Pass:** The `blueprints` table shows one `gatemetric` / `ACTIVE` row; `janus status` outputs current in-flight tasks (should be empty at this point, but the command itself returns success, proving the `progress` primitive and Daemon connection are normal); inside Herdr, `prefix+j` wakes the Popup and the dispatch menu already shows `gatemetric` ready for immediate dispatch. Repeated execution of `janus onboard` produces no duplicate row (idempotent).
+
+## 7. HITL Gateway Ingress (0.4.0)
+
+The 0.4.0 HITL Gateway (`janus::gateway`, ARCH-0.4.0 §V) hosts a **loopback-only** HTTP listener for inbound Microsoft Teams / TUI approval callbacks. Microsoft Teams Outgoing Webhooks can only POST to a reachable **HTTPS** URL, so a tunnel or reverse proxy must bridge the public internet to the gateway's loopback listener. The daemon itself never handles TLS or binds a public port - it only binds to `127.0.0.1`.
+
+### 7.1 Gateway listener + env vars
+
+The daemon binds `127.0.0.1:$JANUS_GATEWAY_LISTEN_PORT` (default `8443`) at startup and exposes exactly one endpoint:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/runs/{run_id}/actions` | Teams/TUI approval callback ingress |
+
+Gateway configuration (env vars, all optional - the gateway degrades to log-only when unset):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `JANUS_GATEWAY_LISTEN_PORT` | `8443` | Loopback TCP port for the callback listener |
+| `JANUS_TEAMS_HMAC_SECRET` | (unset) | Shared HMAC-SHA256 secret for callback auth; unset = skip HMAC (dev/test only) |
+| `JANUS_TEAMS_WEBHOOK_URL` | (unset) | Teams **Incoming** Webhook URL (outbound card destination) |
+| `JANUS_TEAMS_CALLBACK_URL` | `http://127.0.0.1:8443` | Public base URL the card's Approve/Reject/Override buttons POST back to (the tunnel/proxy fronting the listener) |
+| `JANUS_HITL_TIMEOUT_SECS` | `1800` (30 min) | Unified HITL deadline - both the card's `expires_at` and the `await_verdict` blocking timeout. Must be positive; non-positive values fall back to the default |
+
+Callback responses: `200 OK` (resolved), `401 Unauthorized` (bad/missing HMAC), `409 Conflict` (duplicate callback for an already-resolved `run_id`), `410 Gone` (unknown / expired `run_id`, or the awaiter already timed out).
+
+### 7.2 HMAC secret provisioning
+
+`JANUS_TEAMS_HMAC_SECRET` is provisioned in the platform-appropriate secret directory (per §4 RAM-disk / §5.2 of ARCH-0.4.0): `/dev/shm` on Linux, `$TMPDIR` on macOS (the `make ram-disk` workaround). The gateway validates the HMAC-SHA256 of the callback body (base64-encoded in the `Authorization: Hmac <base64>` header) in constant time on every inbound callback; unsigned or mismatched payloads are discarded with `401`.
+
+### 7.3 External reachability (tunnel / reverse proxy)
+
+The gateway's loopback listener is **not** directly reachable by Teams. A tunnel or reverse proxy must bridge the gap. The daemon binary never includes this - it is a deployment prerequisite.
+
+**Development / CI** - a quick tunnel (no TLS cert management):
+
+```bash
+# Expose the loopback gateway listener at a public HTTPS URL.
+cloudflared tunnel --url http://127.0.0.1:8443
+# Then set the callback base to the printed https://*.trycloudflare.com URL:
+export JANUS_TEAMS_CALLBACK_URL="https://<random>.trycloudflare.com"
+```
+
+**Production** - a reverse proxy with TLS termination (Let's Encrypt):
+
+```nginx
+# nginx: terminate TLS, forward to the gateway loopback listener.
+server {
+    listen 443 ssl http2;
+    server_name hitl.metamach.example.com;
+    ssl_certificate     /etc/letsencrypt/live/hitl.metamach.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/hitl.metamach.example.com/privkey.pem;
+
+    location /v1/runs/ {
+        proxy_pass http://127.0.0.1:8443;
+        proxy_set_header Host $host;
+    }
+}
+# Then: export JANUS_TEAMS_CALLBACK_URL="https://hitl.metamach.example.com"
+```
+
+(Caddy is an equivalent one-line alternative: `reverse_proxy hitl.metamach.example.com:443 -> 127.0.0.1:8443` with automatic HTTPS.)
+
+### 7.4 Verify gateway ingress
+
+1. Start the daemon (`janus-daemon`) with `JANUS_TEAMS_HMAC_SECRET` set.
+2. From another host (or the tunnel URL), POST a signed callback for a known pending `run_id`:
+    ```bash
+    TAG=$(printf '%s' '{"action":"approve"}' | openssl dgst -sha256 -hmac "$JANUS_TEAMS_HMAC_SECRET" -binary | base64)
+    curl -s -o /dev/null -w '%{http_code}\n' \
+        -H "Authorization: Hmac $TAG" \
+        -H 'Content-Type: application/json' \
+        -d '{"action":"approve"}' \
+        https://<tunnel>/v1/runs/<run_id>/actions
+    ```
+3. Repeat the same POST.
+
+- **Pass:** First POST returns `200`; the daemon log records the resolved verdict (`HITL verdict resolved`) and the suspended step's `hitl_verdict` column is set. Second POST returns `409`. An unsigned POST returns `401`. A POST for an unknown or expired `run_id` returns `410`.
+

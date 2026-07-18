@@ -200,7 +200,7 @@ The gateway includes a built-in HTTP listener (`tokio::net::TcpListener`) that b
 
 - **Recommended (development/CI):** cloudflared tunnel (`cloudflared tunnel --url http://127.0.0.1:8443`)
 - **Recommended (production):** nginx/Caddy reverse proxy with Let's Encrypt TLS termination
-- **Documented in:** `docs/Deployment-Spec.md` §7 (Gateway Ingress — to be added as part of the 0.4.0 implementation)
+- **Documented in:** `docs/Deployment-Spec.md` §7 (Gateway Ingress)
 
 The tunnel/proxy is a **deployment prerequisite**, not part of the daemon binary. The daemon itself never handles TLS or exposes a public port — it only binds to loopback.
 

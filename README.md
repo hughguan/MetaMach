@@ -1,8 +1,8 @@
-# 🛡️ MetaMach 0.1.0
+# 🛡️ MetaMach 0.3.0
 
 > **An industrial-grade, durable AI Software Factory OS powered by Janus Daemon and distributed physical execution sessions.**
 
-MetaMach 0.1.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines—managed straight from your pocket via Telegram or TUI.
+MetaMach 0.3.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines—managed straight from your pocket via Telegram or TUI.
 
 ---
 
@@ -108,53 +108,3 @@ After bootstrap, press `prefix+j` inside Herdr to open the Dispatcher console an
 make db-down   # Gracefully stop the Postgres instance
 make clean     # Clean build artifacts and unmount RAM disk
 ```
-
----
-
-## 🏛️ Architecture 0.3.0 Consensus
-
-The 0.3.0 baseline (`docs/ARCH-0.3.0.md`) is the final arbitration of two rounds of design exploration. Key decisions:
-
-| Proposal | Verdict | Rationale |
-|---|---|---|
-| De-containerization (No Docker) | ✅ Adopted | Eliminate virtual NIC/container overhead; zero-dependency distribution |
-| `~/.metamach/db/` independent path | ✅ Adopted | Decouple from Herdr plugin lifecycle; survive power-cycle restart |
-| Retain SQLite Fallback ring buffer | ✅ Force-Retained | Workshop must "run degraded" during PG outage |
-| `DROP DATABASE` physical shredding | ❌ Rejected | Destroys audit trail; DELETE + `absurd_audit_log` archiving instead |
-| One PG, Multi-DB topology | ✅ Adopted | Independent connection pools, zero cross-blueprint lock contention |
-| tmux Internalization | ✅ Adopted | 4 physical requirements: survival autonomy, durability, IPC latency, single-binary |
-| Fail-Closed 30s Timeout | ✅ Force-Retained | SIGSTOP/SIGCONT rejected; existing Feature-Spec 2.2 design |
-
-See `docs/ARCH-0.3.0.md` for full details and `spike/herdr-tether-migration-evaluation.md` for the tmux internalization plan.
-
-## 🧪 Current Test Coverage
-
-**39/39 tests passing** (36 lib + 3 bin) — all CI gates green (`cargo fmt`, `clippy -D warnings`, `cargo test --workspace`).
-
-| Priority | Coverage | Status |
-|---|---|---|
-| 🔴 Blocker (4/4) | Cold-start, 30s timeout, UDS proxy, melt blueprint | ✅ All pass |
-| 🟠 Critical (12/13) | Absurd CRUD, lifecycle, Tool Guard rules, webhook | ✅ 12 pass, 1 partial (UDS fuzz) |
-| 🟡 Major (12/15) | Recipe, workflow, multi-blueprint, Telegram | ✅ 12 pass, 3 partial/non-impl |
-
-**Known gaps** (tracked in `docs/Test-Spec.md`):
-- `UTC-02-04`: UDS fuzz/rate-limit tests not yet written
-- `UTC-04-02`: Telegram callback polling not wired
-- `UTC-04-03`: Teams adapter not implemented (LoggingSender fallback only)
-- `UTC-03-02/05`: Cross-host & concurrent workflow — blocked until tmux internalization
-- `UTC-07-xx`: No benchmark harness exists
-
-## 🚀 CI/CD Status
-
-- **No CI workflow yet** — `.github/workflows/` does not exist. This is P0.
-- The 0.3.0 architecture directly affects CI design: CI runner needs host-native PG (not Docker), tmux 3.3+, and `thiserror` dependency.
-- See the ARCH 0.3.0 review output for a complete CI workflow specification.
-
-## 🛡️ Resilience Invariants
-
-- **Remain-on-Exit**: Every tmux-powered session is 100% crash-proof. AI process segfaults? Syntax errors? The tmux terminal stays alive, preserving full context.
-- **16KB Budget**: Step checkpoints and stdout capture are strictly capped at 16KB. Database `Janus GC` prunes expired entries every 24 hours—no unbounded bloat.
-- **janush Proxy Shell**: Agent commands are intercepted via a UDS sync protocol before reaching bash. High-risk operations are physically suspended until HITL approval via Teams/Telegram.
-- **Stateless Cold Start**: Postgres is the sole source of truth. After a full power loss, `janus-daemon` reconnects, identifies the last completed checkpoint, and resumes execution at the breakpoint—no `tmux-resurrect` reliance.
-- **SQLite Fallback**: If PG crashes, the SQLite ring buffer (`fallback.db`) keeps the workshop alive. On PG recovery, events are replayed into PG and the ring buffer is truncated.
-- **Global Audit Archive**: Offboarded blueprint data is not dropped (`DROP DATABASE` rejected); instead, `result_cache` is DELETEd, and step execution traces are archived in `absurd_audit_log` for legal traceability.

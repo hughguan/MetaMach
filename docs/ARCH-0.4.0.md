@@ -4,12 +4,12 @@
 
 > **0.4.0 Strategic Delta:** This document defines the **incremental architectural changes** from the 0.3.0 consensus baseline (`docs/ARCH-0.3.0.md`). It introduces the Cognitive Provider SPI, MCP-based symbol indexing, and an out-of-band HITL Gateway with Microsoft Teams Active Cards integration.
 
-> **⚠️ Governance Note — Contracts 4.x Propagation:** Contracts 4.1, 4.2, and 4.3a–c defined herein are **provisional** and live only in this delta document. Per `CLAUDE.md` governance rules, before 0.4.0 implementation begins, these contracts must be formally propagated to:
-> - `docs/Feature-Spec.md` — new Contract 4.x section (source of truth for data contracts)
-> - `docs/Test-Spec.md` — new UTC-10-xx test suite (Gateway + Cognitive Provider)
-> - `docs/Review-Spec.md` — new REV-GW-xx and REV-COG-xx review rows
+> **✅ Governance Note — Contracts 4.x Propagated.** Contracts 4.1, 4.2, and 4.3a–c have been formally propagated to the sibling specs:
+> - `docs/Feature-Spec.md` — Contracts 4.1 (Cognitive Provider SPI), 4.2 (MCP Symbol Indexing), 4.3a (Hermes Run API), 4.3b (Teams Active Cards), 4.3c (WebhookPayload + Gateway Trait), plus two new fault matrix rows
+> - `docs/Test-Spec.md` — UTC-10-01 through UTC-10-10 (Gateway dispatch, HTTP listener, timeout, HMAC, Teams cards, cognitive validate/timeout, extract_knowledge, payload enrichment, expires_at expiry)
+> - `docs/Review-Spec.md` — 5 REV-GW-xx rows (callback ingress, timeout, dispatch, expiry, Teams format) + 3 REV-COG-xx rows (advisory check, timeout pass-through, extract_knowledge supplement)
 >
-> The cross-referencing fabric is currently broken for 4.x; this note is the tracked prerequisite.
+> The cross-referencing fabric is intact for 4.x. H3 is closed.
 
 ---
 
@@ -350,6 +350,6 @@ pub struct WebhookPayload {
 | Module tree placement | ✅ Defined in §II |
 | Dependency cycle (tool_guard ↔ gateway) | ✅ Resolved — shared types in `protocol.rs` |
 | Integration with 0.3.0 infra | ✅ Defined in §VI |
-| Contracts 4.x governance propagation | ⚠️ Prerequisite — must add to Feature-Spec, Test-Spec, Review-Spec before implementation |
+| Contracts 4.x governance propagation | ✅ Propagated to Feature-Spec (Contracts 4.1–4.3c), Test-Spec (UTC-10-xx), Review-Spec (REV-GW/COG-xx) |
 
 > **"0.4.0 keeps the 0.3.0 core lean — no AST parsing in the daemon heap, no notification I/O on the control-loop thread. The Cognitive SPI and HITL Gateway are external extensions that mount only when needed, insulating the physical tmux session from upstream service failures. The gateway's verdict thread blocks independently; the tmux session is never frozen."**

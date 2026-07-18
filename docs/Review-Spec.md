@@ -163,6 +163,15 @@ The Factory Director and Architect must physically verify and sign off each item
 | **REV-EVO-02** | Blueprint Onboard & Tenant Registration | Execute `janus onboard`; verify `blueprints` table has exactly one `ACTIVE` row, idempotent with no duplicates, `CREATE DATABASE` called, and re-Onboard recycles `production_report.md` into System Prompt. | `[ ]` Verified | **High (Orange)** |
 | **REV-OPS-01** | Workflow Progress Visibility | Dispatch multi-step workflow; open progress dashboard; verify step states refresh ≤2s, `SUSPENDED` highlights ≤1s, and `janus status` output consistent with dashboard (same source). | `[ ]` Verified | **High (Orange)** |
 
+| **REV-GW-01** | Gateway HTTP Callback Ingress | POST valid + invalid (no-HMAC, wrong-HMAC, duplicate) callbacks to `127.0.0.1:8443/v1/runs/{id}/actions`; verify 200/401/409 responses. | `[ ]` Verified | **Critical (Red)** |
+| **REV-GW-02** | Verdict Timeout (Fail-Closed) | Set `JANUS_HITL_TIMEOUT_SECS=5`; trigger HITL; do not send callback; verify `Err(Timeout)` returned and verdict defaults to BLOCK. | `[ ]` Verified | **Critical (Red)** |
+| **REV-GW-03** | Non-Blocking Dispatch | Trigger HITL; measure control-loop resume time; verify `dispatch()` returns < 5ms and tmux session is never paused. | `[ ]` Verified | **High (Orange)** |
+| **REV-GW-04** | expires_at Expiry (410 Gone) | Set `expires_at` to 1s in the past; POST callback; verify `410 Gone` and verdict not applied. | `[ ]` Verified | **High (Orange)** |
+| **REV-GW-05** | Teams Adaptive Card Format | Trigger HITL with TeamsSender; capture outbound JSON; verify Adaptive Card schema with Approve/Reject/Override actions. | `[ ]` Verified | **Medium (Yellow)** |
+| **REV-COG-01** | Cognitive Provider Advisory Check | Configure provider returning `Some("pin conflict")`; dispatch matching command; verify BLOCK verdict with cognitive reason. | `[ ]` Verified | **High (Orange)** |
+| **REV-COG-02** | Cognitive Provider Timeout (Pass-Through) | Configure provider that hangs; dispatch command; verify 2s timeout, WARN log, standard verdict proceeds. | `[ ]` Verified | **High (Orange)** |
+| **REV-COG-03** | extract_knowledge Supplement | Execute Offboard with provider active; verify `production_report.md` contains both LLM smelt + provider artifact; verify provider failure does not block Offboard. | `[ ]` Verified | **Medium (Yellow)** |
+
 ## 4. UAT Final Approval
 
 This specification is physically verified by the **MetaMach 0.3.0 Architect** and the **Factory Director (End User)**. Sign-off is executed digitally via GPG-signed Git tag (`git tag -s v0.3.0-review-approved`) or GitHub PR approval workflow.

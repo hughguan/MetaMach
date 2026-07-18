@@ -395,6 +395,152 @@ CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 
 > Ring buffer: max 1000 entries or 50MB, whichever comes first; oldest entries evicted when limit reached. On PG recovery, batch Log Replay replays `fallback_events` into absurd's checkpoint state (`set_task_checkpoint_state`) and the `metamach_step_meta` overlay in the appropriate per-blueprint database, then truncates the ring buffer. `blueprint_name` is used to route replay to the correct per-blueprint database.
 
+### Contract 4.1: Cognitive Provider SPI (`janus::cognitive`)
+
+```rust
+/// 0.4.0 — Cognitive Provider SPI (ARCH-0.4.0 §III).
+///
+/// Implementations are opt-in and communicate via local IPC (Unix socket
+/// or stdio). The daemon holds at most one active provider per blueprint;
+/// providers are lazily started on first query and terminated on Offboard.
+pub trait CognitiveProvider: Send + Sync {
+    /// Validate whether a command is consistent with the blueprint's
+    /// domain constraints. Returns `None` when the provider has no opinion
+    /// (pass-through); returns `Some(reason)` to recommend a BLOCK verdict.
+    /// Advisory only — timeout is 2s; on timeout, the standard Tool Guard
+    /// verdict proceeds without cognitive input.
+    fn validate_command(
+        &self,
+        blueprint: &str,
+        argv: &[String],
+        cwd: Option<&str>,
+    ) -> Result<Option<String>, CognitiveError>;
+
+    /// On Offboard, produce a condensed knowledge artifact. The output is
+    /// appended to the LLM smelt `production_report.md` — a supplement,
+    /// not a replacement (Feature-Spec §2.5 Offboard).
+    fn extract_knowledge(
+        &self,
+        blueprint: &str,
+    ) -> Result<String, CognitiveError>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CognitiveError {
+    #[error("provider not reachable: {0}")]
+    Unreachable(String),
+    #[error("query timeout")]
+    Timeout,
+}
+```
+
+> **Design invariants:** (1) Cannot block the tmux session — `validate_command` timeout is 2s. (2) Cannot read database state — receives only `argv` + `cwd` + `blueprint` name. (3) Opt-in per blueprint — configured in `blueprints/<name>/janus.toml` under a `[cognitive]` section.
+
+### Contract 4.2: MCP Symbol Indexing (codebase-memory-mcp)
+
+The daemon spawns the `codebase-memory-mcp` MCP server as a child process on first use per blueprint. Communication is via stdin/stdout JSON-RPC (MCP transport protocol). The server indexes only the blueprint's own source tree (`blueprints/<name>/`). It has no access to the daemon's source, other blueprints, or the host filesystem outside the blueprint root.
+
+### Contract 4.3a: HITL Gateway — Hermes Run API Envelope
+
+The gateway exposes a local HTTP listener on `127.0.0.1:<port>` (default `8443`, configurable via `JANUS_GATEWAY_LISTEN_PORT`). External Teams reachability requires a tunnel or reverse proxy (cloudflared / nginx+TLS) — the daemon never handles TLS or exposes a public port.
+
+**Outbound (Gateway → Teams):**
+```
+POST /v1/runs
+{
+  "run_id": "<correlation_id>",
+  "status": "requires_action",
+  "action": {
+    "type": "hitl_approval",
+    "payload": {
+      "blueprint": "gatemetric",
+      "task_id": "<uuid>",
+      "step": "cross-compile",
+      "command": "make CROSS_COMPILE=arm-none-eabi-",
+      "cause": "require_approval: cross-compile on remote",
+      "stdout_tail": "<16KB truncated>",
+      "expires_at": "2026-07-18T00:00:00Z"
+    }
+  }
+}
+```
+
+**Callback (Teams → Gateway):**
+```
+POST /v1/runs/{run_id}/actions
+{
+  "action": "approve" | "reject" | "override",
+  "override_command": "<optional rewritten argv>",
+  "approved_by": "hughguan@contoso.com",
+  "timestamp": "2026-07-17T15:04:05Z"
+}
+```
+
+> `expires_at` = now + `JANUS_HITL_TIMEOUT_SECS` (default 30 min). Callbacks after expiry return `410 Gone`.
+
+### Contract 4.3b: Microsoft Teams Active Cards
+
+The `TeamsSender` adapter translates the enriched `WebhookPayload` (Contract 4.3c) into an Adaptive Card with `Approve` / `Reject` / `Override` actions. Authentication uses HMAC payload signing with a pre-shared secret (`JANUS_TEAMS_HMAC_SECRET`, provisioned in `/dev/shm` on Linux, `$TMPDIR` on macOS). Replay protection: each `run_id` accepts exactly one callback (duplicates return `409 Conflict`).
+
+### Contract 4.3c: Enriched WebhookPayload & Gateway Trait
+
+```rust
+/// Shared HITL card type (in `protocol.rs`).
+/// Enriched with Hermes Run API fields for Teams adapter compatibility.
+#[derive(Debug, Clone, Serialize)]
+pub struct WebhookPayload {
+    pub task_id: Option<Uuid>,
+    pub execution_id: String,
+    pub correlation_id: String,        // == Hermes run_id; single source of truth
+    pub cause: String,
+    pub command: String,
+    pub reason: String,
+    pub scene: String,                 // 16KB-truncated; legacy alias for stdout_tail
+    pub resume_key: String,            // "metamach-resume:{correlation_id}"
+    pub blueprint: String,             // 0.4.0: owning blueprint name
+    pub step: String,                  // 0.4.0: current step name
+    pub stdout_tail: String,           // 0.4.0: canonical field (Hermes naming)
+    pub expires_at: String,            // 0.4.0: ISO 8601; now + HITL_TIMEOUT
+}
+
+/// 0.4.0 — HITL Gateway dispatch trait.
+pub trait HitlGateway: Send + Sync {
+    /// Dispatch a HITL card to all configured channels. Non-blocking:
+    /// spawns a verdict thread and returns immediately. The correlation_id
+    /// is already in `payload.correlation_id` (the gateway never mints it).
+    fn dispatch(&self, payload: &WebhookPayload) -> Result<(), GatewayError>;
+
+    /// Block until a verdict arrives for the given correlation_id, or
+    /// until the timeout expires (fail-closed: timeout = BLOCK).
+    /// Called from the gateway's dedicated verdict thread, never from
+    /// the tmux control thread — the tmux session is never frozen.
+    fn await_verdict(
+        &self,
+        correlation_id: &str,
+        timeout: Duration,
+    ) -> Result<GatewayVerdict, GatewayError>;
+}
+
+#[derive(Debug, Clone)]
+pub enum GatewayVerdict {
+    Approve,
+    Reject,
+    Override { rewritten_argv: Vec<String> },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GatewayError {
+    #[error("channel unavailable: {0}")]
+    ChannelError(String),
+    #[error("verdict timeout")]
+    Timeout,
+    #[error("invalid callback signature")]
+    AuthFailed,
+}
+```
+
+> `GatewayVerdict` is distinct from `tool_guard::Verdict` (ALLOW | BLOCK | REWRITE). The gateway's verdict is about HITL approval; the tool guard's verdict is about command interception.
+
 ## 4. UAT & Fault Matrix
 
 | Fault Boundary | Physical Behavior | System-Level Fault Tolerance & Convergence |
@@ -403,3 +549,5 @@ CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 | **Agent Hallucination, Infinite Log Spam** | Terminal stdout stream generates megabytes of garbage text per second. | **Physical Size Budget Fuse (single authoritative enforcement point):** `janush` has an in-memory streaming counter — when single-Step stdout exceeds **16 KiB**, it early-streaming truncates (optimization only, reducing UDS transfer). The **authoritative 16KiB enforcement point is at `janus-daemon`'s `absurd` module, before the `INSERT` transaction commits** — Daemon re-validates and hard-truncates before database write, appending `[MetaMach Log Budget Exceeded]` tag. Two defense lines targeting the same 16KiB cap; the DB write is the final gate. |
 | **Absurd DB Connection Pool Crash** | Host Postgres encounters extreme physical OOM or native process crash. | **State Machine Anti-Blast Degradation:** Janus Daemon internally has a local in-memory SQLite ring buffer. During PG disconnection, all transition-state Step changes are atomically written to local `fallback.db` first. Upon detecting host PG recovery, auto-triggers batch merge replay (Log Replay), ensuring workshop production never halts. |
 | **Fail-Closed 30s UDS Timeout** | Daemon crashes or UDS socket breaks during janush command check. | **Fail-Closed:** `janush` blocks synchronously with a 30s timeout. If the Daemon does not respond, returns an error to the Agent without executing the command. Never lets through. Agent's shell does not hang indefinitely. |
+| **HITL Gateway Channel Failure** | Teams/Telegram webhook unreachable or returns 5xx. | **Non-Blocking Degradation:** `gateway::dispatch()` is non-blocking; the tmux session is never frozen. `LoggingSender` (null channel) always fires, guaranteeing an audit trail. The verdict thread times out after `JANUS_HITL_TIMEOUT_SECS` (fail-closed: timeout = BLOCK). |
+| **Cognitive Provider Timeout** | CognitiveProvider::validate_command exceeds 2s deadline. | **Advisory Pass-Through:** The cognitive check is advisory, not gating. On timeout, the standard Tool Guard verdict proceeds without cognitive input. The tmux session is never blocked waiting for a cognitive provider. |

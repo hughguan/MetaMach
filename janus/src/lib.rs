@@ -18,6 +18,7 @@ pub mod paths;
 pub mod protocol;
 pub mod recipe;
 pub mod spawn;
+pub mod tether;
 pub mod tool_guard;
 pub mod uds;
 

@@ -5,10 +5,12 @@
 //!   `janus daemon` - launch the resident `janus-daemon` in the foreground.
 //!   `janus onboard --blueprint <name>` - register/reactivate a blueprint (Task 4.3).
 //!   `janus offboard --blueprint <name>` - smelt + prune a blueprint (Task 4.2).
+//!   `janus tether open|attach|list` - manage Tether physical sessions (Task 2.4).
 //!
-//! All subcommands require the Daemon reachable; `status`/`onboard`/`offboard`
-//! lazy-start it if absent (Feature-Spec §2.1 self-heal).
+//! `status`/`onboard`/`offboard` require the Daemon reachable (lazy-started if
+//! absent); `tether` talks to the isolated tmux server directly, no Daemon needed.
 
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
@@ -16,7 +18,8 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
 use janus::protocol::{ActiveTask, ProgressPayload, Request, Response};
-use janus::{spawn, uds};
+use janus::tether::DurableBackend;
+use janus::{spawn, tether, uds};
 
 #[derive(Parser)]
 #[command(
@@ -54,6 +57,35 @@ enum CliCommand {
         #[arg(long)]
         blueprint: String,
     },
+    /// Manage Tether physical sessions (Task 2.4, `janus::tether`).
+    Tether {
+        #[command(subcommand)]
+        cmd: TetherCmd,
+    },
+}
+
+/// `janus tether` subcommands.
+#[derive(Subcommand)]
+enum TetherCmd {
+    /// Create a detached session running a command (persists via remain-on-exit).
+    Open {
+        /// Shell command to run in the session.
+        #[arg(long)]
+        command: String,
+        /// Session name (default: tether-janus-task-<uuid>).
+        #[arg(long)]
+        name: Option<String>,
+        /// Working directory.
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+    },
+    /// Attach the terminal to a live session (foreground; blocks until detach).
+    Attach {
+        /// Session name to attach.
+        name: String,
+    },
+    /// List live Tether sessions on the isolated tmux server.
+    List,
 }
 
 fn main() -> Result<()> {
@@ -62,6 +94,7 @@ fn main() -> Result<()> {
         CliCommand::Daemon => daemon(),
         CliCommand::Onboard { blueprint } => lifecycle_cmd(Request::Onboard { name: blueprint }),
         CliCommand::Offboard { blueprint } => lifecycle_cmd(Request::Offboard { name: blueprint }),
+        CliCommand::Tether { cmd } => tether(cmd),
     }
 }
 
@@ -127,4 +160,40 @@ fn daemon() -> Result<()> {
         bail!("janus-daemon exited with {status}");
     }
     Ok(())
+}
+
+/// `janus tether open|attach|list`: drive the isolated `tmux -L metamach-tether`
+/// server directly (no Daemon round-trip - Task 2.4).
+fn tether(cmd: TetherCmd) -> Result<()> {
+    let backend = tether::TetherBackend::new();
+    match cmd {
+        TetherCmd::Open { command, name, cwd } => {
+            let id = match name {
+                Some(n) => tether::SessionId::from_name(n),
+                None => tether::SessionId::new_for_task(&uuid::Uuid::new_v4().to_string()),
+            };
+            backend.create_session(&id, &command, cwd.as_deref())?;
+            println!(
+                "created session {} (attach: janus tether attach {})",
+                id.as_str(),
+                id.as_str()
+            );
+            Ok(())
+        }
+        TetherCmd::Attach { name } => {
+            let id = tether::SessionId::from_name(name);
+            backend.attach(&id)
+        }
+        TetherCmd::List => {
+            let sessions = backend.list_sessions()?;
+            if sessions.is_empty() {
+                println!("(no tether sessions on -L {})", tether::TMUX_SOCKET);
+            } else {
+                for s in sessions {
+                    println!("{s}");
+                }
+            }
+            Ok(())
+        }
+    }
 }

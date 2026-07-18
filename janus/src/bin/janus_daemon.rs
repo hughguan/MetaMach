@@ -161,6 +161,7 @@ async fn handle_request(
         // janus-sh -> Daemon: synchronous Tool Guard verdict (Contract 3.2/3.4).
         Request::GuardCheck {
             execution_id,
+            blueprint_id,
             task_id,
             step_name,
             argv,
@@ -187,9 +188,10 @@ async fn handle_request(
                 let reason = verdict.reason.clone().unwrap_or_default();
                 let sn = step_name;
                 let tid = task_id;
+                let bp = blueprint_id;
                 tokio::spawn(async move {
-                    if let (Some(tid), Some(sn)) = (tid, sn.as_deref())
-                        && let Err(e) = db.suspend_step(tid, sn, &reason).await
+                    if let (Some(bp), Some(tid), Some(sn)) = (bp, tid, sn.as_deref())
+                        && let Err(e) = db.suspend_step(&bp, tid, sn, &reason).await
                     {
                         warn!("suspend_step failed: {e}");
                     }

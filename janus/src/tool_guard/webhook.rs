@@ -10,6 +10,7 @@
 use std::process::Command;
 
 use serde::Serialize;
+use uuid::Uuid;
 
 use crate::absurd::{SIZE_BUDGET, truncate_16k};
 
@@ -17,7 +18,7 @@ use crate::absurd::{SIZE_BUDGET, truncate_16k};
 /// scene, Resume trigger key + Correlation ID).
 #[derive(Debug, Clone, Serialize)]
 pub struct WebhookPayload {
-    pub task_id: Option<i64>,
+    pub task_id: Option<Uuid>,
     pub execution_id: String,
     pub correlation_id: String,
     pub cause: String,
@@ -31,7 +32,7 @@ pub struct WebhookPayload {
 
 impl WebhookPayload {
     pub fn build(
-        task_id: Option<i64>,
+        task_id: Option<Uuid>,
         execution_id: &str,
         correlation_id: &str,
         cause: &str,
@@ -171,7 +172,7 @@ mod tests {
     #[test]
     fn payload_scene_capped_to_16kib() {
         let big = "x".repeat(SIZE_BUDGET * 4);
-        let p = WebhookPayload::build(Some(7), "exec", "corr", "blacklist", &big, "r");
+        let p = WebhookPayload::build(Some(Uuid::nil()), "exec", "corr", "blacklist", &big, "r");
         assert!(
             p.scene.len() <= SIZE_BUDGET,
             "scene {} > budget",

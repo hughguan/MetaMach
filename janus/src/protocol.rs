@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Client -> Daemon request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +25,7 @@ pub enum Request {
     GuardCheck {
         execution_id: String,
         blueprint_id: Option<String>,
-        task_id: Option<i64>,
+        task_id: Option<Uuid>,
         step_name: Option<String>,
         cwd: Option<String>,
         argv: Vec<String>,
@@ -83,7 +84,7 @@ pub struct ProgressPayload {
 /// A non-terminal (in-flight) task row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveTask {
-    pub task_id: i64,
+    pub task_id: Uuid,
     /// Blueprint name (resolved from the FK), per Contract 3.3.
     pub blueprint_id: String,
     pub workflow_name: String,
@@ -101,6 +102,8 @@ pub struct ActiveTask {
 pub struct StepStatus {
     pub name: String,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stdout_tail: Option<String>,
 }

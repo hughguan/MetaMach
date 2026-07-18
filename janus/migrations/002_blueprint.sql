@@ -11,7 +11,7 @@
 -- absurd_tasks/absurd_steps tables would conflict with absurd's functions
 -- (M0.5 spike F1). This migration adds only the thin MetaMach overlay carrying
 -- fields absurd has no concept of (target_sha, exit_code, stdout_tail,
--- started_at). status + result_cache live in absurd's checkpoint state JSONB.
+-- started_at) plus denormalized status + workflow_name for dashboard reads (Contract 3.3). Authoritative task state is absurd's checkpoint state JSONB.
 -- See docs/Feature-Spec.md Contract 3.1b.
 --
 -- One absurd queue per blueprint/workflow is created by `janus onboard` via
@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS metamach_step_meta (
     task_id         UUID NOT NULL,                       -- matches absurd.spawn_task().task_id
     step_name       VARCHAR(100) NOT NULL,
     blueprint_name  VARCHAR(100) NOT NULL,               -- denormalized; no cross-DB FK
+    workflow_name   VARCHAR(100),                        -- denormalized; the dispatching workflow
+    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',  -- denormalized mirror for dashboard reads (Contract 3.3)
     target_sha      VARCHAR(64) NOT NULL DEFAULT '0000000000000000000000000000000000000000',
                                                           -- Optimistic lock: Git HEAD pinned at dispatch.
                                                           -- All-zeros sentinel = non-git blueprint (lock skipped).

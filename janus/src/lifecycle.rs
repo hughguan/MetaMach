@@ -206,7 +206,7 @@ pub fn parse_incidents(report: &str) -> Vec<String> {
 pub struct OffboardResult {
     pub message: String,
     pub report_path: PathBuf,
-    pub melted_caches: i64,
+    pub purged_rows: i64,
     pub git: Option<String>,
     pub llm_used: bool,
 }
@@ -236,7 +236,7 @@ pub async fn offboard(
     std::fs::write(&report_path, &report).context("write production_report.md")?;
 
     // Step 3: PG anti-bloat pruning - physically DELETE result_cache JSON.
-    let melted_caches = db.melt_blueprint_data(name).await?;
+    let purged_rows = db.offboard_blueprint_data(name).await?;
 
     // Step 4: mark the blueprint OFFBOARDED.
     db.set_blueprint_offboarded(name).await?;
@@ -244,16 +244,16 @@ pub async fn offboard(
     // Step 5: best-effort git commit/push of the report.
     let git = git_commit_report(repo_root, name, &report_path);
 
-    info!(%name, melted_caches, llm_used, "blueprint offboarded");
+    info!(%name, purged_rows, llm_used, "blueprint offboarded");
     Ok(OffboardResult {
         message: format!(
-            "offboarded `{name}` - smelted {} step trace(s) ({}), melted {} cache(s)",
+            "offboarded `{name}` - smelted {} step trace(s) ({}), purged {} row(s)",
             traces.len(),
             if llm_used { "LLM" } else { "raw-JSON fallback" },
-            melted_caches,
+            purged_rows,
         ),
         report_path,
-        melted_caches,
+        purged_rows,
         git,
         llm_used,
     })
@@ -403,8 +403,9 @@ fn git_commit_report(repo_root: &Path, name: &str, report: &Path) -> Option<Stri
 mod tests {
     use super::*;
     use crate::absurd::StepTrace;
+    use uuid::Uuid;
 
-    fn trace(task: i64, step: &str, cache: &str) -> StepTrace {
+    fn trace(task: Uuid, step: &str, cache: &str) -> StepTrace {
         StepTrace {
             task_id: task,
             step_name: step.into(),
@@ -443,7 +444,7 @@ mod tests {
 
     #[test]
     fn raw_json_snapshot_embeds_valid_json() {
-        let traces = vec![trace(7, "compile", "error: pin 21")];
+        let traces = vec![trace(Uuid::from_u128(7), "compile", "error: pin 21")];
         let snap = raw_json_snapshot(&traces, "gatemetric");
         // extract the ```json ... ``` block (pretty-printed, multi-line)
         let json: String = snap
@@ -474,7 +475,13 @@ mod tests {
             },
         };
         let traces: Vec<StepTrace> = (0..5)
-            .map(|i| trace(i, &format!("s{i}"), "0123456789ABCDEF"))
+            .map(|i| {
+                trace(
+                    Uuid::from_u128(i as u128),
+                    &format!("s{i}"),
+                    "0123456789ABCDEF",
+                )
+            })
             .collect();
         let input = build_llm_input(&traces, &cfg);
         // only the 2 most-recent steps (reverse), each truncated to 10 bytes.

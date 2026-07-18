@@ -2,12 +2,14 @@
 //!
 //! Hosts Step transition states during PG unreachability. Bounded: max 1000
 //! entries; oldest evicted on insert. On PG recovery a batch Log Replay merges
-//! these into `absurd_steps` and truncates the ring (replay lands with M3/M4).
+//! these into absurd checkpoint state (`set_task_checkpoint_state`) + the
+//! `metamach_step_meta` overlay, then truncates the ring (replay lands with M3/M4).
 
 use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Mutex;
+use uuid::Uuid;
 
 /// Contract 3.8: max 1000 entries (50MB cap is enforced by eviction + the 16KiB
 /// per-entry truncation; a physical size guard can be added if abuse is seen).
@@ -25,7 +27,7 @@ impl FallbackDb {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS fallback_events (
                 seq          INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id      INTEGER NOT NULL,
+                task_id      TEXT NOT NULL,
                 step_name    TEXT    NOT NULL,
                 status       TEXT    NOT NULL,
                 result_cache TEXT,
@@ -39,7 +41,7 @@ impl FallbackDb {
     /// Append an event, evicting the oldest beyond MAX_ENTRIES (ring buffer).
     pub fn record(
         &self,
-        task_id: i64,
+        task_id: &Uuid,
         step_name: &str,
         status: &str,
         result_cache: Option<&str>,
@@ -49,7 +51,7 @@ impl FallbackDb {
         conn.execute(
             "INSERT INTO fallback_events (task_id, step_name, status, result_cache) \
              VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![task_id, step_name, status, cache],
+            rusqlite::params![task_id.to_string(), step_name, status, cache],
         )?;
         conn.execute(
             "DELETE FROM fallback_events WHERE seq NOT IN \
@@ -81,8 +83,9 @@ mod tests {
         let f = tmp();
         let db = FallbackDb::open(f.path()).expect("open");
         assert_eq!(db.count().unwrap(), 0);
-        db.record(1, "scout", "COMPLETED", None).unwrap();
-        db.record(1, "code", "RUNNING", Some("{\"x\":1}")).unwrap();
+        db.record(&Uuid::nil(), "scout", "COMPLETED", None).unwrap();
+        db.record(&Uuid::nil(), "code", "RUNNING", Some("{\"x\":1}"))
+            .unwrap();
         assert_eq!(db.count().unwrap(), 2);
     }
 
@@ -91,7 +94,8 @@ mod tests {
         let f = tmp();
         let db = FallbackDb::open(f.path()).expect("open");
         for i in 0..(MAX_ENTRIES + 50) {
-            db.record(i, "s", "RUNNING", None).unwrap();
+            db.record(&Uuid::from_u128(i as u128), "s", "RUNNING", None)
+                .unwrap();
         }
         assert_eq!(db.count().unwrap(), MAX_ENTRIES);
     }
@@ -101,12 +105,12 @@ mod tests {
         let f = tmp();
         let db = FallbackDb::open(f.path()).expect("open");
         let big = "y".repeat(SIZE_BUDGET * 2);
-        db.record(1, "s", "RUNNING", Some(&big)).unwrap();
+        db.record(&Uuid::nil(), "s", "RUNNING", Some(&big)).unwrap();
         let conn = db.0.lock().unwrap();
         let stored: String = conn
             .query_row(
-                "SELECT result_cache FROM fallback_events WHERE task_id = 1",
-                [],
+                "SELECT result_cache FROM fallback_events WHERE task_id = ?1",
+                rusqlite::params![Uuid::nil().to_string()],
                 |r| r.get(0),
             )
             .unwrap();

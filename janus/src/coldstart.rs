@@ -37,7 +37,7 @@ pub async fn reconcile(db: &AbsurdDb) -> Result<usize> {
         match &t.last_completed_step {
             Some(step) => {
                 info!(
-                    task_id = t.task_id,
+                    task_id = %t.task_id,
                     blueprint = %t.blueprint,
                     workflow = %t.workflow_name,
                     status = %t.status,
@@ -48,7 +48,7 @@ pub async fn reconcile(db: &AbsurdDb) -> Result<usize> {
                 resumable += 1;
             }
             None => warn!(
-                task_id = t.task_id,
+                task_id = %t.task_id,
                 blueprint = %t.blueprint,
                 status = %t.status,
                 "cold-start: non-terminal task has no COMPLETED checkpoint - leaving for HITL"

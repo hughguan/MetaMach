@@ -80,7 +80,7 @@ fn build_guard_check(args: &[String]) -> Request {
         blueprint_id: std::env::var("JANUS_BLUEPRINT").ok(),
         task_id: std::env::var("JANUS_TASK_ID")
             .ok()
-            .and_then(|s| s.parse().ok()),
+            .and_then(|s| s.parse::<uuid::Uuid>().ok()),
         step_name: std::env::var("JANUS_STEP").ok(),
         cwd: std::env::current_dir()
             .ok()

@@ -29,10 +29,12 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::{ActiveTask, BlueprintInfo, StepStatus};
-
-/// Physical size budget for Step stdout_tail / result_cache (Feature-Spec §4, UTC-05-01).
-pub const SIZE_BUDGET: usize = 16 * 1024;
-const BUDGET_TAG: &str = "[MetaMach Log Budget Exceeded]";
+// 0.4.0: SIZE_BUDGET / truncate_16k / BUDGET_TAG moved to `protocol` (the leaf
+// module) so `WebhookPayload` can share them without an absurd<->protocol cycle
+// (`absurd` already imports `protocol`). Re-exported here to keep
+// `crate::absurd::{SIZE_BUDGET, truncate_16k}` and `super::truncate_16k`
+// (fallback.rs + tests) working unchanged.
+pub use crate::protocol::{BUDGET_TAG, SIZE_BUDGET, truncate_16k};
 const PG_RETRY_ATTEMPTS: u32 = 5;
 const PG_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -532,22 +534,8 @@ struct MetaRow {
     workflow_name: Option<String>,
 }
 
-/// Truncate to the 16 KiB budget, appending the budget-exceeded tag if cut.
-/// The authoritative enforcement point is here (Feature-Spec §4 fault matrix).
-pub fn truncate_16k(s: &str) -> String {
-    if s.len() <= SIZE_BUDGET {
-        return s.to_string();
-    }
-    let target = SIZE_BUDGET.saturating_sub(BUDGET_TAG.len());
-    let mut cut = target;
-    while !s.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    let mut out = String::with_capacity(SIZE_BUDGET);
-    out.push_str(&s[..cut]);
-    out.push_str(BUDGET_TAG);
-    out
-}
+// 0.4.0: `truncate_16k` moved to `protocol` and re-exported above; the
+// authoritative 16 KiB enforcement point is still `AbsurdDb` (Feature-Spec §4).
 
 #[cfg(test)]
 mod tests {

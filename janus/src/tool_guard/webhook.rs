@@ -1,63 +1,18 @@
-//! HITL webhook card (Feature-Spec §2.4). Abstract payload + adapters.
+//! HITL webhook card adapters (Feature-Spec §2.4). The abstract
+//! [`WebhookPayload`] now lives in [`crate::protocol`] (0.4.0 §5.4, enriched for
+//! the Hermes Run API); this module keeps the sender adapters + the dispatch
+//! entrypoint. 0.4.0 Phase 3 will repoint `dispatch` at [`crate::gateway`]; for
+//! now it fires the local senders as in 0.3.0.
 //!
-//! The Daemon constructs only an abstract [`WebhookPayload`]; each adapter
-//! translates it into its native format. [`LoggingSender`] always fires (to
-//! `janus.log` + a state-dir spool); [`TelegramSender`] (primary backend) POSTs
-//! to the Telegram Bot API with an inline `[Resume]` keyboard when
-//! `JANUS_TELEGRAM_TOKEN` + `JANUS_TELEGRAM_CHAT_ID` are configured, and no-ops
-//! otherwise (the log card covers the test path until secrets are provisioned).
+//! [`LoggingSender`] always fires (to `janus.log` + a state-dir spool);
+//! [`TelegramSender`] (primary backend) POSTs to the Telegram Bot API with an
+//! inline `[Resume]` keyboard when `JANUS_TELEGRAM_TOKEN` +
+//! `JANUS_TELEGRAM_CHAT_ID` are configured, and no-ops otherwise (the log card
+//! covers the test path until secrets are provisioned).
+
+pub use crate::protocol::WebhookPayload;
 
 use std::process::Command;
-
-use serde::Serialize;
-use uuid::Uuid;
-
-use crate::absurd::{SIZE_BUDGET, truncate_16k};
-
-/// Abstract HITL card (Feature-Spec §2.4: task UUID, cause, 16KB-truncated
-/// scene, Resume trigger key + Correlation ID).
-#[derive(Debug, Clone, Serialize)]
-pub struct WebhookPayload {
-    pub task_id: Option<Uuid>,
-    pub execution_id: String,
-    pub correlation_id: String,
-    pub cause: String,
-    pub command: String,
-    pub reason: String,
-    /// 16KB-truncated stdout scene. M3 has no captured stdout, so the
-    /// intercepted command + reason stand in for the scene.
-    pub scene: String,
-    pub resume_key: String,
-}
-
-impl WebhookPayload {
-    pub fn build(
-        task_id: Option<Uuid>,
-        execution_id: &str,
-        correlation_id: &str,
-        cause: &str,
-        command: &str,
-        reason: &str,
-    ) -> Self {
-        let scene_src = format!("{command}\n{reason}");
-        // The scene is the only unbounded field; hard-cap at the 16KiB budget.
-        let scene = if scene_src.len() > SIZE_BUDGET {
-            truncate_16k(&scene_src)
-        } else {
-            scene_src
-        };
-        Self {
-            task_id,
-            execution_id: execution_id.to_string(),
-            correlation_id: correlation_id.to_string(),
-            cause: cause.to_string(),
-            command: command.to_string(),
-            reason: reason.to_string(),
-            scene,
-            resume_key: format!("metamach-resume:{correlation_id}"),
-        }
-    }
-}
 
 pub trait WebhookSender: Send + Sync {
     fn send(&self, payload: &WebhookPayload);
@@ -163,28 +118,4 @@ impl WebhookSender for TelegramSender {
 pub fn dispatch(payload: &WebhookPayload) {
     LoggingSender::new(crate::paths::state_dir().join("webhook_cards.log")).send(payload);
     TelegramSender.send(payload);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn payload_scene_capped_to_16kib() {
-        let big = "x".repeat(SIZE_BUDGET * 4);
-        let p = WebhookPayload::build(Some(Uuid::nil()), "exec", "corr", "blacklist", &big, "r");
-        assert!(
-            p.scene.len() <= SIZE_BUDGET,
-            "scene {} > budget",
-            p.scene.len()
-        );
-        assert!(p.scene.ends_with("[MetaMach Log Budget Exceeded]"));
-    }
-
-    #[test]
-    fn resume_key_carries_correlation() {
-        let p = WebhookPayload::build(None, "exec-1", "corr-9", "require_approval", "cmd", "r");
-        assert_eq!(p.resume_key, "metamach-resume:corr-9");
-        assert_eq!(p.correlation_id, "corr-9");
-    }
 }

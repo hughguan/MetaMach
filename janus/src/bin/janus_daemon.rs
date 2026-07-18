@@ -184,6 +184,8 @@ async fn handle_request(
                     verdict.cause.as_deref().unwrap_or(""),
                     &cmd,
                     &verdict.reason.clone().unwrap_or_default(),
+                    blueprint_id.as_deref().unwrap_or(""),
+                    step_name.as_deref().unwrap_or(""),
                 );
                 let reason = verdict.reason.clone().unwrap_or_default();
                 let sn = step_name;
@@ -207,6 +209,7 @@ async fn handle_request(
                 reason: verdict.reason,
                 rewritten_argv: verdict.rewritten_argv,
                 correlation_id: verdict.correlation_id,
+                cognitive_context: None,
             }
         }
         // M4 Task 4.3: Onboard (Feature-Spec §2.5).

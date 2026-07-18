@@ -13,6 +13,7 @@
 
 pub mod absurd;
 pub mod coldstart;
+pub mod gateway;
 pub mod lifecycle;
 pub mod paths;
 pub mod protocol;

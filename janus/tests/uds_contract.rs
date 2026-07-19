@@ -244,3 +244,57 @@ fn utc_08_01_degraded_mode_core_works_and_fallback_initialized() {
         Response::Pong
     ));
 }
+
+/// Send a raw line (no Request encoding) + read one response line. For
+/// malformed/oversized payload robustness tests that bypass `uds::request_to`.
+fn send_raw(sock: &std::path::Path, line: &str) -> Option<String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    let mut stream = UnixStream::connect(sock).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+    stream.write_all(line.as_bytes()).ok()?;
+    stream.write_all(b"\n").ok()?;
+    let mut reader = BufReader::new(stream);
+    let mut buf = String::new();
+    reader.read_line(&mut buf).ok()?;
+    Some(buf)
+}
+
+#[test]
+fn utc_02_04_uds_protocol_robustness() {
+    // UTC-02-04: the daemon must not crash on malformed / oversized / high-
+    // frequency UDS payloads - it returns an error response and keeps serving.
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let d = Daemon::spawn(dir.path(), &agents);
+    let timeout = Duration::from_secs(5);
+
+    // Malformed (incomplete) JSON -> error response, no crash/reset.
+    let resp = send_raw(&d.sock, r#"{"type":"GuardCheck""#).unwrap_or_default();
+    assert!(
+        resp.contains(r#""type":"error""#),
+        "expected error response for malformed JSON, got: {resp}"
+    );
+
+    // Oversized payload (64 KiB of junk) -> error response, no crash.
+    let oversized = "x".repeat(64 * 1024);
+    let resp = send_raw(&d.sock, &oversized).unwrap_or_default();
+    assert!(
+        resp.contains(r#""type":"error""#),
+        "expected error response for oversized payload, got: <{} bytes>",
+        resp.len()
+    );
+
+    // High-frequency burst of valid requests -> all handled, no crash.
+    for _ in 0..100 {
+        let resp = uds::request_to(&d.sock, &Request::Ping, timeout).unwrap();
+        assert!(matches!(resp, Response::Pong));
+    }
+
+    // Daemon survived all of the above.
+    assert!(matches!(
+        uds::request_to(&d.sock, &Request::Ping, timeout).unwrap(),
+        Response::Pong
+    ));
+}

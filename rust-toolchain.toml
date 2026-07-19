@@ -1,0 +1,12 @@
+# Pin the Rust toolchain to 1.88 (Edition 2024 floor) - the same channel
+# `.github/workflows/ci.yml` installs via dtolnay/rust-toolchain. rustup
+# auto-installs it (+ rustfmt/clippy) on first use, so local `cargo`/`clippy`/
+# `rustfmt` use the identical toolchain CI does.
+#
+# Why: a newer local toolchain (e.g. 1.95) can stop warning on a lint CI's 1.88
+# still flags - e.g. `clippy::uninlined_format_args` (demoted to pedantic in
+# later versions) caused a "local green / CI red" failure on 4ef5eb5. Pinning
+# closes that gap: if it passes here, it passes in CI.
+[toolchain]
+channel = "1.88"
+components = ["rustfmt", "clippy"]

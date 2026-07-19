@@ -198,3 +198,49 @@ fn utc_01_01_second_launch_refuses_duplicate_pid_lock() {
     let resp = uds::request_to(&d1.sock, &Request::Ping, Duration::from_secs(5)).unwrap();
     assert!(matches!(resp, Response::Pong));
 }
+
+#[test]
+fn utc_08_01_degraded_mode_core_works_and_fallback_initialized() {
+    // UTC-08-01: with PG unreachable the daemon runs in degraded mode - core
+    // command interception still works (Tool Guard is in-memory), the SQLite
+    // fallback ring buffer is initialized, and DB-backed queries return empty
+    // results gracefully (not errors/crashes).
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let d = Daemon::spawn(dir.path(), &agents);
+    let timeout = Duration::from_secs(5);
+
+    // Core UDS + Tool Guard still serve in degraded mode (in-memory engine).
+    assert!(matches!(
+        uds::request_to(&d.sock, &Request::Ping, timeout).unwrap(),
+        Response::Pong
+    ));
+    let resp = uds::request_to(&d.sock, &guard_check("default", "ls -la"), timeout).unwrap();
+    assert_verdict(resp, "ALLOW");
+
+    // Degraded fallback ring buffer initialized under the state dir.
+    assert!(
+        dir.path().join("fallback.db").exists(),
+        "fallback.db should be created on degraded startup"
+    );
+
+    // DB-backed queries return empty results gracefully (PG down -> no active
+    // blueprints -> empty list), not errors or crashes.
+    let resp = uds::request_to(&d.sock, &Request::Blueprints, timeout).unwrap();
+    match resp {
+        Response::Blueprints { blueprints } => assert!(blueprints.is_empty()),
+        other => panic!("expected Blueprints(empty) when PG down, got {other:?}"),
+    }
+    let resp = uds::request_to(&d.sock, &Request::Progress { blueprint: None }, timeout).unwrap();
+    match resp {
+        Response::Progress { active_tasks } => assert!(active_tasks.is_empty()),
+        other => panic!("expected Progress(empty) when PG down, got {other:?}"),
+    }
+
+    // Daemon is still alive after the degraded queries.
+    assert!(matches!(
+        uds::request_to(&d.sock, &Request::Ping, timeout).unwrap(),
+        Response::Pong
+    ));
+}

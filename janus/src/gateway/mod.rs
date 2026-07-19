@@ -579,8 +579,7 @@ mod tests {
         assert!(r.is_ok(), "dispatch should return Ok");
         assert!(
             elapsed.as_millis() < 50,
-            "dispatch returned in {:?} (must be non-blocking)",
-            elapsed
+            "dispatch returned in {elapsed:?} (must be non-blocking)",
         );
         // The pending entry exists immediately.
         assert!(gw.pending.lock().unwrap().contains_key("cid-01"));

@@ -113,7 +113,7 @@ impl McpProvider {
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                 "params": {"name": tool, "arguments": args}
             });
-            let line = format!("{}\n", req);
+            let line = format!("{req}\n");
             stdin
                 .write_all(line.as_bytes())
                 .map_err(|e| CognitiveError::Unreachable(format!("write: {e}")))?;

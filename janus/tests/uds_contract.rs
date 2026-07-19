@@ -160,3 +160,41 @@ fn contract_3_2_and_3_4_uds_round_trip() {
         other => panic!("expected GuardVerdict(REWRITE), got {other:?}"),
     }
 }
+
+#[test]
+fn utc_01_01_second_launch_refuses_duplicate_pid_lock() {
+    // UTC-01-01 (full UAT): while the first daemon is alive, a second launch
+    // against the same state dir detects the live PID lock, refuses to bind,
+    // and exits non-zero WITHOUT breaking the original socket.
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let d1 = Daemon::spawn(dir.path(), &agents); // holds the lock + socket
+
+    // Second launch -> must fail fast (acquire_pid_lock sees a live PID).
+    let d2 = Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
+        .env("HERDR_PLUGIN_STATE_DIR", dir.path())
+        .env("JANUS_AGENTS_TOML", &agents)
+        .env("JANUS_GATEWAY_LISTEN_PORT", "0")
+        .env("RUST_LOG", "warn")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn second janus-daemon");
+    let output = d2.wait_with_output().expect("wait second daemon");
+    assert!(
+        !output.status.success(),
+        "second daemon should exit non-zero (PID lock conflict), got {:?}",
+        output.status
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("already running"),
+        "expected PID-lock conflict on stderr, got: {stderr}"
+    );
+
+    // The first daemon is unaffected - its socket still serves.
+    let resp = uds::request_to(&d1.sock, &Request::Ping, Duration::from_secs(5)).unwrap();
+    assert!(matches!(resp, Response::Pong));
+}

@@ -298,3 +298,45 @@ fn utc_02_04_uds_protocol_robustness() {
         Response::Pong
     ));
 }
+
+#[test]
+fn utc_02_02_janush_intercepts_block_and_allows() {
+    // UTC-02-02: the `janush` proxy shell synchronously intercepts commands via
+    // the daemon - a blacklisted command is blocked (exit 126, no exec); an
+    // allowed command execs /bin/sh (exit 0). Exercises the real
+    // janush -> UDS -> daemon -> Tool Guard -> verdict path.
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let _d = Daemon::spawn(dir.path(), &agents);
+
+    // BLOCK: blacklisted command -> janush exits 126 WITHOUT executing it.
+    let out = Command::new(env!("CARGO_BIN_EXE_janush"))
+        .args(["-c", "rm -rf /"])
+        .env("HERDR_PLUGIN_STATE_DIR", dir.path())
+        .output()
+        .expect("spawn janush");
+    assert_eq!(
+        out.status.code(),
+        Some(126),
+        "janush should exit 126 for a blocked command, got {:?}",
+        out.status
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("BLOCKED"),
+        "expected BLOCKED on stderr, got: {stderr}"
+    );
+
+    // ALLOW: a benign command -> janush execs /bin/sh -> exit 0.
+    let out = Command::new(env!("CARGO_BIN_EXE_janush"))
+        .args(["-c", "true"])
+        .env("HERDR_PLUGIN_STATE_DIR", dir.path())
+        .output()
+        .expect("spawn janush");
+    assert!(
+        out.status.success(),
+        "janush should exec the allowed command, got {:?}",
+        out.status
+    );
+}

@@ -1,6 +1,6 @@
 # 🪐 MetaMach 0.4.0 — Architecture Delta Specification
 
-**Gateway & Ecosystem Integrations** | **Status: Proposal / Under Review**
+**Gateway & Ecosystem Integrations** | **Status: Implemented**
 
 > **0.4.0 Strategic Delta:** This document defines the **incremental architectural changes** from the 0.3.0 consensus baseline (`docs/ARCH-0.3.0.md`). It introduces the Cognitive Provider SPI, MCP-based symbol indexing, and an out-of-band HITL Gateway with Microsoft Teams Active Cards integration.
 

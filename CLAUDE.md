@@ -7,15 +7,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The **English specs directly under `docs/` are the sole version-controlled spec source**:
 
 - `docs/ARCH.md`, `docs/PRD.md`, `docs/Feature-Spec.md`, `docs/Project-Plan.md`, `docs/Review-Spec.md`, `docs/Test-Spec.md`, `docs/Deployment-Spec.md`
-- `docs/ARCH-0.2.0.md`, `docs/ARCH-0.3.0.md`, `docs/ARCH-0.4.0.md` are incremental architecture **delta** specs layered on `ARCH.md`. 0.3.0 (de-containerization, native PG, F1 multi-DB, `janus::tmux`) is implemented; 0.4.0 (gateway & ecosystem) is committed but **not yet implemented**.
+- `docs/ARCH-0.2.0.md`, `docs/ARCH-0.3.0.md`, `docs/ARCH-0.4.0.md` are incremental architecture **delta** specs layered on `ARCH.md`. 0.3.0 (de-containerization, native PG, F1 multi-DB, `janus::tmux`) and 0.4.0 (gateway & ecosystem) are both implemented.
 - `docs/CH/` (Chinese translations + the `*-Review.md` audit deep-dives) is **gitignored** (see `.gitignore`) and is **not authoritative**. When the English specs and the Chinese translations disagree, the English `docs/` wins. Do not edit `docs/CH/` as the source of truth; if asked to translate/sync, port **from `docs/` to `docs/CH/`**, never the reverse.
 - The `docs/CH/*-Review.md` files are point-in-time audit artifacts with resolution logs - useful history, but not the spec.
 
 ## Repository status
 
-This is an **implemented Rust workspace plus specs** - not documentation-only. Milestones M0–M4 and the 0.3.0 rearchitecture are all built: `janus/` (~2,800 LOC, zero `todo!`/`unimplemented!` stubs), `Makefile`, `configs/`, `blueprints/`, `workflows/`, `bin/`, and `.github/workflows/ci.yml` (CI is green). The four binaries - `janus`, `janus-daemon`, `herdr-janus`, `janush` - all exist under `janus/src/bin/`.
+This is an **implemented Rust workspace plus specs** - not documentation-only. Milestones M0–M5 plus the 0.3.0 and 0.4.0 rearchitectures are all built: `janus/` (~6,100 LOC src + ~1,500 LOC tests, zero `todo!`/`unimplemented!` stubs), `Makefile`, `configs/`, `blueprints/`, `workflows/`, `bin/`, and `.github/workflows/ci.yml` (CI is green). The four binaries - `janus`, `janus-daemon`, `herdr-janus`, `janush` - all exist under `janus/src/bin/`.
 
-The **0.4.0 delta** (`docs/ARCH-0.4.0.md`: Cognitive Provider SPI, `codebase-memory-mcp`, stateless HITL Gateway, Teams Active Cards) is committed as a spec but **not yet implemented** - there is no `janus/src/gateway/` or `janus/src/cognitive/` module yet, and `tool_guard::webhook` has not been refactored to delegate through the gateway. **M5** (integration testing & release gate) is also unstarted. When asked to implement code, consult the specs first: layout, data contracts, and CLI surface are all defined there.
+The **0.4.0 delta** (`docs/ARCH-0.4.0.md`: Cognitive Provider SPI, `codebase-memory-mcp`, stateless HITL Gateway, Teams Active Cards) is **implemented** - `janus/src/gateway/` (`mod.rs` + `teams.rs`) and `janus/src/cognitive/mod.rs` exist and are wired into the daemon (the daemon constructs `HitlGateway`, spawns its loopback HTTP callback listener, and passes it to connection handlers). HITL dispatch lives in `gateway::Gateway::dispatch`; `tool_guard::webhook` retains only the sender adapters (Telegram/Logging), reused as the gateway's channels. **M5** (integration testing & release gate) is complete: the `janus/tests/` suite covers UTC-01/02/03/04/05/08/10, the PG-gated tests are a **blocking** CI gate (with `001_catalog.sql` applied to the `postgres:16` service), and `v0.4.0` is tagged (GPG-signed). When asked to implement code, consult the specs first: layout, data contracts, and CLI surface are all defined there.
 
 ## Build & toolchain
 
@@ -29,7 +29,7 @@ Per `docs/Deployment-Spec.md` §1 and `docs/Project-Plan.md` (Check-in Gates):
 
 ## High-level architecture
 
-MetaMach 0.3.0 is a durable AI "software factory" OS. The core mental model (spread across `ARCH.md` + `Feature-Spec.md`):
+MetaMach 0.4.0 is a durable AI "software factory" OS. The core mental model (spread across `ARCH.md` + `Feature-Spec.md`):
 
 - **`janus-daemon` (resident brain):** the sole owner of state, the DB connection pool, and the UDS gateway. All Step state transitions are transactional in Absurd Postgres. Exposes a read-only `progress` primitive for the dashboard.
 - **`herdr-janus` (shadow client):** a lightweight Herdr plugin that only renders the Popup (two views: **Dispatch** and **Progress**). Crashes never lose state - it just re-attaches. Lazy-starts the Daemon via `std::process::Command::spawn()` + detach.
@@ -47,10 +47,10 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml`), **Workfl
 | Doc | Scope | Key anchors |
 |---|---|---|
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
-| `ARCH-0.2.0/0.3.0/0.4.0.md` | Incremental architecture deltas | 0.3.0 implemented (native PG, F1 multi-DB, `janus::tmux`); 0.4.0 spec'd only (gateway/cognitive) |
+| `ARCH-0.2.0/0.3.0/0.4.0.md` | Incremental architecture deltas | 0.3.0 + 0.4.0 implemented (native PG, F1 multi-DB, `janus::tmux`, gateway/cognitive/Teams) |
 | `PRD.md` | Product requirements, director journey, functional matrix | §3 matrix (priorities + measurable UAT); §4 Day-0 Onboard + user journey |
 | `Feature-Spec.md` | Feature specs + data contracts + fault matrix | **Contracts 3.1–3.8**; §2.4 HITL; §2.5 Onboard/Offboard+LLM; §4 fault matrix |
-| `Project-Plan.md` | Milestones M0–M5 + check-in units + CI gates | M0 ✅; M1–M4 + 0.3.0 implemented; 0.4.0 + M5 pending; Check-in Gates |
+| `Project-Plan.md` | Milestones M0–M5 + check-in units + CI gates | M0–M5 + 0.3.0/0.4.0 implemented; Check-in Gates |
 | `Review-Spec.md` | Audit domains + sign-off sheet | `REV-SEC/STB/DIS/EVO/OPS-NN` items; §3 dependency ordering |
 | `Test-Spec.md` | Test cases + environment | `UTC-XX-YY` IDs (Suites 2.1–2.7); §1 severity gates |
 | `Deployment-Spec.md` | Directory topology, Makefile, secrets | §5 Makefile (bootstrap/db-init/db-backup/health/uninstall); §4 RAM-disk secrets |
@@ -60,7 +60,7 @@ Cross-doc identifiers to keep consistent when editing:
 - **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (Feature-Spec Contract 3.1); `fallback_events` SQLite ring buffer (Contract 3.8).
 - **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
 - **CLI:** unified `janus` CLI with subcommands `janus onboard` / `offboard` / `status` / `daemon` / `tmux` (all require the Daemon running - they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
-- **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) - not "Unified DB/PG". Project is branded **MetaMach 0.3.0** (0.4.0 delta in flight). tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
+- **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) - not "Unified DB/PG". Project is branded **MetaMach 0.4.0**. tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
 - **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see `Review-Spec.md` REV-SEC-02, `Test-Spec.md` UTC-02-02).
 
 When changing a spec, check the related docs - e.g., a schema change in Feature-Spec Contract 3.1 typically affects Test-Spec UTC cases, Review-Spec REV items, and Project-Plan milestone tasks. The contracts, test IDs, and milestone units are the cross-referencing fabric.

@@ -1,8 +1,8 @@
 //! HITL webhook card adapters (Feature-Spec §2.4). The abstract
 //! [`WebhookPayload`] now lives in [`crate::protocol`] (0.4.0 §5.4, enriched for
-//! the Hermes Run API); this module keeps the sender adapters + the dispatch
-//! entrypoint. 0.4.0 Phase 3 will repoint `dispatch` at [`crate::gateway`]; for
-//! now it fires the local senders as in 0.3.0.
+//! the Hermes Run API). HITL dispatch itself moved to
+//! [`crate::gateway::Gateway::dispatch`] in 0.4.0; this module keeps only the
+//! sender adapters, which the gateway reuses as its `HitlChannel`s.
 //!
 //! [`LoggingSender`] always fires (to `janus.log` + a state-dir spool);
 //! [`TelegramSender`] (primary backend) POSTs to the Telegram Bot API with an

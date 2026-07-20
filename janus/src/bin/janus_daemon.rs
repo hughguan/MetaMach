@@ -9,6 +9,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -424,6 +425,16 @@ fn is_pid_alive(_pid: i32) -> bool {
 }
 
 fn pg_connect_options() -> PgConnectOptions {
+    // Honor DATABASE_URL (TCP) when set - this is how CI's postgres service is
+    // reached (postgres://metamach_admin@localhost:5432/metamach_db). Fall back
+    // to the Unix socket at METAMACH_PG_SOCKET_DIR (default state_dir/pg_socket)
+    // for local `make db-init` setups. Either way the daemon reaches PG without
+    // a per-environment code change.
+    if let Ok(url) = std::env::var("DATABASE_URL")
+        && let Ok(opts) = PgConnectOptions::from_str(&url)
+    {
+        return opts;
+    }
     let password =
         std::env::var("METAMACH_DB_PASSWORD").unwrap_or_else(|_| "metamach_dev".to_string());
     let socket = std::env::var("METAMACH_PG_SOCKET_DIR")

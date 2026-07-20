@@ -14,6 +14,11 @@ HERDR_PLUGIN_STATE_DIR ?= $(HOME)/.local/state/herdr/plugins/metamach.janus
 HERDR_PLUGIN_CONFIG_DIR ?= $(HOME)/.config/herdr/plugins/config/metamach.janus
 # Native PG data directory (0.3.0: no Docker, PG runs directly on host).
 METAMACH_DB_DIR ?= $(HOME)/.metamach/db
+# PG Unix-socket directory - matches the daemon's METAMACH_PG_SOCKET_DIR default
+# (paths::pg_socket_dir() = state_dir/pg_socket). PG is started with `-k` pointing
+# here so createdb/psql/pg_isready `-h` and the daemon all agree on the socket
+# (Homebrew PG otherwise defaults the socket to /tmp, breaking `-h $(METAMACH_PG_SOCKET_DIR)`).
+METAMACH_PG_SOCKET_DIR ?= $(HERDR_PLUGIN_STATE_DIR)/pg_socket
 # Exported; if password not explicitly set, first read from Mutable State, else generate.
 export METAMACH_DB_PASSWORD ?= $(shell [ -f $(HERDR_PLUGIN_STATE_DIR)/.db_password ] && cat $(HERDR_PLUGIN_STATE_DIR)/.db_password || openssl rand -hex 16)
 
@@ -70,22 +75,23 @@ compile:
 # 6. Initialize native Postgres (0.3.0: no Docker).
 #    make db-init launches PG + catalog migration; per-blueprint migrations run on janus onboard.
 db-init:
-	@echo "🐘 Initializing native Postgres at $(METAMACH_DB_DIR)..."
+	@echo "🐘 Initializing native Postgres at $(METAMACH_DB_DIR) (socket: $(METAMACH_PG_SOCKET_DIR))..."
+	@mkdir -p $(METAMACH_PG_SOCKET_DIR)
 	@if [ ! -f $(METAMACH_DB_DIR)/PG_VERSION ]; then \
 		echo "   Running initdb..."; \
 		initdb -D $(METAMACH_DB_DIR) --username=metamach_admin --auth=trust; \
-		echo "   Starting PG..."; \
-		pg_ctl -D $(METAMACH_DB_DIR) -l $(METAMACH_DB_DIR)/pg.log start; \
+		echo "   Starting PG (socket at $(METAMACH_PG_SOCKET_DIR))..."; \
+		pg_ctl -D $(METAMACH_DB_DIR) -o "-k $(METAMACH_PG_SOCKET_DIR)" -l $(METAMACH_DB_DIR)/pg.log start; \
 		echo "   Creating metamach_db..."; \
-		createdb -h $(METAMACH_DB_DIR) -U metamach_admin metamach_db; \
+		createdb -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin metamach_db; \
 		echo "   Running catalog migration (001_catalog.sql only)..."; \
-		psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql; \
+		psql -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql; \
 	else \
 		echo "   PG already initialized at $(METAMACH_DB_DIR)."; \
-		pg_ctl -D $(METAMACH_DB_DIR) -l $(METAMACH_DB_DIR)/pg.log start 2>/dev/null || echo "   (already running)"; \
+		pg_ctl -D $(METAMACH_DB_DIR) -o "-k $(METAMACH_PG_SOCKET_DIR)" -l $(METAMACH_DB_DIR)/pg.log start 2>/dev/null || echo "   (already running)"; \
 	fi
 	@echo "⏳ Waiting for database health check..."
-	@until pg_isready -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db; do sleep 0.5; done
+	@until pg_isready -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin -d metamach_db; do sleep 0.5; done
 	@echo "⚡ Database is online and migrated."
 
 # 7. Safe shutdown; release physical resources.
@@ -96,26 +102,26 @@ db-down:
 # 8. Database backup (pg_dump to timestamped SQL file).
 db-backup:
 	@echo "💾 Backing up metamach_db..."
-	@pg_dump -h $(METAMACH_DB_DIR) -U metamach_admin metamach_db > metamach_backup_$$(date +%Y%m%d_%H%M%S).sql
+	@pg_dump -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin metamach_db > metamach_backup_$$(date +%Y%m%d_%H%M%S).sql
 	@echo "✅ Backup written to metamach_backup_*.sql"
 
 # 9. Database restore (requires BACKUP_FILE variable).
 db-restore:
 	@if [ -z "$(BACKUP_FILE)" ]; then echo "❌ Usage: make db-restore BACKUP_FILE=backup.sql"; exit 1; fi
 	@echo "🔄 Restoring metamach_db from $(BACKUP_FILE)..."
-	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db < $(BACKUP_FILE)
+	@psql -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin -d metamach_db < $(BACKUP_FILE)
 	@echo "✅ Restore complete."
 
 # 10. Run catalog migration (idempotent: 001_catalog.sql uses IF NOT EXISTS).
 db-migrate:
 	@echo "🔄 Running catalog migration (001_catalog.sql)..."
-	@psql -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql
+	@psql -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin -d metamach_db -f janus/migrations/001_catalog.sql
 	@echo "✅ Catalog migration complete. Per-blueprint migrations (002_blueprint.sql) run on janus onboard."
 
 # 11. Health check (native PG liveness; Daemon socket).
 health:
 	@echo "=== MetaMach Health Check ==="
-	@pg_isready -h $(METAMACH_DB_DIR) -U metamach_admin -d metamach_db || echo "❌ DB offline"
+	@pg_isready -h $(METAMACH_PG_SOCKET_DIR) -U metamach_admin -d metamach_db || echo "❌ DB offline"
 	@test -S $(HERDR_PLUGIN_STATE_DIR)/janus.sock && echo "✅ Daemon socket alive" || echo "❌ Daemon socket missing"
 
 # 12. Log viewing (Daemon log).

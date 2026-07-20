@@ -99,6 +99,11 @@ pub async fn onboard(db: &AbsurdDb, name: &str, repo_root: &Path) -> Result<Onbo
     // Step 3: idempotent tenant registration (INSERT ... ON CONFLICT DO UPDATE).
     let reactivated = db.register_blueprint(&recipe).await?;
 
+    // Step 4: create the per-blueprint DB + apply the overlay migrations
+    // (002 metamach_step_meta + 003 hitl_verdict) so offboard/progress can read
+    // the blueprint's step-meta. Idempotent.
+    db.ensure_blueprint_db(name).await?;
+
     // Step 5: knowledge-graph loading + experience inheritance.
     let previous_incidents = load_previous_incidents(repo_root, name);
 

@@ -29,13 +29,35 @@ financial = ["hi5bot --action execute"]
 struct Daemon {
     child: std::process::Child,
     sock: std::path::PathBuf,
+    /// Isolated repo root kept alive for the daemon's lifetime. Only the real
+    /// `configs/` is copied in; each test writes its OWN uniquely-named
+    /// blueprint and workflow here via `make_blueprint`. Unique names mean each
+    /// test owns an isolated catalog row and `metamach_blueprint_<name>` DB, so
+    /// the PG-gated tests can run in parallel without racing on
+    /// `CREATE DATABASE` or interfering via the shared catalog.
+    repo: tempfile::TempDir,
 }
 
 impl Daemon {
     fn spawn(state_dir: &Path, agents: &Path) -> Self {
+        let repo = tempfile::tempdir().expect("repo tempdir");
+        // Copy real configs/ so Offboard can load configs/offboard.toml. We do
+        // NOT copy blueprints/workflows - the test writes its own unique
+        // blueprint + test-flow workflow via make_blueprint.
+        let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
+        let src = ws.join("configs");
+        if src.is_dir() {
+            let _ = std::process::Command::new("cp")
+                .arg("-R")
+                .arg(&src)
+                .arg(repo.path().join("configs"))
+                .status();
+        }
         let child = Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
             .env("HERDR_PLUGIN_STATE_DIR", state_dir)
-            .env("HERDR_PLUGIN_ROOT", env!("CARGO_MANIFEST_DIR"))
+            .env("HERDR_PLUGIN_ROOT", repo.path())
             .env("JANUS_AGENTS_TOML", agents)
             .env("JANUS_GATEWAY_LISTEN_PORT", "0")
             .env("RUST_LOG", "warn")
@@ -51,7 +73,7 @@ impl Daemon {
         }
         assert!(sock.exists(), "daemon did not bind janus.sock within 15s");
         std::thread::sleep(Duration::from_millis(100));
-        Daemon { child, sock }
+        Daemon { child, sock, repo }
     }
 
     fn uds(&self, req: &Request, timeout: Duration) -> Result<Response, String> {
@@ -72,13 +94,15 @@ fn make_blueprint(base: &Path, name: &str) {
     let recipe = format!(
         r#"[blueprint]
 name = "{name}"
-scope = "embedded"
-description = "test blueprint"
-workflow = "test-flow"
+default_workflow = "test-flow"
+
+[openwiki]
+scope = ["test"]
 "#
     );
     std::fs::write(bp.join("janus.toml"), recipe).unwrap();
 
+    // Minimal workflow file (Contract 3.7: step `name`, not `id`).
     let wf_dir = base.join("workflows");
     std::fs::create_dir_all(&wf_dir).unwrap();
     std::fs::write(
@@ -87,7 +111,7 @@ workflow = "test-flow"
 name = "test-flow"
 
 [[steps]]
-id = "scout"
+name = "scout"
 agent = "default"
 command = "true"
 "#,
@@ -117,19 +141,17 @@ fn utc_03_01_step_state_transitions() {
     // With PG online, onboard a blueprint, then verify the Progress query
     // returns the expected task/step lifecycle fields. The actual tmux session
     // dispatch requires a live tmux server and is covered by UTC-09-xx.
-    let root = tempfile::tempdir().unwrap();
+    const NAME: &str = "gate_03_01";
     let state = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    make_blueprint(root.path(), "gatemetric");
 
     let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), NAME);
     std::thread::sleep(Duration::from_secs(12));
 
     d.uds(
-        &Request::Onboard {
-            name: "gatemetric".into(),
-        },
+        &Request::Onboard { name: NAME.into() },
         Duration::from_secs(10),
     )
     .unwrap();
@@ -233,22 +255,21 @@ fn utc_03_04_daemon_crash_socket_cleanup() {
 #[test]
 #[ignore = "requires PostgreSQL"]
 fn utc_03_05_concurrent_workflow_isolation() {
-    let root = tempfile::tempdir().unwrap();
+    const JOY: &str = "joy_03_05";
+    const GATE: &str = "gate_03_05";
     let state = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    make_blueprint(root.path(), "joyrobots");
-    make_blueprint(root.path(), "gatemetric");
 
     let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), JOY);
+    make_blueprint(d.repo.path(), GATE);
     std::thread::sleep(Duration::from_secs(12));
 
     // Onboard both.
-    for name in &["joyrobots", "gatemetric"] {
+    for name in [JOY, GATE] {
         d.uds(
-            &Request::Onboard {
-                name: name.to_string(),
-            },
+            &Request::Onboard { name: name.into() },
             Duration::from_secs(10),
         )
         .unwrap();
@@ -269,7 +290,7 @@ fn utc_03_05_concurrent_workflow_isolation() {
         other => panic!("expected Progress, got {other:?}"),
     }
 
-    // GuardCheck for joyrobots doesn't leak to gatemetric.
+    // GuardCheck still works with both blueprints onboard (no leak between them).
     let resp1 = d
         .uds(&guard_check("default", "ls -la"), Duration::from_secs(5))
         .unwrap();

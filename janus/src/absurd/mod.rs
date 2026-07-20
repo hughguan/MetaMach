@@ -21,7 +21,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use tokio::sync::RwLock;
@@ -132,6 +132,86 @@ impl AbsurdDb {
                 Ok(None)
             }
         }
+    }
+
+    /// Per-blueprint overlay migrations (002 `metamach_step_meta` + 003
+    /// `hitl_verdict`). `absurd.sql` (the external absurd engine's
+    /// task/checkpoint tables) is NOT applied here - it lands with the
+    /// absurd-engine integration (M4); the overlay alone backs onboard/offboard/
+    /// progress (they read `metamach_step_meta`, not absurd's tables).
+    const BLUEPRINT_MIGRATION_002: &str = include_str!("../../migrations/002_blueprint.sql");
+    const BLUEPRINT_MIGRATION_003: &str = include_str!("../../migrations/003_hitl_verdict.sql");
+
+    /// Create `metamach_blueprint_<name>` (if absent) + apply the per-blueprint
+    /// overlay migrations (002 + 003). Called by `janus onboard` so offboard/
+    /// progress can read the blueprint's `metamach_step_meta`. Idempotent: a
+    /// re-onboard re-applies the IF NOT EXISTS / ADD COLUMN IF NOT EXISTS
+    /// migrations (no-op on an existing DB).
+    pub async fn ensure_blueprint_db(&self, name: &str) -> Result<()> {
+        let Some(catalog) = self.catalog_pool().await else {
+            bail!("catalog DB offline - cannot create blueprint DB for {name}");
+        };
+        let db_name = format!("metamach_blueprint_{}", sanitize_ident(name));
+        // CREATE DATABASE can't run in a transaction block; sqlx auto-commits DDL.
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
+                .bind(&db_name)
+                .fetch_one(&catalog)
+                .await?;
+        if !exists {
+            // CREATE DATABASE is racy: two concurrent onboards of the same
+            // blueprint can both see EXISTS=false, then race on the insert into
+            // `pg_database`. The loser gets either SQLSTATE 42P04
+            // (duplicate_database, friendly "already exists") or 23505
+            // (unique_violation on `pg_database_datname_index`, the raw index
+            // hit when both pass the pre-check). In a CREATE DATABASE both mean
+            // "the DB now exists" - treat as success and fall through to
+            // re-apply the idempotent IF NOT EXISTS migrations. Any other
+            // error propagates.
+            match sqlx::query(&format!("CREATE DATABASE {db_name}"))
+                .execute(&catalog)
+                .await
+            {
+                Ok(_) => info!(%db_name, "created blueprint DB"),
+                Err(e) => {
+                    let code = e
+                        .as_database_error()
+                        .and_then(|d| d.code().map(|c| c.into_owned()));
+                    let raced = matches!(code.as_deref(), Some("42P04") | Some("23505"));
+                    if !raced {
+                        return Err(e.into());
+                    }
+                    info!(%db_name, ?code, "blueprint DB created concurrently; race resolved");
+                }
+            }
+        }
+        // Apply the overlay migrations to the blueprint DB (multi-statement,
+        // incl. the dollar-quoted trigger function - sqlx::raw_sql runs the
+        // whole script via the simple query protocol).
+        let opts = self
+            .base_opts
+            .read()
+            .expect("base_opts lock")
+            .clone()
+            .context("base_opts not set")?
+            .database(&db_name);
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .connect_with(opts)
+            .await?;
+        sqlx::raw_sql(Self::BLUEPRINT_MIGRATION_002)
+            .execute(&pool)
+            .await
+            .with_context(|| format!("apply 002_blueprint.sql to {db_name}"))?;
+        sqlx::raw_sql(Self::BLUEPRINT_MIGRATION_003)
+            .execute(&pool)
+            .await
+            .with_context(|| format!("apply 003_hitl_verdict.sql to {db_name}"))?;
+        self.blueprint_pools
+            .write()
+            .expect("bp lock")
+            .insert(name.to_string(), Arc::new(pool));
+        Ok(())
     }
 
     /// All `ACTIVE` blueprints (Dispatch view). Empty in degraded mode.

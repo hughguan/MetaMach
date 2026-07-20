@@ -80,8 +80,13 @@ jobs:
           # tmux available for janus::tmux tests
           TMUX_TMPDIR: /tmp
 
-      - name: Run ignored tests (SSH-gated)
-        run: cargo test --workspace --manifest-path janus/Cargo.toml -- --ignored || echo "⚠️  SSH-gated tests skipped (expected; requires SSH credentials)"
+      - name: Run PG-gated tests (ignored)
+        # The `#[ignore]`d integration tests (UTC-05-02/04/04b, UTC-03-01/03/05)
+        # need the postgres:16 service + tmux. They pass in parallel on CI, so
+        # this is a blocking gate (regressions fail the build). If SSH-credential
+        # tests are added later, split them into a separate `continue-on-error`
+        # step so an absent SSH key doesn't break this gate.
+        run: cargo test --workspace --manifest-path janus/Cargo.toml -- --ignored
         env:
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
-        continue-on-error: true
+          TMUX_TMPDIR: /tmp

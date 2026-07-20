@@ -83,9 +83,9 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - CI runs on `ubuntu-24.04` with `postgres:16` service container (health check: `pg_isready`).
     - Steps: `apt-get install -y tmux postgresql-client`, `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo build --release --locked`, `cargo test --workspace`.
-    - SSH-gated tmux tests run with `-- --ignored` and `continue-on-error: true`.
+    - PG-gated integration tests (UTC-05-02/04/04b, UTC-03-01/03/05) run with `-- --ignored` as a **blocking** gate (they pass on CI in parallel). SSH-credential-gated tests, when added, get a separate `continue-on-error: true` step so an absent SSH key doesn't break the gate.
     - Cache cargo registry and target directory for faster builds.
-- **UAT:** Push to `main` triggers CI; all gates pass (fmt, clippy, test); SSH-gated tests are skipped gracefully.
+- **UAT:** Push to `main` triggers CI; all gates pass (fmt, clippy, test, PG-gated tests).
 
 ## Milestone 2: Twin-Process UDS Communication & Scheduling Brain (Daemon Core)
 
@@ -227,7 +227,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - Test Suites 2.1–2.9: UTC-01-xx through UTC-09-xx, covering daemon, sandbox, tmux, HITL, lifecycle, dashboard, benchmarks, degraded mode, and tmux module.
     - SSH-gated tests (UTC-09-04) use `#[ignore = "requires SSH credentials"]`.
     - Benchmark harness (UTC-07-xx) uses `criterion`; deferred to P2, not a release gate.
-- **UAT:** `cargo test --workspace` passes all non-ignored tests; `cargo test --workspace -- --ignored` skips SSH-gated tests gracefully.
+- **UAT:** `cargo test --workspace` passes all non-ignored tests; `cargo test --workspace -- --ignored` passes all PG-gated tests (blocking in CI); SSH-gated tests, when added, skip gracefully via a separate `continue-on-error` step.
 
 #### Task 5.2: Cross-Module Contract Verification (Check-in Unit 10)
 - **Description:** Verify all UDS contracts (3.2–3.5), schema contracts (3.1/3.1b), and lifecycle contracts (Onboard/Offboard) hold across module boundaries.

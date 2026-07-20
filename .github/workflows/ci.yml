@@ -72,6 +72,14 @@ jobs:
       - name: Build release
         run: cargo build --release --locked --manifest-path janus/Cargo.toml
 
+      - name: Apply catalog migration
+        # CI's postgres:16 service creates an empty metamach_db; apply the
+        # catalog schema (blueprints + absurd_audit_log) that the PG-gated
+        # onboard/offboard tests exercise. Locally `make db-init` does this.
+        # Idempotent (CREATE TABLE/INDEX IF NOT EXISTS). The per-blueprint
+        # 002/003 overlays are applied in-code by ensure_blueprint_db on onboard.
+        run: psql "postgres://metamach_admin@localhost:5432/metamach_db" -v ON_ERROR_STOP=1 -f janus/migrations/001_catalog.sql
+
       - name: Run tests
         run: cargo test --workspace --manifest-path janus/Cargo.toml
         env:

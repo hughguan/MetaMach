@@ -362,3 +362,125 @@ fn utc_04_01_suspend_preserves_guard_verdict_scene() {
         other => panic!("expected GuardVerdict, got {other:?}"),
     }
 }
+
+// ── UTC-05-03: Git Experience Inheritance (offboard commits the report) ────
+
+#[test]
+#[ignore = "requires PostgreSQL"]
+fn utc_05_03_offboard_commits_production_report_to_git() {
+    // Offboard best-effort `git commit`s production_report.md into the blueprint
+    // repo so the next Onboard inherits it (the UTC-05-05 loop). Verify the
+    // commit lands when the repo is a git repo with an identity configured.
+    const NAME: &str = "gate_05_03";
+    let state = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), NAME);
+
+    // git_commit_report runs `git` in repo_root; init a repo + identity there so
+    // the commit succeeds (a non-git repo would no-op and return None).
+    let repo = d.repo.path();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("git")
+    };
+    assert!(git(&["init", "-q"]).status.success(), "git init");
+    assert!(git(&["config", "user.name", "Test"]).status.success());
+    assert!(
+        git(&["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    // Seed an initial commit so the offboard commit has a base HEAD.
+    std::fs::write(repo.join("README.md"), "test\n").unwrap();
+    assert!(git(&["add", "README.md"]).status.success(), "git add seed");
+    assert!(
+        git(&["commit", "-q", "-m", "seed"]).status.success(),
+        "git commit seed: {}",
+        String::from_utf8_lossy(&git(&["commit", "-q", "-m", "seed"]).stderr)
+    );
+
+    std::thread::sleep(Duration::from_secs(12));
+
+    // Onboard + Offboard. Offboard writes production_report.md and commits it.
+    d.uds(
+        &Request::Onboard { name: NAME.into() },
+        Duration::from_secs(10),
+    )
+    .unwrap();
+    let resp = d
+        .uds(
+            &Request::Offboard { name: NAME.into() },
+            Duration::from_secs(10),
+        )
+        .unwrap();
+    assert!(
+        matches!(resp, Response::Ok { .. }),
+        "offboard failed: {resp:?}"
+    );
+
+    // The offboard commit landed in the repo's history.
+    let log = git(&["log", "--oneline"]);
+    assert!(
+        log.status.success(),
+        "git log: {}",
+        String::from_utf8_lossy(&log.stderr)
+    );
+    let log_text = String::from_utf8_lossy(&log.stdout);
+    assert!(
+        log_text.contains("offboard production_report.md"),
+        "expected offboard commit in git log: {log_text}"
+    );
+}
+
+// ── UTC-05-05: Re-Onboard & Experience Inheritance ─────────────────────────
+
+#[test]
+#[ignore = "requires PostgreSQL"]
+fn utc_05_05_re_onboard_inherits_previous_incidents() {
+    // A prior Offboard's production_report.md is recycled as `## Previous
+    // Incidents` few-shots on the next Onboard (experience inheritance). We
+    // simulate a prior report (bullet lines are the parsed incidents) and verify
+    // Onboard inherits them via the `inherited N previous-incident(s)` message.
+    const NAME: &str = "gate_05_05";
+    let state = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), NAME);
+
+    // Simulate a prior Offboard's report: `- ` bullet lines are the incidents
+    // parse_incidents extracts.
+    let openwiki = d.repo.path().join("blueprints").join(NAME).join("openwiki");
+    std::fs::create_dir_all(&openwiki).unwrap();
+    std::fs::write(
+        openwiki.join("production_report.md"),
+        "# Production Report\n\n## Previous Incidents\n\n\
+         - PIN_CONFLICT_MARKER_21 on gpio5 (clash with mpu6050)\n\
+         - i2c address 0x68 double-bound by scout + code steps\n",
+    )
+    .unwrap();
+
+    std::thread::sleep(Duration::from_secs(12));
+
+    let resp = d
+        .uds(
+            &Request::Onboard { name: NAME.into() },
+            Duration::from_secs(10),
+        )
+        .expect("onboard request");
+    match resp {
+        Response::Ok { message } => assert!(
+            message.contains("inherited 2 previous-incident"),
+            "expected 2 inherited incidents from prior report, got: {message}"
+        ),
+        other => panic!("expected Ok from Onboard, got {other:?}"),
+    }
+}

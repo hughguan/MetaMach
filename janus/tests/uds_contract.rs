@@ -439,3 +439,51 @@ fn utc_02_06_fail_closed_30s_timeout() {
         "command must NOT be executed (fail-closed)"
     );
 }
+
+// ── UTC-06-03: `janus status` CLI ───────────────────────────────────────────
+
+#[test]
+fn utc_06_03_janus_status_cli() {
+    // `janus status [--json]` is the non-TUI CLI snapshot (Contract 3.3). It
+    // reaches the daemon over UDS; degraded mode is fine (Progress returns an
+    // empty active_tasks list). Verify the --json payload conforms to the
+    // ProgressPayload shape and plain-text mode exits 0.
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let _d = Daemon::spawn(dir.path(), &agents); // degraded (PG env stripped); kept alive for the CLI queries
+
+    // --json: output must be a Contract 3.3 ProgressPayload (active_tasks array).
+    let out = Command::new(env!("CARGO_BIN_EXE_janus"))
+        .arg("status")
+        .arg("--json")
+        .env("HERDR_PLUGIN_STATE_DIR", dir.path())
+        .env("JANUS_AGENTS_TOML", &agents)
+        .output()
+        .expect("janus status --json");
+    assert!(
+        out.status.success(),
+        "janus status --json failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("status --json must be valid JSON: {stdout}"));
+    assert!(
+        v.get("active_tasks").map(|a| a.is_array()).unwrap_or(false),
+        "expected active_tasks array in --json output: {stdout}"
+    );
+
+    // Plain-text mode exits 0 too.
+    let out = Command::new(env!("CARGO_BIN_EXE_janus"))
+        .arg("status")
+        .env("HERDR_PLUGIN_STATE_DIR", dir.path())
+        .env("JANUS_AGENTS_TOML", &agents)
+        .output()
+        .expect("janus status");
+    assert!(
+        out.status.success(),
+        "janus status (text) failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

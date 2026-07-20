@@ -38,7 +38,10 @@ impl Daemon {
     fn spawn(state_dir: &Path, agents: &Path) -> Self {
         let child = Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
             .env("HERDR_PLUGIN_STATE_DIR", state_dir)
-            .env("HERDR_PLUGIN_ROOT", env!("CARGO_MANIFEST_DIR"))
+            .env(
+                "HERDR_PLUGIN_ROOT",
+                Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap(),
+            )
             .env("JANUS_AGENTS_TOML", agents)
             .env("JANUS_GATEWAY_LISTEN_PORT", "0")
             .env("RUST_LOG", "warn")

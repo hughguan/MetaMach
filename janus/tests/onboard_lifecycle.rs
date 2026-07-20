@@ -254,7 +254,10 @@ fn utc_05_02_offboard_smelts_and_archives() {
         )
         .unwrap();
     match resp {
-        Response::Ok { message } => assert!(message.contains("Offboard")),
+        Response::Ok { message } => assert!(
+            message.contains("gatemetric") && message.contains("offboarded"),
+            "expected gatemetric offboarded, got: {message}"
+        ),
         other => panic!("expected Ok from Offboard, got {other:?}"),
     }
 

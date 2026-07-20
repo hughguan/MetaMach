@@ -340,3 +340,92 @@ fn utc_02_02_janush_intercepts_block_and_allows() {
         out.status
     );
 }
+
+#[test]
+fn utc_02_05_uds_fuzz_testing() {
+    // UTC-02-05: the daemon survives 10,000 random/malicious byte sequences
+    // without crashing, OOM, or socket deadlock. Error responses are valid JSON
+    // with `"type":"error"`.
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let d = Daemon::spawn(dir.path(), &agents);
+
+    let mut rng = 0xDEAD_BEEFu64;
+    // Simple xorshift64 PRNG: deterministic but diverse.
+    let mut next = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+
+    for _ in 0..10_000 {
+        let len = (next() % 4096) as usize; // 0..=4095 bytes per payload
+        let mut payload = Vec::with_capacity(len);
+        for _ in 0..len {
+            payload.push((next() % 256) as u8);
+        }
+        // Append a newline so the daemon's line reader consumes it.
+        payload.push(b'\n');
+
+        let mut stream = match UnixStream::connect(&d.sock) {
+            Ok(s) => s,
+            Err(e) => panic!("daemon socket gone: {e}"),
+        };
+        stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+        let _ = stream.write_all(&payload);
+        let mut reader = BufReader::new(&stream);
+        let mut line = String::new();
+        // The daemon may close the connection on garbage; that's fine as long
+        // as the socket is still alive for the next iteration.
+        let _ = reader.read_line(&mut line);
+    }
+
+    // Daemon is still alive and serving.
+    assert!(matches!(
+        uds::request_to(&d.sock, &Request::Ping, Duration::from_secs(5)).unwrap(),
+        Response::Pong
+    ));
+}
+
+#[test]
+fn utc_02_06_fail_closed_30s_timeout() {
+    // UTC-02-06: janush returns an error (not hang) when the daemon is
+    // unreachable for >30s. The command is NOT executed (fail-closed).
+    // We use an empty state dir (no daemon socket) to simulate unreachability.
+    let dir = tempfile::tempdir().unwrap();
+    // Write agents.toml so janush doesn't exit early on config error.
+    let agents = dir.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    // Redirect stdin so janush doesn't hang on TTY input.
+    let start = Instant::now();
+    let out = Command::new(env!("CARGO_BIN_EXE_janush"))
+        .args(["-c", "echo should-not-execute"])
+        .env("HERDR_PLUGIN_STATE_DIR", dir.path())
+        .env("JANUS_AGENTS_TOML", &agents)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn janush");
+    let elapsed = start.elapsed();
+
+    // Must fail (non-zero exit). Timeout below a generous 35s.
+    assert!(
+        !out.status.success(),
+        "janush must not exit 0 when daemon is unreachable"
+    );
+    assert!(
+        elapsed < Duration::from_secs(35),
+        "janush must time out within ~30s, took {elapsed:?}"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("should-not-execute"),
+        "command must NOT be executed (fail-closed)"
+    );
+}

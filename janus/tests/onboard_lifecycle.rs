@@ -135,8 +135,9 @@ fn utc_05_04_onboard_registers_tenant() {
 
     match resp {
         Response::Ok { message } => assert!(
-            message.contains("Onboard"),
-            "expected Onboard success, got: {message}"
+            message.contains("joyrobots")
+                && (message.contains("registered") || message.contains("reactivated")),
+            "expected joyrobots onboarded, got: {message}"
         ),
         other => panic!("expected Ok from Onboard, got {other:?}"),
     }

@@ -41,6 +41,14 @@ impl Daemon {
             .env("JANUS_AGENTS_TOML", agents)
             .env("JANUS_GATEWAY_LISTEN_PORT", "0") // ephemeral; avoid 8443 clashes
             .env("RUST_LOG", "warn")
+            // PG-free: force degraded mode even if PG-related env vars are set
+            // in the environment. CI sets DATABASE_URL for the --ignored PG
+            // tests; a local `make db-init` leaves METAMACH_PG_SOCKET_DIR
+            // pointing at a live socket. Either would let the daemon reach PG
+            // and break these degraded-mode assertions. Clearing both makes the
+            // daemon fall back to state_dir/pg_socket (absent in the temp dir).
+            .env_remove("DATABASE_URL")
+            .env_remove("METAMACH_PG_SOCKET_DIR")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -177,6 +185,8 @@ fn utc_01_01_second_launch_refuses_duplicate_pid_lock() {
         .env("JANUS_AGENTS_TOML", &agents)
         .env("JANUS_GATEWAY_LISTEN_PORT", "0")
         .env("RUST_LOG", "warn")
+        .env_remove("DATABASE_URL") // PG-free: force degraded mode (see Daemon::spawn)
+        .env_remove("METAMACH_PG_SOCKET_DIR")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

@@ -159,10 +159,31 @@ impl AbsurdDb {
                 .fetch_one(&catalog)
                 .await?;
         if !exists {
-            sqlx::query(&format!("CREATE DATABASE {db_name}"))
+            // CREATE DATABASE is racy: two concurrent onboards of the same
+            // blueprint can both see EXISTS=false, then race on the insert into
+            // `pg_database`. The loser gets either SQLSTATE 42P04
+            // (duplicate_database, friendly "already exists") or 23505
+            // (unique_violation on `pg_database_datname_index`, the raw index
+            // hit when both pass the pre-check). In a CREATE DATABASE both mean
+            // "the DB now exists" - treat as success and fall through to
+            // re-apply the idempotent IF NOT EXISTS migrations. Any other
+            // error propagates.
+            match sqlx::query(&format!("CREATE DATABASE {db_name}"))
                 .execute(&catalog)
-                .await?;
-            info!(%db_name, "created blueprint DB");
+                .await
+            {
+                Ok(_) => info!(%db_name, "created blueprint DB"),
+                Err(e) => {
+                    let code = e
+                        .as_database_error()
+                        .and_then(|d| d.code().map(|c| c.into_owned()));
+                    let raced = matches!(code.as_deref(), Some("42P04") | Some("23505"));
+                    if !raced {
+                        return Err(e.into());
+                    }
+                    info!(%db_name, ?code, "blueprint DB created concurrently; race resolved");
+                }
+            }
         }
         // Apply the overlay migrations to the blueprint DB (multi-statement,
         // incl. the dollar-quoted trigger function - sqlx::raw_sql runs the

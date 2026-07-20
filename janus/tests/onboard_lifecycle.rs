@@ -32,16 +32,37 @@ financial = ["hi5bot --action execute"]
 struct Daemon {
     child: std::process::Child,
     sock: std::path::PathBuf,
+    /// Isolated repo root kept alive for the daemon's lifetime. Only the real
+    /// `configs/` is copied in (so Offboard can load `configs/offboard.toml`);
+    /// each test writes its OWN uniquely-named blueprint and workflow here via
+    /// `make_blueprint`. Unique names mean each test owns an isolated catalog
+    /// row and `metamach_blueprint_<name>` DB, so the PG-gated tests can run in
+    /// parallel without racing on `CREATE DATABASE` or interfering via the
+    /// shared catalog. Offboard writes (`production_report.md`, git commit)
+    /// land here in the temp dir, never the real repo.
+    repo: tempfile::TempDir,
 }
 
 impl Daemon {
     fn spawn(state_dir: &Path, agents: &Path) -> Self {
+        let repo = tempfile::tempdir().expect("repo tempdir");
+        // Copy real configs/ so Offboard can load configs/offboard.toml. We do
+        // NOT copy blueprints/workflows - the test writes its own unique
+        // blueprint + test-flow workflow via make_blueprint.
+        let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
+        let src = ws.join("configs");
+        if src.is_dir() {
+            let _ = std::process::Command::new("cp")
+                .arg("-R")
+                .arg(&src)
+                .arg(repo.path().join("configs"))
+                .status();
+        }
         let child = Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
             .env("HERDR_PLUGIN_STATE_DIR", state_dir)
-            .env(
-                "HERDR_PLUGIN_ROOT",
-                Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap(),
-            )
+            .env("HERDR_PLUGIN_ROOT", repo.path())
             .env("JANUS_AGENTS_TOML", agents)
             .env("JANUS_GATEWAY_LISTEN_PORT", "0")
             .env("RUST_LOG", "warn")
@@ -57,7 +78,7 @@ impl Daemon {
         }
         assert!(sock.exists(), "daemon did not bind janus.sock within 15s");
         std::thread::sleep(Duration::from_millis(100));
-        Daemon { child, sock }
+        Daemon { child, sock, repo }
     }
 
     fn uds(&self, req: &Request, timeout: Duration) -> Result<Response, String> {
@@ -72,22 +93,25 @@ impl Drop for Daemon {
     }
 }
 
-/// Build a minimal blueprint recipe for the test blueprint. Returns the
-/// blueprint directory path (a temp subdir under `base`).
+/// Build a valid minimal blueprint recipe under `base/blueprints/<name>/` plus
+/// a `test-flow` workflow. The recipe matches Contract 3.6 (`[blueprint]` name
+/// and `default_workflow`, `[openwiki]` scope) and the workflow matches
+/// Contract 3.7 (steps keyed by `name`). Returns the blueprint directory path.
 fn make_blueprint(base: &Path, name: &str) -> std::path::PathBuf {
     let bp = base.join("blueprints").join(name);
     std::fs::create_dir_all(&bp).unwrap();
     let recipe = format!(
         r#"[blueprint]
 name = "{name}"
-scope = "embedded"
-description = "test blueprint"
-workflow = "test-flow"
+default_workflow = "test-flow"
+
+[openwiki]
+scope = ["test"]
 "#
     );
     std::fs::write(bp.join("janus.toml"), recipe).unwrap();
 
-    // Minimal workflow file
+    // Minimal workflow file (Contract 3.7: step `name`, not `id`).
     let wf_dir = base.join("workflows");
     std::fs::create_dir_all(&wf_dir).unwrap();
     std::fs::write(
@@ -96,7 +120,7 @@ workflow = "test-flow"
 name = "test-flow"
 
 [[steps]]
-id = "scout"
+name = "scout"
 agent = "default"
 command = "true"
 "#,
@@ -111,14 +135,15 @@ command = "true"
 #[test]
 #[ignore = "requires PostgreSQL"]
 fn utc_05_04_onboard_registers_tenant() {
-    // Setup: temp repo root with blueprints/ + workflows/, plus a PG-ready daemon.
-    let root = tempfile::tempdir().unwrap();
+    // Unique blueprint name => isolated catalog row + blueprint DB, so this test
+    // never collides with the other PG-gated onboards running in parallel.
+    const NAME: &str = "joy_05_04";
     let state = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    make_blueprint(root.path(), "joyrobots");
 
     let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), NAME);
 
     // Wait for PG to come online (daemon retries 5× @2s = 10s max).
     std::thread::sleep(Duration::from_secs(12));
@@ -126,18 +151,16 @@ fn utc_05_04_onboard_registers_tenant() {
     // Onboard the blueprint.
     let resp = d
         .uds(
-            &Request::Onboard {
-                name: "joyrobots".into(),
-            },
+            &Request::Onboard { name: NAME.into() },
             Duration::from_secs(10),
         )
         .expect("onboard request");
 
     match resp {
         Response::Ok { message } => assert!(
-            message.contains("joyrobots")
+            message.contains(NAME)
                 && (message.contains("registered") || message.contains("reactivated")),
-            "expected joyrobots onboarded, got: {message}"
+            "expected {NAME} onboarded, got: {message}"
         ),
         other => panic!("expected Ok from Onboard, got {other:?}"),
     }
@@ -145,15 +168,13 @@ fn utc_05_04_onboard_registers_tenant() {
     // Second Onboard is idempotent.
     let resp2 = d
         .uds(
-            &Request::Onboard {
-                name: "joyrobots".into(),
-            },
+            &Request::Onboard { name: NAME.into() },
             Duration::from_secs(10),
         )
         .expect("second onboard");
     assert!(
         matches!(resp2, Response::Ok { .. }),
-        "second Onboard must be idempotent"
+        "second Onboard must be idempotent, got {resp2:?}"
     );
 
     // Blueprints list includes the onboarded blueprint.
@@ -161,7 +182,7 @@ fn utc_05_04_onboard_registers_tenant() {
     match resp {
         Response::Blueprints { blueprints } => {
             assert!(
-                blueprints.iter().any(|b| b.name == "joyrobots"),
+                blueprints.iter().any(|b| b.name == NAME),
                 "onboarded blueprint must appear in list: {blueprints:?}"
             );
         }
@@ -174,36 +195,46 @@ fn utc_05_04_onboard_registers_tenant() {
 #[test]
 #[ignore = "requires PostgreSQL"]
 fn utc_05_04b_multidb_onboard_isolation() {
-    let root = tempfile::tempdir().unwrap();
+    // Two uniquely-named blueprints => two isolated catalog rows + blueprint DBs.
+    const JOY: &str = "joy_05_04b";
+    const GATE: &str = "gate_05_04b";
     let state = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    make_blueprint(root.path(), "joyrobots");
-    make_blueprint(root.path(), "gatemetric");
 
     let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), JOY);
+    make_blueprint(d.repo.path(), GATE);
     std::thread::sleep(Duration::from_secs(12));
 
     // Onboard both blueprints.
-    for name in &["joyrobots", "gatemetric"] {
+    for name in [JOY, GATE] {
         let resp = d
             .uds(
-                &Request::Onboard {
-                    name: name.to_string(),
-                },
+                &Request::Onboard { name: name.into() },
                 Duration::from_secs(10),
             )
             .unwrap();
-        assert!(matches!(resp, Response::Ok { .. }), "{name} onboard failed");
+        assert!(
+            matches!(resp, Response::Ok { .. }),
+            "{name} onboard failed: {resp:?}"
+        );
     }
 
-    // Both appear in the blueprint list.
+    // Both appear in the blueprint list. The catalog is shared across the
+    // parallel PG-gated tests, so assert presence of our two (not an exact
+    // count, which would flake on other tests' blueprints).
     let resp = d.uds(&Request::Blueprints, Duration::from_secs(5)).unwrap();
     match resp {
         Response::Blueprints { blueprints } => {
-            assert_eq!(blueprints.len(), 2, "expected 2 blueprints: {blueprints:?}");
-            assert!(blueprints.iter().any(|b| b.name == "joyrobots"));
-            assert!(blueprints.iter().any(|b| b.name == "gatemetric"));
+            assert!(
+                blueprints.iter().any(|b| b.name == JOY),
+                "{JOY} missing from list: {blueprints:?}"
+            );
+            assert!(
+                blueprints.iter().any(|b| b.name == GATE),
+                "{GATE} missing from list: {blueprints:?}"
+            );
         }
         other => panic!("expected Blueprints, got {other:?}"),
     }
@@ -226,20 +257,21 @@ fn utc_05_04b_multidb_onboard_isolation() {
 #[test]
 #[ignore = "requires PostgreSQL"]
 fn utc_05_02_offboard_smelts_and_archives() {
-    let root = tempfile::tempdir().unwrap();
+    // Unique name => this test's offboard (which marks the catalog row
+    // OFFBOARDED + purges the blueprint DB) never touches another test's
+    // blueprint, so parallel onboards are unaffected.
+    const NAME: &str = "gate_05_02";
     let state = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    make_blueprint(root.path(), "gatemetric");
 
     let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), NAME);
     std::thread::sleep(Duration::from_secs(12));
 
     // Onboard.
     d.uds(
-        &Request::Onboard {
-            name: "gatemetric".into(),
-        },
+        &Request::Onboard { name: NAME.into() },
         Duration::from_secs(10),
     )
     .unwrap();
@@ -247,16 +279,14 @@ fn utc_05_02_offboard_smelts_and_archives() {
     // Offboard.
     let resp = d
         .uds(
-            &Request::Offboard {
-                name: "gatemetric".into(),
-            },
+            &Request::Offboard { name: NAME.into() },
             Duration::from_secs(10),
         )
         .unwrap();
     match resp {
         Response::Ok { message } => assert!(
-            message.contains("gatemetric") && message.contains("offboarded"),
-            "expected gatemetric offboarded, got: {message}"
+            message.contains(NAME) && message.contains("offboarded"),
+            "expected {NAME} offboarded, got: {message}"
         ),
         other => panic!("expected Ok from Offboard, got {other:?}"),
     }
@@ -266,7 +296,7 @@ fn utc_05_02_offboard_smelts_and_archives() {
     match resp {
         Response::Blueprints { blueprints } => {
             assert!(
-                !blueprints.iter().any(|b| b.name == "gatemetric"),
+                !blueprints.iter().any(|b| b.name == NAME),
                 "offboarded blueprint should not appear"
             );
         }

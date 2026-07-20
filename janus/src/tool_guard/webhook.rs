@@ -113,9 +113,5 @@ impl WebhookSender for TelegramSender {
     }
 }
 
-/// Dispatch a card through all configured adapters. Blocking (curl may run) -
-/// callers should invoke from `spawn_blocking`.
-pub fn dispatch(payload: &WebhookPayload) {
-    LoggingSender::new(crate::paths::state_dir().join("webhook_cards.log")).send(payload);
-    TelegramSender.send(payload);
-}
+// HITL dispatch moved to `janus::gateway::Gateway::dispatch` (0.4.0); the
+// sender adapters above are reused as the gateway's channels.

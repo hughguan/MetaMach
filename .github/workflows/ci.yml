@@ -1,4 +1,4 @@
-# MetaMach 0.3.0 — CI Pipeline
+# MetaMach 0.4.0 — CI Pipeline
 # Native PG, no Docker. Tests janus-daemon, herdr-janus, janush, and janus::tmux.
 # Per the 0.4.0 architecture: One PG, Multi-DB, tmux for session tests, SQLite bundled.
 

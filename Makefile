@@ -1,4 +1,4 @@
-# MetaMach 0.3.0 - Factory master switch (Deployment-Spec §5.1)
+# MetaMach 0.4.0 - Factory master switch (Deployment-Spec §5.1)
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
 # janus-daemon (M2), janush (M3), and janus::tmux (0.3.0) are picked up

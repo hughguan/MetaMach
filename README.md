@@ -1,8 +1,8 @@
-# 🛡️ MetaMach 0.3.0
+# 🛡️ MetaMach 0.4.0
 
 > **An industrial-grade, durable AI Software Factory OS powered by Janus Daemon and distributed physical execution sessions.**
 
-MetaMach 0.3.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines—managed straight from your pocket via Telegram or TUI.
+MetaMach 0.4.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines—managed straight from your pocket via Telegram or TUI.
 
 ---
 

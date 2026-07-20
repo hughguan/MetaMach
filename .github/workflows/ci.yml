@@ -72,6 +72,14 @@ jobs:
       - name: Build release
         run: cargo build --release --locked --manifest-path janus/Cargo.toml
 
+      - name: Apply catalog migration
+        # CI's postgres:16 service creates an empty metamach_db; apply the
+        # catalog schema (blueprints + absurd_audit_log) that the PG-gated
+        # onboard/offboard tests exercise. Locally `make db-init` does this.
+        # Idempotent (CREATE TABLE/INDEX IF NOT EXISTS). The per-blueprint
+        # 002/003 overlays are applied in-code by ensure_blueprint_db on onboard.
+        run: psql "postgres://metamach_admin@localhost:5432/metamach_db" -v ON_ERROR_STOP=1 -f janus/migrations/001_catalog.sql
+
       - name: Run tests
         run: cargo test --workspace --manifest-path janus/Cargo.toml
         env:
@@ -80,8 +88,13 @@ jobs:
           # tmux available for janus::tmux tests
           TMUX_TMPDIR: /tmp
 
-      - name: Run ignored tests (SSH-gated)
-        run: cargo test --workspace --manifest-path janus/Cargo.toml -- --ignored || echo "⚠️  SSH-gated tests skipped (expected; requires SSH credentials)"
+      - name: Run PG-gated tests (ignored)
+        # The `#[ignore]`d integration tests (UTC-05-02/04/04b, UTC-03-01/03/05)
+        # need the postgres:16 service + tmux. They pass in parallel on CI, so
+        # this is a blocking gate (regressions fail the build). If SSH-credential
+        # tests are added later, split them into a separate `continue-on-error`
+        # step so an absent SSH key doesn't break this gate.
+        run: cargo test --workspace --manifest-path janus/Cargo.toml -- --ignored
         env:
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
-        continue-on-error: true
+          TMUX_TMPDIR: /tmp

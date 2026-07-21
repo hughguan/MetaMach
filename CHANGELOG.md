@@ -4,6 +4,46 @@ All notable changes to MetaMach are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-20
+
+Patch release: M5 release-gate hardening + test coverage. The 0.4.0 `--ignored`
+CI step was silently failing (the `postgres:16` service never had `001_catalog.sql`
+applied); 0.4.1 makes the PG-gated tests a real, passing, blocking gate and
+fills the remaining automation-feasible test gaps.
+
+### Fixed
+- **PG-gated CI tests were silently failing**: CI's `postgres:16` service created
+  an empty `metamach_db` with no catalog schema, so every onboard/offboard test
+  errored on `relation "blueprints" does not exist` - masked by
+  `continue-on-error`. Added an "Apply catalog migration" step (`001_catalog.sql`)
+  and made the `--ignored` step a **blocking** gate.
+- **`CREATE DATABASE` race** in `absurd::ensure_blueprint_db`: two concurrent
+  onboards of the same blueprint raced on the `pg_database` insert (loser got
+  SQLSTATE `23505`, not the friendly `42P04`). Now catches both codes
+  (idempotent); any other error propagates.
+- **Stale 0.4.0 docs**: `CLAUDE.md` claimed 0.4.0 was unimplemented (no
+  `gateway/`/`cognitive/` modules) and M5 was unstarted - all false.
+  `ARCH-0.4.0.md` status `Proposal / Under Review` -> `Implemented`.
+  `tool_guard::webhook.rs` module doc self-contradiction resolved.
+
+### Added
+- **Blueprint name validation** (UTC-05-04b / Feature-Spec §2.5): `recipe::validate`
+  rejects names that are empty, >60 chars, or contain chars outside
+  `[a-zA-Z0-9_]` (before any file/DB access).
+- **UTC-05-05** (experience inheritance): a prior Offboard's
+  `production_report.md` is inherited as `## Previous Incidents` on re-onboard.
+- **UTC-05-03** (git experience inheritance): Offboard best-effort `git commit`s
+  `production_report.md`; covers the previously-untested `git_commit_report` path.
+- **UTC-06-03** (`janus status` CLI): Contract 3.3 `--json`/text snapshot.
+
+### Changed
+- PG-gated integration tests use **uniquely-named blueprints** + isolated temp
+  repo roots, so they run in parallel without racing on `CREATE DATABASE`,
+  the migration trigger, or the shared catalog. Offboard writes land in the
+  temp repo (no `production_report.md` pollution of the real repo).
+- Degraded-mode tests strip both `DATABASE_URL` and `METAMACH_PG_SOCKET_DIR`
+  (hermetic against a local `make db-init`).
+
 ## [0.4.0] - 2026-07-19
 
 The 0.4.0 gateway & ecosystem delta (`docs/ARCH-0.4.0.md`) - implementation +

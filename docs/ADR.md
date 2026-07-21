@@ -183,6 +183,105 @@
 
 ---
 
+## ADR-016: Herdr Plugin Architecture (herdr-janus Shadow Client)
+
+| Field | Value |
+|---|---|
+| **Context** | The Herdr 0.7.3 plugin model provides pane entrypoints (`[[panes]]`), injected environment variables (`HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_SOCKET_PATH`), and placement directives (`overlay | split | tab | zoomed`). `herdr-janus` was always intended as a lightweight shadow client, but the original Chinese design doc (`docs/bak/herdr-plugin.md`) proposed an over-engineered approach with two panes, invalid placement directives, and CLI modes that don't match the actual implementation. |
+| **Options Considered** | (1) Two-pane design (interception-popup + dashboard) with CLI `--mode` flags, (2) Single-pane design with internal Tab-toggle (Dispatch ↔ Progress), M0-validated against Herdr 0.7.3. |
+| **Decision** | **Adopted** — Single `dispatcher` pane with `placement = "overlay"`, internal `Tab` toggle between Dispatch (ACTIVE blueprints) and Progress (in-flight tasks). Keybinding is configured in `~/.config/herdr/config.toml` (not the plugin manifest). The plugin process runs a ratatui TUI; Herdr closes the overlay automatically on process exit — no explicit `herdr plugin pane close` call needed. |
+| **Rationale** | The M0 spike (`docs/herdr-v1-contract.md`) validated Herdr 0.7.3's actual behavior: `placement = "overlay"` (not `popup`), no `width`/`height` manifest fields, `id = "metamach.janus"` (not com.metamach.janus), `min_herdr_version = "0.7.3"`. The two-pane design was over-engineered — one pane with internal view switching is simpler. The `herdr plugin pane close` approach is unnecessary; Herdr closes the overlay when the process exits. |
+| **Status** | ✅ Implemented in 0.3.0+ (M2). `janus/herdr-plugin.toml` + `janus/src/bin/herdr_janus.rs`. |
+
+### Manifest (Corrected)
+
+The actual `janus/herdr-plugin.toml`:
+
+```toml
+id = "metamach.janus"
+name = "MetaMach Janus"
+version = "0.4.1"
+min_herdr_version = "0.7.3"
+
+[[panes]]
+id = "dispatcher"
+title = "MetaMach Dispatcher"
+placement = "overlay"
+command = ["herdr-janus"]
+```
+
+### Communication Flow (Corrected)
+
+```
+┌─ Herdr Terminal Emulator ──────────────────────────────────────┐
+│  Factory Director presses prefix+j                              │
+│  → Herdr opens overlay pane, spawns herdr-janus process         │
+│  → herdr-janus reads HERDR_PLUGIN_STATE_DIR/janus.sock          │
+│  → Connects via UDS to janus-daemon                             │
+│                                                                  │
+│  ┌─ herdr-janus (overlay pane, ratatui TUI) ─────────────────┐  │
+│  │  Tab                  → toggle Dispatch ↔ Progress         │  │
+│  │  Dispatch view        → select blueprint, dispatch         │  │
+│  │  Progress view        → 1-2s poll, render task status      │  │
+│  │  Esc / q              → exit process, Herdr closes overlay │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+         │ UDS
+         ▼
+┌─ janus-daemon (MM-CORE background process) ────────────────────┐
+│  - Serves Blueprints, Progress, Ping, GuardCheck               │
+│  - State owned by Absurd PG                                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Injected Environment Variables (Validated M0)
+
+| Variable | Purpose | Used by |
+|---|---|---|
+| `HERDR_PLUGIN_ROOT` | Immutable plugin checkout (blueprints/, workflows/, bin/) | `janus-daemon` for `repo_root` |
+| `HERDR_PLUGIN_CONFIG_DIR` | Mutable config (`agents.toml`) | `janus-daemon` for `agents_toml_path` |
+| `HERDR_PLUGIN_STATE_DIR` | Mutable state (`janus.sock`, `janus.pid`, `fallback.db`) | All binaries for `paths::state_dir` |
+| `HERDR_SOCKET_PATH` | Herdr's own control socket | Not currently used by MetaMach |
+
+### Dev Workflow
+
+```bash
+herdr plugin link ~/metamach/janus          # register from local manifest dir
+herdr plugin list                           # verify (enabled, source, warnings)
+herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual test
+```
+
+### Cross-Check: Corrections from Chinese Design Doc
+
+| # | Original Proposal | Corrected | Rationale |
+|---|---|---|---|
+| 1 | `placement = "popup"` | `placement = "overlay"` | M0-validated: Herdr 0.7.3 enum is `overlay \| split \| tab \| zoomed`, not `popup`. |
+| 2 | `width = "80%"`, `height = "60%"` | Removed | Not valid Herdr 0.7.3 manifest fields. Sizing is managed by Herdr. |
+| 3 | `min_herdr_version = "0.7.0"` | `"0.7.3"` | Validated against actual installed version. |
+| 4 | `id = "com.metamach.janus"` | `"metamach.janus"` | Matching existing manifest and tenant key in paths. |
+| 5 | Two `[[panes]]` (popup + dashboard) | One `[[panes]]` (dispatcher) | Internal Tab toggle handles view switching. |
+| 6 | `[[keys.command]]` in manifest | Configured in Herdr's `config.toml` | Keybindings are host-level, not plugin-level. |
+| 7 | `[[actions]]` with `herdr plugin pane open` | Not needed | Pane opens via `herdr plugin pane open --entrypoint dispatcher`. |
+| 8 | `~/.metamach/janus.sock` | `HERDR_PLUGIN_STATE_DIR/janus.sock` | Uses `paths::sock_path()` resolution. |
+| 9 | `HERDR_BIN_PATH` env var | Not a documented Herdr var | Not in the M0-validated env var set. |
+| 10 | `--mode popup` CLI flag | Internal View enum, Tab toggle | `herdr-janus` has no CLI modes; always renders ratatui TUI. |
+| 11 | `herdr plugin pane close` call from plugin | Process exits → Herdr closes overlay | Plugin should not call Herdr CLI; exit is sufficient. |
+
+### Inherited Design Principles (from herdr-tether analysis)
+
+| Principle | herdr-tether Limitation | MetaMach 0.4.0 Solution |
+|---|---|---|
+| **16KB Flow Budget** | Fail on over-budget | Dual-defense: janush streaming + daemon pre-insert truncation with `[Log Budget Exceeded]` tag |
+| **tmux Session Isolation** | Could attach to external sessions | Strict `tmux -L metamach-tmux` isolation; never touches host-global tmux |
+| **Non-Destructive View Close** | Closing view = session at risk | `remain-on-exit on`; SIGHUP immunity via `janus::tmux` daemon-owned sessions |
+| **Fail-Closed on Unknown** | Unknown = assume safe | 30s fail-closed timeout; never lets through on uncertainty |
+| **Idempotent Recovery** | State files, no atomicity | Absurd PG checkpoints; cold-start reads last COMPLETED step |
+| **File Mode 0600** | Atomic writes | UDS socket, fallback.db, PG data dir all enforce 0600 permissions |
+| **SSH BatchMode** | Could not parse SSH Include | Host-native SSH binary; inherits all system SSH config resolution |
+| **Not a Sandbox** | Tether was not a sandbox | janush is a gatekeeper — once approved, commands execute bare-metal (no virtualization) |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

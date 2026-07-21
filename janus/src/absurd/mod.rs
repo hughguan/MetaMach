@@ -80,6 +80,18 @@ impl AbsurdDb {
                     Ok(pool) => {
                         *db.catalog.write().await = Some(pool);
                         info!("connected to Absurd Postgres (catalog)");
+                        // M4 Task 4.1: replay any fallback events buffered
+                        // during the outage into their per-blueprint overlays.
+                        let db2 = Arc::clone(&db);
+                        tokio::spawn(async move {
+                            match db2.replay_fallback().await {
+                                Ok(n) if n > 0 => {
+                                    info!(replayed = n, "PG recovery: fallback log replay")
+                                }
+                                Ok(_) => {}
+                                Err(e) => warn!("PG recovery: fallback replay failed: {e}"),
+                            }
+                        });
                         return;
                     }
                     Err(e) => warn!("PG connect {attempt}/{PG_RETRY_ATTEMPTS} failed: {e}"),
@@ -310,9 +322,12 @@ impl AbsurdDb {
     }
 
     /// Append a Step transition to the fallback ring buffer (used during PG
-    /// outage; replayed into Postgres on recovery - Feature-Spec §4).
+    /// outage; replayed into Postgres on recovery - Feature-Spec §4). The
+    /// `blueprint_name` routes the event to the correct per-blueprint DB on
+    /// replay (Contract 3.8).
     pub fn record_fallback_event(
         &self,
+        blueprint: &str,
         task_id: Uuid,
         step_name: &str,
         status: &str,
@@ -321,7 +336,72 @@ impl AbsurdDb {
         self.fallback
             .lock()
             .expect("fallback mutex poisoned")
-            .record(&task_id, step_name, status, result_cache)
+            .record(&task_id, blueprint, step_name, status, result_cache)
+    }
+
+    /// Current fallback ring depth (health/observability + tests).
+    pub fn fallback_count(&self) -> Result<i64> {
+        self.fallback
+            .lock()
+            .expect("fallback mutex poisoned")
+            .count()
+    }
+
+    /// M4 Task 4.1 - Log Replay: drain the fallback ring buffer (populated
+    /// during the PG outage by `suspend_step` / `record_hitl_resolution`) and
+    /// merge each event into the routed per-blueprint `metamach_step_meta`
+    /// overlay. Called on PG recovery. The ring is truncated regardless of
+    /// per-event outcome (a bad event is warned + dropped, not re-queued) so the
+    /// ring can't grow unbounded across recoveries. Returns the count merged.
+    pub async fn replay_fallback(&self) -> Result<usize> {
+        let events = {
+            let fb = self.fallback.lock().expect("fallback mutex poisoned");
+            fb.drain()?
+        };
+        if events.is_empty() {
+            return Ok(0);
+        }
+        let mut replayed = 0usize;
+        for ev in events {
+            let task_id = match Uuid::parse_str(&ev.task_id) {
+                Ok(u) => u,
+                Err(e) => {
+                    warn!(task_id = %ev.task_id, "replay: bad task_id ({e}); dropping");
+                    continue;
+                }
+            };
+            // Ensure the blueprint DB + overlay exist (idempotent); the event
+            // may target a blueprint whose pool was lost during the outage.
+            if let Err(e) = self.ensure_blueprint_db(&ev.blueprint_name).await {
+                warn!(blueprint = %ev.blueprint_name, "replay: ensure_blueprint_db failed ({e}); dropping");
+                continue;
+            }
+            let Some(pool) = self.blueprint_pool(&ev.blueprint_name).await? else {
+                warn!(blueprint = %ev.blueprint_name, "replay: no blueprint pool; dropping");
+                continue;
+            };
+            if let Err(e) = sqlx::query(
+                "INSERT INTO metamach_step_meta (task_id, step_name, blueprint_name, status) \
+                 VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT (task_id, step_name) DO UPDATE \
+                 SET status = EXCLUDED.status, updated_at = NOW()",
+            )
+            .bind(task_id)
+            .bind(&ev.step_name)
+            .bind(&ev.blueprint_name)
+            .bind(&ev.status)
+            .execute(&pool)
+            .await
+            {
+                warn!(task_id = %task_id, "replay: overlay upsert failed ({e}); dropping");
+                continue;
+            }
+            replayed += 1;
+        }
+        if replayed > 0 {
+            info!(replayed, "fallback log replay merged events into overlays");
+        }
+        Ok(replayed)
     }
 
     /// Mark a Step `SUSPENDED` (non-destructive HITL - Feature-Spec §2.4) in the
@@ -345,7 +425,7 @@ impl AbsurdDb {
             .await?;
             Ok(())
         } else {
-            self.record_fallback_event(task_id, step_name, "SUSPENDED", None)
+            self.record_fallback_event(blueprint, task_id, step_name, "SUSPENDED", None)
         }
     }
 
@@ -374,7 +454,7 @@ impl AbsurdDb {
             .await?;
             Ok(())
         } else {
-            self.record_fallback_event(task_id, step_name, verdict, None)
+            self.record_fallback_event(blueprint, task_id, step_name, verdict, None)
         }
     }
 
@@ -704,5 +784,84 @@ mod tests {
     fn sanitize_ident_replaces_invalid() {
         assert_eq!(sanitize_ident("gatemetric"), "gatemetric");
         assert_eq!(sanitize_ident("gate-metric.9"), "gate_metric_9");
+    }
+
+    /// Mirror the daemon's `pg_connect_options` for tests: TCP via DATABASE_URL
+    /// (CI) or the Unix socket via METAMACH_PG_SOCKET_DIR (local `make db-init`,
+    /// where the `postgres://...?host=` URL form is rejected by `from_str`).
+    fn pg_opts_for_test() -> PgConnectOptions {
+        use std::str::FromStr;
+        if let Ok(socket) = std::env::var("METAMACH_PG_SOCKET_DIR") {
+            return PgConnectOptions::new()
+                .socket(socket)
+                .username("metamach_admin")
+                .database("metamach_db");
+        }
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        PgConnectOptions::from_str(&url).expect("parse DATABASE_URL")
+    }
+
+    /// M4 Task 4.1 - Log Replay integration (PG-gated). Buffers SUSPENDED
+    /// transitions in the fallback ring (as `suspend_step` does during an
+    /// outage), then verifies `replay_fallback` merges them into the routed
+    /// per-blueprint `metamach_step_meta` overlay and drains the ring.
+    #[tokio::test]
+    #[ignore = "requires PostgreSQL"]
+    async fn replay_fallback_merges_events_into_overlay() {
+        let bp = "replaytest";
+        let tmp = tempfile::tempdir().expect("tmp");
+        let db = std::sync::Arc::new(
+            AbsurdDb::open_degraded(&tmp.path().join("fallback.db")).expect("open"),
+        );
+        db.spawn_connect(pg_opts_for_test());
+        let start = std::time::Instant::now();
+        while !db.pg_online().await && start.elapsed() < std::time::Duration::from_secs(12) {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(db.pg_online().await, "PG did not come online");
+
+        db.ensure_blueprint_db(bp).await.expect("ensure bp db");
+
+        // Buffer two SUSPENDED transitions (as suspend_step would during outage).
+        let t1 = Uuid::new_v4();
+        let t2 = Uuid::new_v4();
+        db.record_fallback_event(bp, t1, "scout", "SUSPENDED", None)
+            .expect("record");
+        db.record_fallback_event(bp, t2, "code", "SUSPENDED", None)
+            .expect("record");
+        assert_eq!(db.fallback_count().unwrap(), 2, "two events buffered");
+
+        // Replay merges + drains.
+        let n = db.replay_fallback().await.expect("replay");
+        assert_eq!(n, 2, "both events replayed");
+        assert_eq!(db.fallback_count().unwrap(), 0, "ring drained");
+
+        // Overlay rows landed with the replayed status.
+        let pool = db
+            .blueprint_pool(bp)
+            .await
+            .expect("pool lookup")
+            .expect("some pool");
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT status FROM metamach_step_meta WHERE task_id = $1 AND step_name = $2",
+        )
+        .bind(t1)
+        .bind("scout")
+        .fetch_optional(&pool)
+        .await
+        .expect("query t1");
+        assert_eq!(row.expect("t1 row").0, "SUSPENDED");
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT status FROM metamach_step_meta WHERE task_id = $1 AND step_name = $2",
+        )
+        .bind(t2)
+        .bind("code")
+        .fetch_optional(&pool)
+        .await
+        .expect("query t2");
+        assert_eq!(row.expect("t2 row").0, "SUSPENDED");
+
+        // Replaying again is a no-op (ring empty).
+        assert_eq!(db.replay_fallback().await.unwrap(), 0);
     }
 }

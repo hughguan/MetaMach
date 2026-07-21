@@ -8,22 +8,70 @@ MetaMach 0.4.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as is
 
 ---
 
-## 🪐 The 0.4.0 Triad
+## 🪐 Industrial Suite Architecture
 
 ```
-       [ MetaMach 0.4.0 Industrial Suite ]
-                       │
-       ┌───────────────┼───────────────┐
-       ▼               ▼               ▼
-  【 janush 】    【 janus-daemon 】 【 janus::gateway 】
- (Interception)    (MM-CORE Brain)  (Hermes/Teams HITL)
+                       ┌─────────────────────────────────────────────────────────┐
+                       │          🪐 MetaMach 0.4.0 Industrial Suite              │
+                       └────────────────────────────┬────────────────────────────┘
+                                                    │
+    ════════════════════ 1. PHYSICAL INTERCEPTION & EXECUTION ════════════════════
+                                                    │
+      【 Terminal / Any CLI Agent 】 ──(Spawns)──► 【 janush 】 (Interception Shell)
+      (Aider, Roo Code, Claude Code...)              │
+                                                     │ ── 16KB Streaming Truncation
+                                                     │ ── Synchronous UDS
+                                                     ▼
+    ═══════════════════════ 2. MM-CORE CONTROL PLANE ═════════════════════════════
+
+                                 ┌───────────────────────────────────────┐
+                                 │     🧠 janus-daemon (MM-CORE)        │
+                                 │  - Master State Machine & UDS Router  │
+                                 │  - 30s Fail-Closed Timeout Engine     │
+                                 └───────────┬───────────────┬───────────┘
+                                             │               │
+                     ┌───────────────────────┘               └───────────────────────┐
+                     ▼                                                               ▼
+   【 janus::tmux 】 (PTY Sandbox Engine)                            【 Storage & Data Survival 】
+   - Isolated `tmux -L metamach-tmux`                                - Primary: Native Absurd PG (`~/.metamach/db/`)
+   - SIGHUP Immunity & Physical Keep-Alive                           - Fallback: SQLite Ring Buffer (`fallback.db`)
+   - Bare-Metal Hardware Access (USB/GPIO)                           - Authoritative 16KB Pre-Insert Truncation
+                     │
+                     ▲ (Reattach View)
+                     │
+         【 herdr-janus 】 (Shadow TUI)
+         Transient Renderer / Zero State
+
+    ═══════════════════ 3. DECOUPLED ECOSYSTEM INTEGRATIONS ═══════════════════════
+                                                     │
+                                                     ▼
+                                       【 janus::gateway 】 (HITL Gateway)
+                                       - Payload-Complete HTTP/UDS Proxy
+                                       - Hermes Run API Schema (/v1/runs)
+                                                     │
+                             ┌───────────────────────┴───────────────────────┐
+                             ▼                                               ▼
+         【 Human-in-the-Loop Channels 】                   【 Opt-in Cognitive Services (SPI) 】
+         - Microsoft Teams (Adaptive Cards)                - OpenWiki (Contextual Markdown)
+         - Telegram / Out-of-band Webhooks                 - codebase-memory-mcp (Tree-Sitter / MCP)
+         - Remote Approve / Reject / Override
+
 ```
 
-| Component | Role | Key Invariant |
-|-----------|------|---------------|
-| **`janush`** | Invisible safety shell — PTY 30s Fail-Closed fuse | Synchronous UDS interception before any command reaches Bash; never lets through on timeout |
-| **`janus-daemon`** | Background control brain — Absurd PG state ignition, `janus::tmux` PTY keep-alive, SQLite degraded-mode fallback | Sole owner of state and DB connection pool; survives frontend crash |
-| **`janus::gateway`** | Physical portal connecting the human workshop (Teams/Web/Mobile) to the bare-metal machine | Payload-complete HITL dispatch; Hermes Run API envelope; non-blocking — tmux session never frozen |
+### 🛠️ Layer-by-Layer Physical Logic
+
+**1. Physical Interception Layer.** Any CLI Agent running in a shell issues commands — `janush` acts as the first interception line, performing transparent capture, 16KB real-time streaming truncation, and synchronous reporting to `janus-daemon` via Unix Domain Socket (UDS).
+
+**2. MM-CORE Control & Durability Layer.**
+- **`janus-daemon` → `janus::tmux`**: After confirming the command is safe, the Daemon drives the underlying `janus::tmux` engine to execute the instruction inside the isolated `metamach-tmux` server. Even if the foreground UI crashes or the SSH connection drops, the underlying process keeps running uninterrupted.
+- **`janus-daemon` → Storage**: State writes are preferentially committed to the host-native Absurd PG. If PG crashes, writes seamlessly fail over to the SQLite ring buffer for degraded-mode survival; PG automatically replays on recovery.
+- **`herdr-janus` → `janus::tmux`**: A pure shadow TUI renderer — only mounts and interacts with the physical screen; holds zero state.
+
+**3. Decoupled Gateway & Cognition Layer.**
+- **`janus-daemon` ↔ `janus::gateway`**: When a high-risk operation triggers the 30s Fail-Closed suspension, the Daemon dispatches the event to the payload-complete `janus::gateway`.
+- **`janus::gateway` → External World**:
+  - **Human Circuit-Breaker**: Pushes Rich Adaptive Cards to **Microsoft Teams** via the Hermes `/v1/runs` compatible protocol. The Factory Director remotely taps Approve to energize the circuit; the signal returns through the Gateway to the Daemon, unfreezing `janush`.
+  - **Cognitive Enhancement**: Asynchronously queries `codebase-memory-mcp` and `OpenWiki` context via MCP on demand; the MM-CORE Daemon maintains a minimal memory footprint (< 50MB).
 
 ---
 
@@ -82,6 +130,9 @@ metamach/
 ├── blueprints/               # Product blueprints (joyrobots, gatemetric...)
 │   ├── joyrobots/            #   Modular education robot platform
 │   └── gatemetric/           #   BMX attitude evaluation system
+├── integrations/             # 🔌 Opt-in external services (SPI / MCP)
+│   ├── openwiki/             #   Shared RAG knowledge base
+│   └── codebase-memory-mcp/  #   Tree-sitter symbol index (MCP transport)
 ├── docs/                     # Full design specs, PRD, test, deployment
 ├── janus/                    # 🛡️ Janus Core (Rust)
 │   ├── Cargo.toml            #   Rust workspace
@@ -111,23 +162,6 @@ metamach/
 ```
 
 ---
-
-## 📚 Documentation
-
-Full design specifications live directly under `docs/` (English) — this is the **sole version-controlled spec source**. Chinese translations and audit artifacts live under `docs/CH/`, which is gitignored (local-only, non-authoritative); when the two disagree, `docs/` wins.
-
-| Doc | Scope |
-|-----|-------|
-| `ARCH.md` | System architecture, topology, component interactivity |
-| `ARCH-0.2.0.md` | Database layer evolution exploration (0.1.0 → 0.2.0 proposals) |
-| `ARCH-0.3.0.md` | **Architecture consensus baseline** — final arbitration of all 0.3.0 proposals |
-| `ARCH-0.4.0.md` | **0.4.0 Delta** — Gateway, Cognitive Provider SPI, Teams HITL |
-| `PRD.md` | Product requirements & Factory Director user journey |
-| `Feature-Spec.md` | Engineering feature specs, data contracts (Contracts 3.1–4.3c), fault matrix |
-| `Project-Plan.md` | Milestone roadmap (M0–M5) & check-in units |
-| `Review-Spec.md` | Audit/review standards & sign-off criteria (REV-SEC, REV-STB, REV-DIS, REV-EVO, REV-GW, REV-COG) |
-| `Test-Spec.md` | Test cases (UTC-01 through UTC-10) & QA strategy |
-| `Deployment-Spec.md` | Physical deployment, bootstrap, directory mapping |
 
 ---
 

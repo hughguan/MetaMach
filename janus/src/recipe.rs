@@ -110,8 +110,16 @@ pub struct ValidatedRecipe {
 /// `repo_root` is the Immutable ROOT where `blueprints/` and `workflows/` live
 /// (`HERDR_PLUGIN_ROOT` in production; CWD when standalone).
 pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
-    if name.is_empty() || name.contains('/') {
-        bail!("invalid blueprint name {name:?}");
+    // Contract 3.6 / Feature-Spec §2.5: the name must be 1-60 chars of
+    // alphanumeric + underscore (the charset `sanitize_ident` preserves, and a
+    // valid PG ident once prefixed with `metamach_blueprint_`). Rejects empty,
+    // over-long, and names with slashes, spaces, dashes, etc. This runs BEFORE
+    // any DB write or file read.
+    if name.is_empty()
+        || name.chars().count() > 60
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        bail!("invalid blueprint name {name:?}: must be 1-60 chars, alphanumeric + underscore");
     }
     let recipe_path: PathBuf = repo_root.join("blueprints").join(name).join("janus.toml");
     let config_text = std::fs::read_to_string(&recipe_path)
@@ -323,5 +331,36 @@ host = "remote"
         let r = validate("gatemetric", d.path()).unwrap();
         assert_eq!(r.remote_host.as_deref(), Some("192.168.1.100"));
         assert_eq!(r.workflow.steps[0].host.as_deref(), Some("remote"));
+    }
+
+    #[test]
+    fn rejects_invalid_blueprint_names() {
+        // UTC-05-04b / Feature-Spec §2.5: names must be 1-60 chars, alphanumeric
+        // + underscore. Validation runs before any file/DB access, so no recipe
+        // file is needed for the rejected cases.
+        let d = tempdir().unwrap();
+        let bad = ["", "has space", "has-dash", "has/slash", "has.dot"];
+        for name in bad {
+            let err = validate(name, d.path()).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid blueprint name"),
+                "{name:?} should be rejected: {err}"
+            );
+        }
+        // Over 60 chars is rejected.
+        let too_long = "a".repeat(61);
+        let err = validate(&too_long, d.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid blueprint name"),
+            "61-char name should be rejected: {err}"
+        );
+        // A 60-char name passes the name check (it only fails later on the
+        // missing recipe file, with a non-validation error).
+        let max = "a".repeat(60);
+        let err = validate(&max, d.path()).unwrap_err();
+        assert!(
+            !err.to_string().contains("invalid blueprint name"),
+            "60-char name should pass the name check: {err}"
+        );
     }
 }

@@ -13,6 +13,25 @@
 
 ---
 
+## 🪐 The 0.4.0 Triad
+
+```
+       [ MetaMach 0.4.0 Industrial Suite ]
+                       │
+       ┌───────────────┼───────────────┐
+       ▼               ▼               ▼
+  【 janush 】    【 janus-daemon 】 【 janus::gateway 】
+ (Interception)    (MM-CORE Brain)  (Hermes/Teams HITL)
+```
+
+| Component | Role | Key Invariant |
+|-----------|------|---------------|
+| **`janush`** | Invisible safety shell — synchronous UDS interception before any command reaches Bash | 30s Fail-Closed fuse; never lets through on timeout |
+| **`janus-daemon`** | Background control brain — sole owner of state, DB connection pool, and `janus::tmux` PTY engine | Survives frontend crash; cold-start self-healing from Absurd PG checkpoints |
+| **`janus::gateway`** | Physical portal — Hermes Run API envelope, Teams Adaptive Cards, Telegram inline keyboards | Payload-complete; non-blocking dispatch; tmux session never frozen |
+
+> **Naming note:** The code module is `janus::gateway` (inside the `janus` crate). The conceptual name `mach-gateway` appears in branding and documentation to emphasize its role as the bridge between the human workshop and the bare-metal machine engine.
+
 ## 📋 0.4.0 Delta Matrix
 
 | Component | 0.3.0 Baseline | 0.4.0 Delta | Verdict |

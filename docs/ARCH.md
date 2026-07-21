@@ -1,18 +1,18 @@
-# MetaMach 0.3.0 — System Architecture
+# MetaMach 0.4.0 — System Architecture
 
-> A silicon-grade industrial production machine powered by Janus Daemon and distributed durable execution sessions.
+> A silicon-grade industrial production machine powered by Janus Daemon, distributed durable execution sessions, and a stateless HITL Gateway.
 
 ## 1. Philosophical Pillars
 
 In the era of distributed AI co-development, traditional AI programming or agent scheduling is largely "stateless single-shot invocation." Under long-running, heavy-load, multi-station, cross-physical-host R&D scenarios, systems are highly vulnerable to process crashes from network jitter, API circuit-breakers, or context loss—fragmenting the development flow.
 
-**MetaMach 0.3.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), and **Blueprints** (product recipes):
+**MetaMach 0.4.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell, gateway as the portal"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), **Blueprints** (product recipes), and **Gateway** (HITL portal):
 
-- **Brain-as-a-Daemon (Janus Daemon) — Central Nervous System:** Core control flow and state transitions are entirely owned by the always-running background daemon **`janus-daemon`**, which holds an exclusive database connection pool and event listener gateway. The Herdr-side plugin is merely a lightweight shadow client (`herdr-janus`) dedicated to terminal rendering and interaction.
+- **Brain-as-a-Daemon (Janus Daemon) — Central Nervous System:** Core control flow and state transitions are entirely owned by the always-running background daemon **`janus-daemon`**, which holds an exclusive database connection pool, a `janus::tmux` physical execution engine, and a `janus::gateway` HITL dispatch module. The Herdr-side plugin is merely a lightweight shadow client (`herdr-janus`) dedicated to terminal rendering and interaction.
 
-- **Cross-Host Session Durability (tmux Engine) — Body and Bones Intact:** Combined with **tmux Engine (Tmux/SSH)** to erase network boundaries. Underlying physical process sites are locked down by native `remain-on-exit` tmux sessions—even if the physical network or SSH connection drops, the session never dies. Re-attach and restore the scene at any moment.
+- **Cross-Host Session Durability (janus::tmux) — Body and Bones Intact:** Internalized native tmux engine eliminates the dependency on the external `herdr-tether` plugin. Underlying physical process sites are locked down by native `remain-on-exit` tmux sessions—even if the physical network or SSH connection drops, the session never dies. Re-attach and restore the scene at any moment.
 
-- **Durable Workflows & HITL — Resilient Closed Loop:** Workflow state does not degrade with single-execution outcomes. When the AI encounters an insurmountable obstacle (e.g., compile errors, privilege violations), the pipeline auto-suspends at the breakpoint, preserves the terminal scene, and introduces **Human-in-the-Loop** intervention. After the fix, one-click Resume for seamless handoff.
+- **Durable Workflows & HITL Gateway — Resilient Closed Loop:** Workflow state does not degrade with single-execution outcomes. When the AI encounters an insurmountable obstacle (e.g., compile errors, privilege violations), the pipeline auto-suspends at the breakpoint, preserves the terminal scene, and introduces **Human-in-the-Loop** intervention via the `janus::gateway` — dispatching Hermes Run API envelopes to Teams or Telegram with HMAC-authenticated callback ingress. After the fix, one-click Resume for seamless handoff.
 
 ## 2. Feature Specifications
 
@@ -61,14 +61,14 @@ Product lines reside under `blueprints/`, maintaining absolute physical cleanlin
 
 ## 3. System Architecture Topology
 
-MetaMach 0.3.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
+MetaMach 0.4.0 implements an industrial-grade isolation scheme of "independent brain monitoring, shadow client passthrough, physical session attachment, data logical multi-tenancy":
 
 - **Control Plane:**
     - **`janus-daemon` (resident process):** Responsible for core logic scheduling, maintaining a persistent connection to Absurd Postgres, listening for external Teams/TG async messages. Also exposes the `progress` query primitive: aggregating real-time status from `absurd_tasks` JOIN `absurd_steps` plus tmux physical session liveness signals, serving as the sole authoritative data source for the workflow progress dashboard.
     - **`herdr-janus` (shadow plugin):** Passive execution. Declared in `herdr-plugin.toml` as a `[[panes]]` entrypoint with `placement = "overlay"` (validated Herdr 0.7.3 directive; see `docs/herdr-v1-contract.md`), dedicated to launching session-modal interaction popups, sending commands to the Daemon via UDS socket. The Popup has two built-in views: **Dispatch** and **Progress**, switchable by the Factory Director with one key. The Progress view polls the Daemon's `progress` primitive at a fixed cadence (1–2s) to render the workflow progress dashboard.
 
 - **Physical Execution Plane:**
-    - **`janus::tmux` (physical engine):** A native Rust module inside `janus-daemon`, directly managing tmux `remain-on-exit` sessions and cross-host SSH transport. Formerly the external `herdr-tether` plugin; now internalized as part of MM-CORE per the 0.3.0 architecture consensus.
+    - **`janus::tmux` (physical engine):** A native Rust module inside `janus-daemon`, directly managing tmux `remain-on-exit` sessions and cross-host SSH transport. Formerly the external `herdr-tether` plugin; now internalized as part of MM-CORE per the 0.4.0 architecture consensus.
 
 - **Persistence Plane:**
     - **Absurd Postgres (Absurd DB):** One PG, Multi-DB topology. A single physical Postgres instance (native, no Docker) hosts independent logical databases per blueprint (`CREATE DATABASE metamach_blueprint_<name>` on Onboard). Each blueprint's database is fully isolated with its own connection pool, eliminating cross-blueprint lock contention. Data persists at `~/.metamach/db/`.
@@ -185,8 +185,10 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │       ├── bin/
 │       │   ├── janus_daemon.rs   # Resident background daemon
 │       │   ├── herdr_janus.rs    # Ultra-lightweight Herdr shadow client
-│       │   └── janus_sh.rs       # Proxy shell
+│       │   └── janush.rs       # Proxy shell
 │       │
+│       ├── gateway/              # 🌐 0.4.0 HITL Gateway (Hermes Run API, Teams, Telegram)
+│       ├── cognitive/            # 🔌 0.4.0 Cognitive Provider SPI (MCP, OpenWiki)
 │       ├── tool_guard/           # janush in-memory interception & allowlist filtering
 │       ├── absurd/               # Exclusive sqlx Postgres connection pool, reconciliation & GC
 │       └── tui/                  # Popup keyboard UI (Ratatui)
@@ -245,6 +247,8 @@ metamach/ (Single monorepo — silicon factory headquarters)
 > **External Dependencies & Mutable Configuration:**
 > - `absurd` and `openwiki` are independent external repositories, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking these dependencies. `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tmux`.
 > - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/config/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). **Database persistence** uses `~/.metamach/db/` — an independent global directory decoupled from the Herdr plugin lifecycle, ensuring PG data survives plugin upgrades and power-cycle restarts.
+> - **0.4.0 addition:** `codebase-memory-mcp` (AST/symbol MCP server) is an external process spawned by `janus-daemon` on first use; its blueprint is configured in `blueprints/<name>/janus.toml` under `[cognitive.mcp]`. The MCP server is terminated on blueprint Offboard.
+> - **0.4.0 addition:** `janus::gateway` is an in-module HTTP listener (loopback only) — no external proxy is bundled. A tunnel (cloudflared) or reverse proxy (nginx/Caddy) is required for external Teams callback reachability (see `docs/Deployment-Spec.md` §7).
 
 ## 6. Resilience Invariants
 
@@ -257,3 +261,34 @@ metamach/ (Single monorepo — silicon factory headquarters)
 4. **Stateless Cold Start — Absolute Rejection of tmux-resurrect:** The sole source of truth for state is Postgres. After a server room restart, the system directly reads the last Completed Step's JSON cache from the database, assigns a brand-new tmux Session UUID, and instantly picks up seamlessly at the physical breakpoint.
 
 5. **Version Reconciliation - Git SHA Optimistic Locking (preparatory; enforcement lands with Task 4.4):** To prevent slow remote test reports (potentially minutes-long) from overwriting locally-evolved code state upon return, the system enforces SHA-1 optimistic locking at the `metamach_step_meta` level (app-layer; absurd has no SHA concept). Each Step dispatch pins the current `HEAD` SHA into `target_sha` (the all-zeros sentinel marks a non-git blueprint, which skips the lock) and sends it as `dispatch_sha` with the step payload; the remote report echoes it back. On return the Daemon compares `report.dispatch_sha == current HEAD` - a mismatch means `HEAD` advanced since dispatch, so the report is stale: discard it, mark the step `SUSPENDED`, emit a `CONCURRENCY_RACE_ALERT` via the HITL channel, and auto-reschedule against the new `HEAD`. The `UPDATE … WHERE target_sha = $4` (`$4 = report.dispatch_sha`) is the reschedule guard; a reschedule writes a **new** `absurd_tasks` row rather than mutating the existing `target_sha`, so stale pre-reschedule reports zero-row correctly. Dispatch-time pinning, the remote-report contract, and the auto-reschedule engine are provided by `janus::tmux` (internalized in 0.3.0).
+
+6. **HITL Timeout Bounding — expires_at (0.4.0):** Every HITL card carries an `expires_at` timestamp set to `now + HITL_TIMEOUT` (default 30 min). A callback arriving after `expires_at` is rejected with `410 Gone`. This bounds the replay-attack window and prevents stale approvals from resurrecting long-abandoned sessions.
+
+7. **Payload-Complete Gateway — No DB Dependency (0.4.0):** The `janus::gateway` module performs zero database lookups. All data it needs (blueprint, step, command, scene) is in the `WebhookPayload` received from `tool_guard`. The gateway can survive a PG outage — it continues serving callback ingress and dispatching cards against in-memory verdict state.
+
+8. **Cognitive Provider Fail-Open (0.4.0):** The Cognitive Provider SPI is advisory only. A provider timeout (2s) or unreachability causes the daemon to proceed with the standard Tool Guard verdict — no false BLOCKs. On Offboard, a cognitive provider failure does not block the LLM smelt (extract_knowledge is a supplement, not a replacement). The tmux session is never frozen waiting for a cognitive provider.
+
+---
+
+## 7. Architecture Decision Records
+
+A full record of all architectural decisions — including the context, options considered, and rationale for each — is maintained in [`docs/ADR.md`](ADR.md). The ADR captures the evolution from 0.1.0 through 0.4.0 across 14 decisions:
+
+| ADR | Decision | Verdict | Version |
+|-----|----------|---------|---------|
+| 001 | De-containerization (No Docker) | ✅ Adopted | 0.3.0 |
+| 002 | `~/.metamach/db/` global independent path | ✅ Adopted | 0.3.0 |
+| 003 | One PG, Multi-DB topology | ✅ Adopted | 0.3.0 |
+| 004 | Retain SQLite Fallback ring buffer | ✅ Force-Retained | 0.3.0 |
+| 005 | DELETE + Audit Archive (reject DROP DATABASE) | ✅ Adopted | 0.3.0 |
+| 006 | tmux Internalization | ✅ Adopted | 0.3.0 |
+| 007 | Fail-Closed 30s Timeout | ✅ Force-Retained | 0.3.0 |
+| 008 | 16KB Budget Dual Defense | ✅ Force-Retained | 0.3.0 |
+| 009 | Isolated tmux Server (`-L metamach-tmux`) | ✅ Already Implemented | 0.3.0 |
+| 010 | Cognitive Provider SPI (Contract 4.1) | 🔌 New | 0.4.0 |
+| 011 | codebase-memory-mcp (Contract 4.2) | 🔌 New | 0.4.0 |
+| 012 | HITL Gateway (Contracts 4.3a–c) | 🌐 New | 0.4.0 |
+| 013 | Teams Active Cards (Contract 4.3b) | 🌐 New | 0.4.0 |
+| 014 | WebhookPayload Relocation to protocol.rs | 🔄 Extended | 0.4.0 |
+
+The delta documents that informed these decisions (`ARCH-0.2.0.md`, `ARCH-0.3.0.md`, `ARCH-0.4.0.md`) are archived in `docs/CH/` — they are historical references, not authoritative. The authoritative architecture specification for all versions is this document.

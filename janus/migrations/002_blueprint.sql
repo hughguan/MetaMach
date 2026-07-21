@@ -47,5 +47,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_step_meta_touch ON metamach_step_meta;
-CREATE TRIGGER trg_step_meta_touch BEFORE UPDATE ON metamach_step_meta
-    FOR EACH ROW EXECUTE FUNCTION metamach_touch_updated_at();
+-- CREATE TRIGGER has no IF NOT EXISTS; guard with a DO block so two concurrent
+-- onboards re-applying this migration can't race on "trigger already exists"
+-- (SQLSTATE 42710 / duplicate_object). The DROP above keeps single-daemon
+-- re-runs idempotent (re-creates the trigger against a refreshed function).
+DO $$ BEGIN
+    CREATE TRIGGER trg_step_meta_touch BEFORE UPDATE ON metamach_step_meta
+        FOR EACH ROW EXECUTE FUNCTION metamach_touch_updated_at();
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;

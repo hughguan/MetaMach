@@ -167,6 +167,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 ## Milestone 4: Cross-Host Durability, Cold Self-Heal & Offboard Archive (Advanced & Prune)
 
 > **Timebox:** ~4 weeks
+> **Status (2026-07-20):** Partial. Task 4.2 (Offboard) + Task 4.3 (Onboard) are implemented and tested. Task 4.1 (cross-host SSH, cold-start re-exec, Log Replay) and Task 4.4 (`target_sha` enforcement) are **deferred** - `coldstart::reconcile` only logs resume plans (no re-exec), `janus::tmux` is local-only, `target_sha` is a schema column without enforcement. These land in a future 0.5.0 arc.
 
 - **Goal:** Grid-connect `janus::tmux` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
 
@@ -175,7 +176,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 ### Tasks
 
-#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7)
+#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7) — DEFERRED
 - **Description:** Drive cross-host SOP sessions through the internalized `janus::tmux`, implement cold-start zero-state self-heal (no tmux-resurrect), and the degraded-mode SQLite fallback + Log Replay per 0.3.0 §1.2/§2.4.
 - **Implementation:**
     - When a Workflow Step declares a remote compilation server, the Daemon drives the internal `janus::tmux` module (not an external binary) to inject the payload env via SSH into a `remain-on-exit` remote session.
@@ -201,7 +202,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
     - Broadcast `blueprint_registered` UDS event; Popup dispatch menu refreshes.
 - **UAT:** On a clean workshop, `janus onboard --blueprint joyrobots` => `SELECT datname FROM pg_database WHERE datname='metamach_blueprint_joyrobots'` returns a row; the catalog `blueprints` table has one `ACTIVE` row; the Popup menu shows it; repeated Onboard is idempotent (42P04 caught); re-Onboard of an Offboarded blueprint recycles `production_report.md`.
 
-#### Task 4.4: `target_sha` Optimistic Locking Enforcement (Check-in Unit 8e)
+#### Task 4.4: `target_sha` Optimistic Locking Enforcement (Check-in Unit 8e) - DEFERRED
 - **Description:** Enforce Git-SHA optimistic locking on remote step reports per ARCH §6.5 / Feature-Spec, closing the race where a slow remote report overwrites locally-evolved code. (Schema/migration is preparatory from M1 Task 1.1; this task lands enforcement.)
 - **Implementation:**
     - Define the Daemon -> `janus::tmux` **dispatch payload** and the **remote step-report payload** contracts (each carries `dispatch_sha`/`target_sha`, `execution_id`, `exit_code`, `stdout_tail`) - currently absent from Contracts 3.2/3.4.

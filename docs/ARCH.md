@@ -234,10 +234,13 @@ metamach/ (Single monorepo — silicon factory headquarters)
 
 # ═══════════════════════════════════════════════════════════════════════
 # EXTERNAL DEPENDENCIES (separate repos, fetched/built by make bootstrap)
-# absurd       → https://github.com/earendil-works/absurd
-#    Absurd Postgres engine: transaction reconciliation, connection pool, DELETE + absurd_audit_log
-# openwiki     → https://github.com/langchain-ai/openwiki
-#    Federated knowledge RAG engine: shared skill retrieval, production_report indexing
+# absurd.sql  → vendored into janus-daemon binary (janus/sql/absurd.sql,
+#               locked to upstream v0.4.0 commit 9b77b35)
+# absurdctl   → CLI tool for inspecting Absurd task state (external)
+# habitat     → Web UI for visualizing Absurd task timelines (external)
+# openwiki    → https://github.com/langchain-ai/openwiki
+#               Federated knowledge RAG engine: shared skill retrieval,
+#               production_report indexing
 #
 # herdr-tether (DEPRECATED in 0.3.0): the tmux session engine has been internalized
 # into janus::tmux; the external herdr-tether binary is no longer required.
@@ -245,7 +248,9 @@ metamach/ (Single monorepo — silicon factory headquarters)
 ```
 
 > **External Dependencies & Mutable Configuration:**
-> - `absurd` and `openwiki` are independent external repositories, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking these dependencies. `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tmux`.
+> - `absurd.sql` is **vendored** (compiled into the `janus-daemon` binary at `janus/sql/absurd.sql`, locked to upstream v0.4.0 commit `9b77b35`). The `absurdctl` CLI and `habitat` UI are separate tools fetched externally; only the SQL schema engine is compiled-in. The upstream version is tracked in `janus/sql/ABSURD_VERSION`.
+> - `openwiki` is an independent external repository, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking this dependency.
+> - `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tmux`.
 > - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/config/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). **Database persistence** uses `~/.metamach/db/` — an independent global directory decoupled from the Herdr plugin lifecycle, ensuring PG data survives plugin upgrades and power-cycle restarts.
 > - **0.4.0 addition:** `codebase-memory-mcp` (AST/symbol MCP server) is an external process spawned by `janus-daemon` on first use; its blueprint is configured in `blueprints/<name>/janus.toml` under `[cognitive.mcp]`. The MCP server is terminated on blueprint Offboard.
 > - **0.4.0 addition:** `janus::gateway` is an in-module HTTP listener (loopback only) — no external proxy is bundled. A tunnel (cloudflared) or reverse proxy (nginx/Caddy) is required for external Teams callback reachability (see `docs/Deployment-Spec.md` §7).

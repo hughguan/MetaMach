@@ -171,6 +171,18 @@
 
 ---
 
+## ADR-015: Vendoring absurd.sql (Absurd Schema Engine)
+
+| Field | Value |
+|---|---|
+| **Context** | The `absurd.sql` schema engine was previously classified as an external dependency: fetched by `make bootstrap` and maintained separately. This introduced a runtime dependency — if the absurd repo were unreachable or if an upstream change broke compatibility, `janus-daemon` could not bootstrap new blueprint databases. |
+| **Options Considered** | (1) Keep absurd as an external dependency (status quo), (2) Vendor absurd.sql into the monorepo and compile it into the binary via `include_str!`. |
+| **Decision** | **Adopted** — Vendor `absurd.sql` at `janus/sql/absurd.sql` (v0.4.0, upstream commit `9b77b35`). The version is tracked in `janus/sql/ABSURD_VERSION`. Every upstream tag update is captured as a commit to this file (version marker in the header). |
+| **Rationale** | Zero runtime network dependency — the daemon reads the schema from its own binary. Deterministic builds — the SQL hash is locked by the repo. Single-binary distribution. Downstream updates are opt-in: a scheduled CI watcher checks for new upstream releases and opens a Draft PR with the updated `absurd.sql` + version bump. |
+| **Status** | ✅ Implemented in 0.4.0 (`fe6572e`+) |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

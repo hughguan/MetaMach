@@ -29,20 +29,39 @@ MetaMach 0.4.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as is
 
 ## 🧱 Core Pillars
 
-- **🧠 Brain-as-a-Daemon (janus-daemon)**
-  The control plane is a standalone Rust daemon that owns the entire state machine, database connection pool, and event gateway. The Herdr plugin runs as a lightweight shadow client (`herdr-janus`) responsible only for rendering and interaction — UI crashes never lose engineering context.
+> **Architecture Invariant:** MetaMach is built on four non-negotiable industrial principles: Safety, Stability, Decoupling, and Reusability. It provides a bare-metal, fail-closed execution harness for autonomous AI agents operating in high-risk engineering environments.
 
-- **🔌 Cross-Host Session Durability (janus::tmux)**
-  All physical agent execution sessions are backed by `remain-on-exit` tmux sessions via the internalized `janus::tmux` native Rust module. The external `herdr-tether` plugin has been fully deprecated and replaced. tmux sessions survive frontend popup destruction (SIGHUP immunity) and operate at microsecond-level IPC latency.
+### 🛡️ 1. Safety First
 
-- **🛡️ Durable Workflows & HITL (Self-Healing)**
-  Workflow state is transactional and atomic. When an AI hits a blocking failure (compile error, permission denied), the pipeline auto-suspends, preserves the terminal live, and signals a **Human-in-the-Loop** approval via Teams/Telegram through `janus::gateway`. Resume at the exact breakpoint.
+**Fail-Closed Gatekeeping (`janush`).** Every shell command passes through the synchronous `janush` interceptor. Any unverified or high-risk operation triggers a strict 30-second timeout — if unapproved, execution hard-fails closed, preventing catastrophic hardware or system mutations.
 
-- **🧱 De-containerized (No Docker)**
-  Postgres runs as a host-native process, not a Docker container. `make bootstrap` compiles, symlinks, and launches PG directly — no Docker, no Compose, no container network overhead. Physical persistence at `~/.metamach/db/` survives power-cycle restarts.
+**Dual-Tier Flow Budgeting.** Strict 16KB log truncation enforced both at the streaming shell boundary (`janush`) and pre-database insertion (`janus-daemon`), shielding local storage from agent infinite loops.
 
-- **📊 Dual-Track Data Survival**
-  Normal writes go through `janush → UDS → janus-daemon → Absurd PG`. If PG goes down, the SQLite ring buffer (`fallback.db`) keeps the workshop alive. On PG recovery, the ring buffer replays into PG automatically.
+**Out-of-Band HITL Guard.** High-risk actions automatically freeze state and fan out interactive Adaptive Cards to Microsoft Teams/Telegram via `janus::gateway`. Human operators can approve, modify, or terminate execution remotely without granting the network layer write access to local PTY sandboxes.
+
+### ⚙️ 2. Uncompromising Stability
+
+**Brain-as-a-Daemon (`janus-daemon`).** The core control plane is an independent, host-native Rust daemon owning the transactional state machine (Absurd PG) and UDS event router. The TUI (`herdr-janus`) is merely a transient view — UI crashes or terminal closures never lose engineering state.
+
+**Dual-Track Data Survival (SQLite Ring Buffer).** Production state is atomically backed by Postgres. In the event of a host PG crash (OOM or disk pressure), execution seamlessly fails over to a local SQLite ring buffer (`fallback.db`), keeping the workshop running in Degraded Mode until PG automatically replays and recovers.
+
+**De-containerized Physical Persistence.** No Docker or Compose overhead. Postgres runs as a native host sandbox writing directly to `~/.metamach/db/`, ensuring absolute state preservation across power-cycle restarts.
+
+### 🔌 3. Pure Decoupling
+
+**Execution vs. UI Decoupling.** PTY session keep-alive is isolated inside the native `janus::tmux` engine (`tmux -L metamach-tmux`). Sessions possess SIGHUP immunity and survive complete disconnection of the developer's laptop or frontend interface.
+
+**Control vs. Cognition Decoupling (Opt-in SPIs).** Heavy symbol indexing (`codebase-memory-mcp`) and contextual knowledge mapping (OpenWiki) are completely isolated into asynchronous, opt-in Model Context Protocol (MCP) plugins, maintaining a minimal core daemon footprint.
+
+**Payload-Complete HITL Gateway.** The notification routing layer (`janus::gateway`) is completely decoupled from PTY lifecycle management; network latency or external webhook failures will never deadlock or crash ongoing physical execution.
+
+### 🔄 4. Universal Reusability
+
+**Hermes Protocol Convergence.** The gateway exposes native compatibility with the Hermes Run API Schema (`/v1/runs`), allowing MetaMach to instantly reuse pre-existing open-source agent dashboards, webhooks, and multi-channel notification bots out-of-the-box.
+
+**Agent & Model Agnostic.** Operates directly at the OS PTY boundary. Works seamlessly with any CLI agent (Claude Code, Aider, Roo Code, Codex) without requiring custom prompts, specific vendor models, or API wrappers.
+
+**Single-Binary Zero-Dependency Bootstrap.** A clean, host-native Rust binary architecture. `make bootstrap` compiles, symlinks, and points to `~/.metamach/db/` for immediate bare-metal deployment.
 
 ---
 

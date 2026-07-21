@@ -109,18 +109,24 @@ pub struct ValidatedRecipe {
 /// Read + validate `blueprints/<name>/janus.toml` and its bound workflow.
 /// `repo_root` is the Immutable ROOT where `blueprints/` and `workflows/` live
 /// (`HERDR_PLUGIN_ROOT` in production; CWD when standalone).
-pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
-    // Contract 3.6 / Feature-Spec §2.5: the name must be 1-60 chars of
-    // alphanumeric + underscore (the charset `sanitize_ident` preserves, and a
-    // valid PG ident once prefixed with `metamach_blueprint_`). Rejects empty,
-    // over-long, and names with slashes, spaces, dashes, etc. This runs BEFORE
-    // any DB write or file read.
+/// Validate a blueprint name per Contract 3.6 / Feature-Spec §2.5: 1-60 chars
+/// of alphanumeric + underscore (the charset `sanitize_ident` preserves, and a
+/// valid PG ident once prefixed with `metamach_blueprint_`). Rejecting here -
+/// before any path join - also prevents path traversal (`..`/`/`) on the read
+/// paths (`validate`, `load_recipe`).
+fn validate_name(name: &str) -> Result<()> {
     if name.is_empty()
         || name.chars().count() > 60
         || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
         bail!("invalid blueprint name {name:?}: must be 1-60 chars, alphanumeric + underscore");
     }
+    Ok(())
+}
+
+pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
+    // Name check runs BEFORE any DB write or file read.
+    validate_name(name)?;
     let recipe_path: PathBuf = repo_root.join("blueprints").join(name).join("janus.toml");
     let config_text = std::fs::read_to_string(&recipe_path)
         .with_context(|| format!("read blueprint recipe {}", recipe_path.display()))?;
@@ -200,6 +206,10 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
 /// the `[cognitive]` config without re-validating the bound workflow on every
 /// command. Cheaper than [`validate`] for the per-command advisory path.
 pub fn load_recipe(name: &str, repo_root: &Path) -> Result<BlueprintRecipe> {
+    // Validate the name (same rule as `validate`) so a malformed `blueprint`
+    // from a GuardCheck can't path-traverse via `..`/`/`. Callers treat the
+    // error as warn-and-pass-through (cognitive supplement skipped).
+    validate_name(name)?;
     let recipe_path = repo_root.join("blueprints").join(name).join("janus.toml");
     let config_text = std::fs::read_to_string(&recipe_path)
         .with_context(|| format!("read blueprint recipe {}", recipe_path.display()))?;
@@ -362,5 +372,24 @@ host = "remote"
             !err.to_string().contains("invalid blueprint name"),
             "60-char name should pass the name check: {err}"
         );
+    }
+
+    #[test]
+    fn load_recipe_rejects_invalid_names() {
+        // load_recipe validates the name (same rule as validate) so a malformed
+        // `blueprint` from a GuardCheck can't path-traverse via `..`/`/`. The
+        // name check runs before any file read, so no recipe file is needed.
+        let d = tempdir().unwrap();
+        for name in ["..", "../../etc/passwd", "has space", "a/b", "has.dot"] {
+            let err = load_recipe(name, d.path()).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid blueprint name"),
+                "{name:?} should be rejected: {err}"
+            );
+        }
+        // A valid name + recipe loads fine.
+        write_valid(d.path());
+        let r = load_recipe("joyrobots", d.path()).unwrap();
+        assert_eq!(r.blueprint.name, "joyrobots");
     }
 }

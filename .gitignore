@@ -2,7 +2,7 @@
 *.swp
 *.swo
 *~
-docs/CH/
+docs/bak/
 spike/
 
 # M1: build artifacts & local runtime state

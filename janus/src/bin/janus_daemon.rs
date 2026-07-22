@@ -22,14 +22,19 @@ use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 
 use janus::absurd::AbsurdDb;
+use janus::absurd::adapter::AbsurdPgAdapter;
 use janus::cognitive;
 use janus::gateway::{self, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
 use janus::protocol::{GatewayVerdict, Request, Response};
+use janus::tmux::{DurableBackend, SessionId, TmuxBackend};
 use janus::tool_guard::webhook::{LoggingSender, TelegramSender};
 use janus::tool_guard::{Engine, Verdict, VerdictKind};
-use janus::{coldstart, lifecycle, recipe};
+use janus::{coldstart, lifecycle, recipe, workflow};
 use sqlx::postgres::PgConnectOptions;
+use uuid::Uuid;
+
+use janus::spawn::resolve_janush_exe;
 
 fn main() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -184,9 +189,23 @@ async fn handle_request(
             },
         },
         Request::Progress { blueprint } => match db.progress(blueprint.as_deref()).await {
-            Ok(tasks) => Response::Progress {
-                active_tasks: tasks,
-            },
+            Ok(mut tasks) => {
+                // tmux_alive second pass (design §0.5): the DB layer attaches each
+                // task's current-step `session_name`; the daemon (holding the
+                // DurableBackend) checks liveness and flips `tmux_alive`. Keeps
+                // AbsurdDb decoupled from tmux. A missing tmux binary / lost
+                // session -> `unwrap_or(false)` (fail-safe, not an error).
+                let backend = TmuxBackend::new();
+                for t in tasks.iter_mut() {
+                    if let Some(sn) = t.session_name.as_deref() {
+                        let id = SessionId::from_name(sn.to_string());
+                        t.tmux_alive = backend.has_session(&id).unwrap_or(false);
+                    }
+                }
+                Response::Progress {
+                    active_tasks: tasks,
+                }
+            }
             Err(e) => Response::Error {
                 message: e.to_string(),
             },
@@ -302,7 +321,78 @@ async fn handle_request(
                 },
             }
         }
+        // M4 Task 4.1 Phase 0b: dispatch a workflow (Contract 3.11). Returns the
+        // absurd-minted task_id synchronously; the step loop runs detached.
+        Request::Dispatch {
+            blueprint,
+            workflow,
+        } => {
+            match handle_dispatch(db.clone(), repo_root.to_path_buf(), blueprint, workflow).await {
+                Ok(task_id) => Response::Dispatch { task_id },
+                Err(e) => Response::Error {
+                    message: e.to_string(),
+                },
+            }
+        }
     }
+}
+
+/// M4 Task 4.1 Phase 0b: dispatch a blueprint's workflow onto the absurd engine
+/// (Contract 3.11). Validates the recipe, ensures the blueprint DB + absurd
+/// schema exist, calls `spawn_workflow` synchronously to mint the task_id (so the
+/// UDS response carries it), then spawns `run_workflow` detached to claim +
+/// execute the steps. Step-loop errors are logged - the dispatch itself
+/// succeeded, so the response is still `Dispatch { task_id }`.
+async fn handle_dispatch(
+    db: Arc<AbsurdDb>,
+    repo_root: PathBuf,
+    blueprint: String,
+    workflow: Option<String>,
+) -> Result<Uuid> {
+    if !db.pg_online().await {
+        bail!("Absurd Postgres not reachable - cannot dispatch (start it with `make db-up`)");
+    }
+    // Pre-flight: resolve the janush binary BEFORE any side effect. spawn_workflow
+    // below commits an absurd task row (pending, max_attempts: 1 - no auto-retry),
+    // so a late failure here would orphan it permanently. Resolving first keeps
+    // the dispatch all-or-nothing up to the spawn.
+    let janush = resolve_janush_exe().context("resolve janush binary")?;
+    // Validate the recipe (same path as onboard; NO db write on failure).
+    let mut recipe = recipe::validate(&blueprint, &repo_root)?;
+    let workflow_name = workflow.unwrap_or_else(|| recipe.default_workflow.clone());
+    // Load the requested workflow (override only when it differs from default).
+    if workflow_name != recipe.default_workflow {
+        recipe.workflow = recipe::load_workflow(&workflow_name, &repo_root)?;
+    }
+    // Ensure the blueprint DB + absurd schema exist (idempotent; onboard may not
+    // have run, or the pool may be stale).
+    db.ensure_blueprint_db(&blueprint).await?;
+    let pool = db
+        .blueprint_pool(&blueprint)
+        .await?
+        .with_context(|| format!("blueprint DB unreachable for {blueprint}"))?;
+    let engine = AbsurdPgAdapter::new(pool);
+
+    // Phase 1: enqueue synchronously so the response carries the real task_id.
+    let task_id = workflow::spawn_workflow(&engine, &recipe, &workflow_name).await?;
+    info!(blueprint = %blueprint, %task_id, workflow = %workflow_name, "workflow dispatched");
+
+    // Phase 2: claim + execute, detached. The Arcs + owned recipe make the
+    // future 'static for tokio::spawn. (`janush` was resolved pre-spawn above.)
+    let backend = TmuxBackend::new();
+    let recipe = Arc::new(recipe);
+    let bp = blueprint.clone();
+    let wf = workflow_name.clone();
+    tokio::spawn(async move {
+        if let Err(e) = workflow::run_workflow(
+            &db, &engine, &backend, &recipe, &wf, &repo_root, task_id, &janush,
+        )
+        .await
+        {
+            warn!(blueprint = %bp, %task_id, "workflow run failed: {e}");
+        }
+    });
+    Ok(task_id)
 }
 
 /// 0.4.0 Contract 4.1: run the blueprint's cognitive provider's

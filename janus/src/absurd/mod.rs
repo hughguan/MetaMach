@@ -118,8 +118,9 @@ impl AbsurdDb {
 
     /// Resolve (and cache) the per-blueprint DB pool. Returns `None` if the
     /// catalog is offline or the blueprint DB cannot be reached (graceful - the
-    /// caller skips that blueprint).
-    async fn blueprint_pool(&self, name: &str) -> Result<Option<PgPool>> {
+    /// caller skips that blueprint). Public so the Dispatch handler can build an
+    /// `AbsurdPgAdapter` against the dispatched blueprint's pool.
+    pub async fn blueprint_pool(&self, name: &str) -> Result<Option<PgPool>> {
         if let Some(p) = self.blueprint_pools.read().expect("bp lock").get(name) {
             return Ok(Some(p.as_ref().clone()));
         }
@@ -268,7 +269,7 @@ impl AbsurdDb {
             };
             let rows: Vec<MetaRow> = sqlx::query_as(
                 "SELECT task_id, step_name, status, exit_code, stdout_tail, started_at, \
-                        blueprint_name, workflow_name \
+                        blueprint_name, workflow_name, session_name \
                  FROM metamach_step_meta \
                  WHERE status IN ('STARTING','RUNNING','SUSPENDED') \
                  ORDER BY task_id, step_name",
@@ -298,6 +299,13 @@ impl AbsurdDb {
                     .rev()
                     .find(|s| matches!(s.status.as_str(), "STARTING" | "RUNNING"))
                     .map(|s| s.step_name.clone());
+                // The current step's tmux session - the daemon's second-pass
+                // `has_session` check reads this to set `tmux_alive` (Contract 3.3).
+                let session_name = steps
+                    .iter()
+                    .rev()
+                    .find(|s| matches!(s.status.as_str(), "STARTING" | "RUNNING"))
+                    .and_then(|s| s.session_name.clone());
                 let started_at = steps.iter().filter_map(|s| s.started_at).min();
                 let elapsed = started_at.map(|s| (Utc::now() - s).num_seconds().max(0));
                 all.push(ActiveTask {
@@ -308,7 +316,8 @@ impl AbsurdDb {
                     started_at: started_at.map(|s| s.to_rfc3339()),
                     elapsed_seconds: elapsed,
                     current_step,
-                    tmux_alive: false, // tmux liveness lands with Task 2.4.
+                    tmux_alive: false, // flipped by the daemon's second pass (§0.5).
+                    session_name,
                     suspended_reason: if suspended {
                         Some("awaiting HITL".to_string())
                     } else {
@@ -464,6 +473,123 @@ impl AbsurdDb {
         } else {
             self.record_fallback_event(blueprint, task_id, step_name, verdict, None)
         }
+    }
+
+    /// M4 Task 4.1 Phase 0b - engine write path: upsert a step's `STARTING`
+    /// row (pins `target_sha` + records the tmux `session_name`). Idempotent
+    /// (`ON CONFLICT` resets to `STARTING` for a re-dispatch of the same
+    /// task_id+step). Degrades to a fallback event if the blueprint DB is
+    /// unreachable (consistent with [`suspend_step`]).
+    pub async fn upsert_step_start(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+        workflow_name: &str,
+        target_sha: &str,
+        session_name: &str,
+    ) -> Result<()> {
+        if let Some(pool) = self.blueprint_pool(blueprint).await? {
+            sqlx::query(
+                "INSERT INTO metamach_step_meta \
+                    (task_id, step_name, blueprint_name, workflow_name, status, target_sha, session_name) \
+                 VALUES ($1, $2, $3, $4, 'STARTING', $5, $6) \
+                 ON CONFLICT (task_id, step_name) DO UPDATE \
+                 SET status = 'STARTING', workflow_name = EXCLUDED.workflow_name, \
+                     target_sha = EXCLUDED.target_sha, session_name = EXCLUDED.session_name, \
+                     exit_code = NULL, started_at = NULL, hitl_verdict = NULL, updated_at = NOW()",
+            )
+            .bind(task_id)
+            .bind(step_name)
+            .bind(blueprint)
+            .bind(workflow_name)
+            .bind(target_sha)
+            .bind(session_name)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        } else {
+            self.record_fallback_event(blueprint, task_id, step_name, "STARTING", None)
+        }
+    }
+
+    /// Phase 0b: flip a step to `RUNNING` and stamp `started_at` (Contract 3.3
+    /// - `started_at` is set on the STARTING->RUNNING transition).
+    pub async fn set_step_running(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+    ) -> Result<()> {
+        if let Some(pool) = self.blueprint_pool(blueprint).await? {
+            sqlx::query(
+                "UPDATE metamach_step_meta SET status = 'RUNNING', started_at = NOW() \
+                 WHERE task_id = $1 AND step_name = $2",
+            )
+            .bind(task_id)
+            .bind(step_name)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        } else {
+            self.record_fallback_event(blueprint, task_id, step_name, "RUNNING", None)
+        }
+    }
+
+    /// Phase 0b: finalize a step (`COMPLETED`/`FAILED`/`SUSPENDED`) with its
+    /// exit code + 16 KiB-truncated stdout tail. `stdout_tail` is truncated by
+    /// the caller via [`truncate_16k`] before this write (the authoritative
+    /// budget enforcement point).
+    pub async fn finalize_step(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+        status: &str,
+        exit_code: Option<i32>,
+        stdout_tail: Option<&str>,
+    ) -> Result<()> {
+        if let Some(pool) = self.blueprint_pool(blueprint).await? {
+            sqlx::query(
+                "UPDATE metamach_step_meta SET status = $3, exit_code = $4, stdout_tail = $5 \
+                 WHERE task_id = $1 AND step_name = $2",
+            )
+            .bind(task_id)
+            .bind(step_name)
+            .bind(status)
+            .bind(exit_code)
+            .bind(stdout_tail)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        } else {
+            self.record_fallback_event(blueprint, task_id, step_name, status, stdout_tail)
+        }
+    }
+
+    /// Phase 0b: re-read a step's `status` after the tmux pane dies. The engine
+    /// uses this to detect that the daemon's `GuardCheck` handler flipped the
+    /// step to `SUSPENDED` (HITL `require_approval`/`blacklist`) - in which case
+    /// the task stops suspended regardless of the pane exit code. Returns `None`
+    /// if the blueprint DB is unreachable or the row is absent (treated as
+    /// "not suspended" -> the exit code decides).
+    pub async fn step_status(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+    ) -> Result<Option<String>> {
+        let Some(pool) = self.blueprint_pool(blueprint).await? else {
+            return Ok(None);
+        };
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT status FROM metamach_step_meta WHERE task_id = $1 AND step_name = $2",
+        )
+        .bind(task_id)
+        .bind(step_name)
+        .fetch_optional(&pool)
+        .await?;
+        Ok(row.map(|(s,)| s))
     }
 
     /// Task 4.3: idempotent tenant registration (Feature-Spec §2.5.3). Catalog DB
@@ -729,6 +855,7 @@ struct MetaRow {
     started_at: Option<DateTime<Utc>>,
     blueprint_name: String,
     workflow_name: Option<String>,
+    session_name: Option<String>,
 }
 
 // 0.4.0: `truncate_16k` moved to `protocol` and re-exported above; the
@@ -772,6 +899,7 @@ mod tests {
             started_at: None,
             blueprint_name: "b".into(),
             workflow_name: None,
+            session_name: None,
         };
         assert_eq!(
             derive_task_status(&[mk("SUSPENDED"), mk("RUNNING")]),

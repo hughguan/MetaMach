@@ -167,7 +167,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 ## Milestone 4: Cross-Host Durability, Cold Self-Heal & Offboard Archive (Advanced & Prune)
 
 > **Timebox:** ~4 weeks
-> **Status (2026-07-20):** Partial. Task 4.2 (Offboard) + Task 4.3 (Onboard) are implemented and tested. Task 4.1's **SQLite Log Replay is implemented** (`replay_fallback` on PG recovery); Task 4.1's cross-host SSH + cold-start re-exec and Task 4.4 (`target_sha` enforcement) are **deferred** - `coldstart::reconcile` only logs resume plans (no re-exec), `janus::tmux` is local-only, `target_sha` is a schema column without enforcement. These land in a future 0.5.0 arc.
+> **Status (2026-07-21):** Partial. Task 4.2 (Offboard) + Task 4.3 (Onboard) are implemented and tested. Task 4.1's **SQLite Log Replay is implemented** (`replay_fallback` on PG recovery) and the **workflow-execution engine is implemented** (Phase 0a absurd adapter + Phase 0b `workflow::run_workflow` engine, `Request::Dispatch` Contract 3.11, `tmux_alive` wired, `utc_03_01b` green) - a blueprint's workflow now dispatches onto absurd's pull-mode queue and drives real tmux steps under `janush`, with exit-code capture, per-step checkpoints, and lease renewal. Still **deferred**: Task 4.1's cross-host SSH transport + checkpoint-driven cold-start re-exec (`coldstart::reconcile` still only logs resume plans; the engine runs but resume is the follow-on) and Task 4.4 (`target_sha` *enforcement* - the column is now populated by dispatch, but mismatch rejection lands with Phase 2's remote reports). These land in a future 0.5.0 arc.
 
 - **Goal:** Grid-connect `janus::tmux` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
 
@@ -176,7 +176,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 ### Tasks
 
-#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7) - PARTIAL (Log Replay done; cross-host SSH + re-exec deferred)
+#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7) - PARTIAL (Log Replay + workflow engine done; cross-host SSH + cold-start re-exec deferred)
 - **Description:** Drive cross-host SOP sessions through the internalized `janus::tmux`, implement cold-start zero-state self-heal (no tmux-resurrect), and the degraded-mode SQLite fallback + Log Replay per 0.3.0 §1.2/§2.4.
 - **Implementation:**
     - When a Workflow Step declares a remote compilation server, the Daemon drives the internal `janus::tmux` module (not an external binary) to inject the payload env via SSH into a `remain-on-exit` remote session.

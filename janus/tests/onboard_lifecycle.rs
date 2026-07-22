@@ -515,9 +515,21 @@ fn utc_0a_absurd_schema_loads_on_onboard() {
         "onboard failed (absurd load?): {resp:?}"
     );
 
-    // Connect to the blueprint DB and verify absurd is loaded + usable.
-    let catalog_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let bp_url = catalog_url.replace("metamach_db", &format!("metamach_blueprint_{NAME}"));
+    // Connect to the blueprint DB and verify absurd is loaded + usable. CI uses
+    // a TCP DATABASE_URL; locally `make db-init` binds a Unix socket and sqlx's
+    // `from_str` mis-parses the `?host=` URL form, so the daemon is driven by
+    // METAMACH_PG_SOCKET_DIR. psql (libpq) handles `?host=` fine, so build
+    // whichever URL fits the environment.
+    let bp_url = match std::env::var("DATABASE_URL") {
+        Ok(catalog_url) => {
+            catalog_url.replace("metamach_db", &format!("metamach_blueprint_{NAME}"))
+        }
+        Err(_) => {
+            let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
+                .expect("DATABASE_URL or METAMACH_PG_SOCKET_DIR must be set");
+            format!("postgres://metamach_admin@/metamach_blueprint_{NAME}?host={socket}")
+        }
+    };
     let psql = |sql: &str| {
         std::process::Command::new("psql")
             .args(["-t", "-A"])

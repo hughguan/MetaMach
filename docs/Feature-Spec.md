@@ -395,6 +395,21 @@ CREATE INDEX idx_fe_blueprint ON fallback_events(blueprint_name);
 
 > Ring buffer: max 1000 entries or 50MB, whichever comes first; oldest entries evicted when limit reached. On PG recovery, batch Log Replay replays `fallback_events` into absurd's checkpoint state (`set_task_checkpoint_state`) and the `metamach_step_meta` overlay in the appropriate per-blueprint database, then truncates the ring buffer. `blueprint_name` is used to route replay to the correct per-blueprint database.
 
+### Contract 3.11: Workflow Dispatch Request/Response (Daemon ↔ `janus` CLI / Dispatch view)
+
+```rust
+// Client -> Daemon: dispatch a blueprint's workflow onto the absurd engine.
+pub enum Request {
+    Dispatch { blueprint: String, workflow: Option<String> },
+}
+// Daemon -> client: the absurd-minted task_id (synchronous; the step loop runs detached).
+pub enum Response {
+    Dispatch { task_id: Uuid },
+}
+```
+
+> `workflow` overrides the blueprint's `default_workflow`; `None` uses the default. The handler validates the recipe (`recipe::validate`), ensures the per-blueprint DB + absurd schema exist, calls `spawn_workflow` (absurd `create_queue` + `spawn_task` with `max_attempts: 1` - no auto-retry; MetaMach reschedules via cold-start / Task 4.4) to mint the `task_id`, returns it, then spawns `run_workflow` detached to claim + execute the steps. Each step runs under `janush` as the tmux session workload (`janush -c "<command>"` with `JANUS_AGENT` / `JANUS_BLUEPRINT` / `JANUS_TASK_ID` / `JANUS_STEP` / `JANUS_WORKFLOW` / `HERDR_PLUGIN_STATE_DIR` env set) so every Agent command is Tool-Guard-reconciled. The engine pins `target_sha` = git HEAD per step (all-zeros for non-git), transitions `metamach_step_meta` `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED`, captures the exit code (`tmux display-message '#{pane_dead_status}'`) + 16 KiB `stdout_tail`, and writes one absurd checkpoint per step (`set_task_checkpoint_state`). `complete_run` is called once after all steps (one absurd run = one dispatch - absurd's `complete_run` ends the *task*, so it is NOT per-step); `fail_run` on the first failing step; a HITL `SUSPENDED` step (the daemon's `GuardCheck` handler already set `step_meta.status = SUSPENDED`) leaves the run non-terminal - the `await_event` / `emit_event` resume loop is a follow-on. The absurd lease (30s) is renewed every ~10s via `extend_claim` so long steps don't auto-fail. `Progress.tmux_alive` (Contract 3.3) is wired: the daemon holds a `DurableBackend` and runs a second-pass `has_session` check on each task's current-step `session_name`.
+
 ### Contract 4.1: Cognitive Provider SPI (`janus::cognitive`)
 
 ```rust

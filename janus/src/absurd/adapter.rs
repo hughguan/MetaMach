@@ -63,6 +63,16 @@ pub trait DurableEngine: Send + Sync {
         queue: &'a str,
         worker_id: &'a str,
     ) -> BoxFut<'a, Result<Option<ClaimedTask>>>;
+    /// `absurd.extend_claim(queue, run_id, extend_by_secs)` - renew the lease so
+    /// a long-running step doesn't expire mid-execution (`claim_task`'s lease is
+    /// 30s; absurd auto-fails expired runs). The engine calls this every ~10s
+    /// while polling for pane exit.
+    fn extend_claim<'a>(
+        &'a self,
+        queue: &'a str,
+        run_id: Uuid,
+        extend_by_secs: i64,
+    ) -> BoxFut<'a, Result<()>>;
     /// `absurd.complete_run(queue, run_id, state)` - mark the run done.
     fn complete_run<'a>(
         &'a self,
@@ -149,8 +159,18 @@ impl DurableEngine for AbsurdPgAdapter {
         params: &'a Value,
     ) -> BoxFut<'a, Result<Uuid>> {
         Box::pin(async move {
+            // `max_attempts: 1` disables absurd's auto-retry. The Phase 0b engine
+            // is a one-shot worker (claim -> run -> complete/fail -> return); it
+            // does NOT re-claim, so a retry run absurd schedules after `fail_run`
+            // would sit `sleeping` forever (orphaned) - `claim_task` doesn't
+            // long-poll, and `coldstart::reconcile` only runs at daemon start and
+            // only resumes non-terminal tasks (a `FAILED` task is terminal). So
+            // auto-retry would orphan, not recover. Phase 1 adds the retry-claim
+            // loop + `resume_from` (re-claim through the backoff, resume from the
+            // last COMPLETED checkpoint); at that point this becomes
+            // `max_attempts: 3` so transients retry within-session before failing.
             let task_id: Uuid = sqlx::query_scalar(
-                "SELECT task_id FROM absurd.spawn_task($1, $2, $3, '{}'::jsonb)",
+                "SELECT task_id FROM absurd.spawn_task($1, $2, $3, '{\"max_attempts\": 1}'::jsonb)",
             )
             .bind(queue)
             .bind(task_name)
@@ -194,6 +214,23 @@ impl DurableEngine for AbsurdPgAdapter {
                 .bind(queue)
                 .bind(run_id)
                 .bind(state)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn extend_claim<'a>(
+        &'a self,
+        queue: &'a str,
+        run_id: Uuid,
+        extend_by_secs: i64,
+    ) -> BoxFut<'a, Result<()>> {
+        Box::pin(async move {
+            sqlx::query("SELECT absurd.extend_claim($1, $2, $3)")
+                .bind(queue)
+                .bind(run_id)
+                .bind(extend_by_secs)
                 .execute(&self.pool)
                 .await?;
             Ok(())
@@ -349,86 +386,301 @@ fn queue_ident_suffix(queue: &str, prefix: &str) -> String {
 // --- Test impl -----------------------------------------------------------
 
 /// In-memory [`DurableEngine`] for unit-testing the workflow engine (Phase 0b)
-/// without PG. Phase 0a ships a no-op stub to prove the trait is implementable
-/// and object-safe; Phase 0b expands it into a functional in-memory impl that
-/// tracks tasks/checkpoints/events in a `Mutex<HashMap>`.
+/// without PG. Tracks queues / tasks / runs / checkpoints / events in a
+/// `Mutex<FakeState>`. Faithful enough to assert the engine's call sequence
+/// (`create_queue` -> `spawn_task` -> `claim_task` -> `set_checkpoint` ->
+/// `complete_run`/`fail_run`) and inspect the resulting state.
+///
+/// `claim_task` mints a fresh `run_id` (UUIDv4) and moves the task `pending` ->
+/// `running`, mirroring absurd's lease semantics. There are no `.await`s inside
+/// the boxed futures, so the `std::sync::Mutex` guard never crosses an await
+/// point (Send-safe).
 #[cfg(test)]
 #[derive(Default)]
-pub struct FakeEngine;
+pub struct FakeEngine {
+    state: std::sync::Mutex<FakeState>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct FakeState {
+    queues: std::collections::HashSet<String>,
+    /// task_id -> task record. Insertion order is preserved per-queue via
+    /// `queue_order` so `claim_task` drains FIFO (as absurd does).
+    tasks: std::collections::HashMap<Uuid, FakeTask>,
+    queue_order: std::collections::HashMap<String, Vec<Uuid>>,
+    /// task_id -> checkpoints in insertion order (last = most recent).
+    checkpoints: std::collections::HashMap<Uuid, Vec<(String, Value)>>,
+    /// (queue, event_name) -> emitted payloads (await_event drains FIFO).
+    events: std::collections::HashMap<(String, String), Vec<Value>>,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct FakeTask {
+    task_id: Uuid,
+    task_name: String,
+    params: Value,
+    /// `pending` until claimed, `running` while leased, then `completed`/`failed`.
+    state: String,
+    /// `None` until `claim_task` mints one; the run the engine completes/fails.
+    run_id: Option<Uuid>,
+}
+
+#[cfg(test)]
+impl FakeEngine {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Snapshot of a task's state (`pending`/`running`/`completed`/`failed`),
+    /// for engine unit-test assertions.
+    pub fn task_state(&self, task_id: Uuid) -> Option<String> {
+        self.state
+            .lock()
+            .expect("fake engine mutex")
+            .tasks
+            .get(&task_id)
+            .map(|t| t.state.clone())
+    }
+
+    /// Most-recent checkpoint `(step, state)` for a task.
+    pub fn last_checkpoint(&self, task_id: Uuid) -> Option<(String, Value)> {
+        self.state
+            .lock()
+            .expect("fake engine mutex")
+            .checkpoints
+            .get(&task_id)
+            .and_then(|cs| cs.last().cloned())
+    }
+}
 
 #[cfg(test)]
 impl DurableEngine for FakeEngine {
-    fn create_queue<'a>(&'a self, _queue: &'a str) -> BoxFut<'a, Result<()>> {
-        Box::pin(async move { Ok(()) })
+    fn create_queue<'a>(&'a self, queue: &'a str) -> BoxFut<'a, Result<()>> {
+        let q = queue.to_string();
+        Box::pin(async move {
+            self.state
+                .lock()
+                .expect("fake engine mutex")
+                .queues
+                .insert(q);
+            Ok(())
+        })
     }
+
     fn spawn_task<'a>(
         &'a self,
-        _queue: &'a str,
-        _task_name: &'a str,
-        _params: &'a Value,
+        queue: &'a str,
+        task_name: &'a str,
+        params: &'a Value,
     ) -> BoxFut<'a, Result<Uuid>> {
-        Box::pin(async move { Ok(Uuid::new_v4()) })
+        let q = queue.to_string();
+        let name = task_name.to_string();
+        let p = params.clone();
+        Box::pin(async move {
+            let task_id = Uuid::new_v4();
+            let mut st = self.state.lock().expect("fake engine mutex");
+            st.queues.insert(q.clone());
+            st.tasks.insert(
+                task_id,
+                FakeTask {
+                    task_id,
+                    task_name: name,
+                    params: p,
+                    state: "pending".to_string(),
+                    run_id: None,
+                },
+            );
+            st.queue_order.entry(q).or_default().push(task_id);
+            Ok(task_id)
+        })
     }
+
     fn claim_task<'a>(
         &'a self,
-        _queue: &'a str,
+        queue: &'a str,
         _worker_id: &'a str,
     ) -> BoxFut<'a, Result<Option<ClaimedTask>>> {
-        Box::pin(async move { Ok(None) })
+        let q = queue.to_string();
+        Box::pin(async move {
+            let mut st = self.state.lock().expect("fake engine mutex");
+            // Drain FIFO: first `pending` task in this queue's spawn order.
+            let task_id = st
+                .queue_order
+                .get(&q)
+                .into_iter()
+                .flatten()
+                .copied()
+                .find(|id| {
+                    st.tasks
+                        .get(id)
+                        .map(|t| t.state == "pending")
+                        .unwrap_or(false)
+                });
+            let Some(task_id) = task_id else {
+                return Ok(None);
+            };
+            let run_id = Uuid::new_v4();
+            let task = st.tasks.get_mut(&task_id).expect("task present");
+            task.state = "running".to_string();
+            task.run_id = Some(run_id);
+            Ok(Some(ClaimedTask {
+                run_id,
+                task_id,
+                task_name: task.task_name.clone(),
+                params: task.params.clone(),
+            }))
+        })
     }
+
+    fn extend_claim<'a>(
+        &'a self,
+        _queue: &'a str,
+        _run_id: Uuid,
+        _extend_by_secs: i64,
+    ) -> BoxFut<'a, Result<()>> {
+        // No-op: the in-memory FakeEngine doesn't enforce lease expiry, so
+        // extension is a successful no-op (the engine still calls it).
+        Box::pin(async move { Ok(()) })
+    }
+
     fn complete_run<'a>(
         &'a self,
         _queue: &'a str,
-        _run_id: Uuid,
+        run_id: Uuid,
         _state: &'a Value,
     ) -> BoxFut<'a, Result<()>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            let mut st = self.state.lock().expect("fake engine mutex");
+            for t in st.tasks.values_mut() {
+                if t.run_id == Some(run_id) {
+                    t.state = "completed".to_string();
+                    break;
+                }
+            }
+            Ok(())
+        })
     }
+
     fn fail_run<'a>(
         &'a self,
         _queue: &'a str,
-        _run_id: Uuid,
+        run_id: Uuid,
         _reason: &'a Value,
     ) -> BoxFut<'a, Result<()>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            let mut st = self.state.lock().expect("fake engine mutex");
+            for t in st.tasks.values_mut() {
+                if t.run_id == Some(run_id) {
+                    t.state = "failed".to_string();
+                    break;
+                }
+            }
+            Ok(())
+        })
     }
+
     fn set_checkpoint<'a>(
         &'a self,
         _queue: &'a str,
-        _task_id: Uuid,
-        _step: &'a str,
-        _state: &'a Value,
+        task_id: Uuid,
+        step: &'a str,
+        state: &'a Value,
         _owner_run: Uuid,
     ) -> BoxFut<'a, Result<()>> {
-        Box::pin(async move { Ok(()) })
+        let s = state.clone();
+        Box::pin(async move {
+            self.state
+                .lock()
+                .expect("fake engine mutex")
+                .checkpoints
+                .entry(task_id)
+                .or_default()
+                .push((step.to_string(), s));
+            Ok(())
+        })
     }
+
     fn get_last_checkpoint<'a>(
         &'a self,
         _queue: &'a str,
-        _task_id: Uuid,
+        task_id: Uuid,
     ) -> BoxFut<'a, Result<Option<(String, Value)>>> {
-        Box::pin(async move { Ok(None) })
+        Box::pin(async move {
+            Ok(self
+                .state
+                .lock()
+                .expect("fake engine mutex")
+                .checkpoints
+                .get(&task_id)
+                .and_then(|cs| cs.last().cloned()))
+        })
     }
-    fn non_terminal_tasks<'a>(&'a self, _queue: &'a str) -> BoxFut<'a, Result<Vec<TaskInfo>>> {
-        Box::pin(async move { Ok(Vec::new()) })
+
+    fn non_terminal_tasks<'a>(&'a self, queue: &'a str) -> BoxFut<'a, Result<Vec<TaskInfo>>> {
+        let q = queue.to_string();
+        Box::pin(async move {
+            let st = self.state.lock().expect("fake engine mutex");
+            let ids = st.queue_order.get(&q).cloned().unwrap_or_default();
+            Ok(ids
+                .into_iter()
+                .filter_map(|id| {
+                    let t = st.tasks.get(&id)?;
+                    if matches!(t.state.as_str(), "pending" | "sleeping" | "running") {
+                        Some(TaskInfo {
+                            task_id: t.task_id,
+                            task_name: t.task_name.clone(),
+                            state: t.state.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect())
+        })
     }
+
     fn emit_event<'a>(
         &'a self,
-        _queue: &'a str,
-        _event_name: &'a str,
-        _payload: &'a Value,
+        queue: &'a str,
+        event_name: &'a str,
+        payload: &'a Value,
     ) -> BoxFut<'a, Result<()>> {
-        Box::pin(async move { Ok(()) })
+        let p = payload.clone();
+        Box::pin(async move {
+            self.state
+                .lock()
+                .expect("fake engine mutex")
+                .events
+                .entry((queue.to_string(), event_name.to_string()))
+                .or_default()
+                .push(p);
+            Ok(())
+        })
     }
+
     fn await_event<'a>(
         &'a self,
-        _queue: &'a str,
+        queue: &'a str,
         _task_id: Uuid,
         _run_id: Uuid,
         _step: &'a str,
-        _event_name: &'a str,
+        event_name: &'a str,
         _timeout_secs: Option<i64>,
     ) -> BoxFut<'a, Result<Value>> {
-        Box::pin(async move { Ok(Value::Null) })
+        // The Phase 0b engine does NOT call await_event (the resume loop is the
+        // follow-on). For trait completeness: drain an emitted payload if present,
+        // else return Null (never blocks the test).
+        Box::pin(async move {
+            Ok(self
+                .state
+                .lock()
+                .expect("fake engine mutex")
+                .events
+                .get_mut(&(queue.to_string(), event_name.to_string()))
+                .and_then(|v| v.first().cloned())
+                .unwrap_or(Value::Null))
+        })
     }
 }

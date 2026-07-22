@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Parsed `blueprints/<name>/janus.toml` (Contract 3.6).
 #[derive(Debug, Clone, Deserialize)]
@@ -82,7 +82,7 @@ pub struct WorkflowSection {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WorkflowStep {
     pub name: String,
     pub agent: String,
@@ -124,6 +124,36 @@ fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Read + validate `workflows/<name>.toml` (Contract 3.7). Used by [`validate`]
+/// for the blueprint's default workflow and by `Dispatch` for an explicit
+/// workflow override. Asserts the workflow's declared name matches `name`.
+pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
+    let wf_path = repo_root.join("workflows").join(format!("{name}.toml"));
+    let wf_text = std::fs::read_to_string(&wf_path)
+        .with_context(|| format!("read workflow {}", wf_path.display()))?;
+    let workflow: Workflow =
+        toml::from_str(&wf_text).with_context(|| format!("parse {}", wf_path.display()))?;
+    if workflow.steps.is_empty() {
+        bail!("workflow {name} has no steps");
+    }
+    for (i, s) in workflow.steps.iter().enumerate() {
+        if s.name.trim().is_empty() {
+            bail!("workflow {name} step {i}: name is required");
+        }
+        if s.agent.trim().is_empty() {
+            bail!("workflow {name} step {i} ({}): agent is required", s.name);
+        }
+    }
+    if workflow.workflow.name != name {
+        bail!(
+            "workflow name {:?} != requested workflow {:?}",
+            workflow.workflow.name,
+            name
+        );
+    }
+    Ok(workflow)
+}
+
 pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     // Name check runs BEFORE any DB write or file read.
     validate_name(name)?;
@@ -154,41 +184,7 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     }
 
     // Workflow file must exist + conform (Contract 3.7).
-    let wf_path = repo_root
-        .join("workflows")
-        .join(format!("{}.toml", recipe.blueprint.default_workflow));
-    let wf_text = std::fs::read_to_string(&wf_path)
-        .with_context(|| format!("read workflow {}", wf_path.display()))?;
-    let workflow: Workflow =
-        toml::from_str(&wf_text).with_context(|| format!("parse {}", wf_path.display()))?;
-    if workflow.steps.is_empty() {
-        bail!(
-            "workflow {} has no steps",
-            recipe.blueprint.default_workflow
-        );
-    }
-    for (i, s) in workflow.steps.iter().enumerate() {
-        if s.name.trim().is_empty() {
-            bail!(
-                "workflow {} step {i}: name is required",
-                recipe.blueprint.default_workflow
-            );
-        }
-        if s.agent.trim().is_empty() {
-            bail!(
-                "workflow {} step {i} ({}): agent is required",
-                recipe.blueprint.default_workflow,
-                s.name
-            );
-        }
-    }
-    if workflow.workflow.name != recipe.blueprint.default_workflow {
-        bail!(
-            "workflow name {:?} != default_workflow {:?}",
-            workflow.workflow.name,
-            recipe.blueprint.default_workflow
-        );
-    }
+    let workflow = load_workflow(&recipe.blueprint.default_workflow, repo_root)?;
 
     let remote_host = recipe.remote_host().map(str::to_string);
     Ok(ValidatedRecipe {

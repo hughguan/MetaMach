@@ -38,6 +38,36 @@ pub fn resolve_daemon_exe() -> Result<PathBuf> {
     bail!("janus-daemon binary not found; run `make compile` or set JANUS_DAEMON_BIN");
 }
 
+/// Resolve the `janush` proxy-shell binary path (Feature-Spec §2.2). The workflow
+/// engine (M4 Phase 0b) invokes `janush -c "<step.command>"` as the tmux session
+/// workload so each Agent command is synchronously reconciled with the Daemon's
+/// Tool Guard before exec.
+///
+/// Same precedence as [`resolve_daemon_exe`]: `JANUS_JANUSH_BIN` env > sibling of
+/// the current executable > `${HERDR_PLUGIN_ROOT}/bin` > error. The sibling path
+/// is what makes the integration test work: `cargo` builds `janush` next to
+/// `janus-daemon` in the same target dir, so the daemon resolves it with no env.
+pub fn resolve_janush_exe() -> Result<PathBuf> {
+    if let Ok(p) = std::env::var("JANUS_JANUSH_BIN") {
+        return Ok(PathBuf::from(p));
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let p = dir.join("janush");
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    if let Ok(root) = std::env::var("HERDR_PLUGIN_ROOT") {
+        let p = PathBuf::from(root).join("bin").join("janush");
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    bail!("janush binary not found; run `make compile` or set JANUS_JANUSH_BIN");
+}
+
 /// Spawn the Daemon in the background, fully detached. Returns `Ok(())` on a
 /// successful spawn (does not wait).
 pub fn spawn_daemon_detached() -> Result<()> {

@@ -23,6 +23,7 @@ pub mod spawn;
 pub mod tmux;
 pub mod tool_guard;
 pub mod uds;
+pub mod workflow;
 
 /// Shared `janus-daemon` binary resolver (used by `spawn` + the `janus daemon` CLI).
 pub use spawn::resolve_daemon_exe;

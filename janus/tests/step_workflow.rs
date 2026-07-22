@@ -60,6 +60,12 @@ impl Daemon {
             .env("HERDR_PLUGIN_ROOT", repo.path())
             .env("JANUS_AGENTS_TOML", agents)
             .env("JANUS_GATEWAY_LISTEN_PORT", "0")
+            // Point the engine at the built janush binary (the daemon resolves it
+            // via sibling-of-current-exe in production; in tests the daemon's
+            // current_exe is target/<profile>/janus-daemon, whose janush sibling
+            // only exists if referenced - CARGO_BIN_EXE_janush forces the build
+            // AND gives the exact path).
+            .env("JANUS_JANUSH_BIN", env!("CARGO_BIN_EXE_janush"))
             .env("RUST_LOG", "warn")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -133,6 +139,44 @@ fn guard_check(agent: &str, cmd: &str) -> Request {
     }
 }
 
+/// A 2-step blueprint for UTC-03-01b: `scout` sleeps (so `tmux_alive` is
+/// observable mid-run), `build` echoes. Both are bash-safe (ALLOW) under the
+/// test `agents.toml`'s `[agent.default]`.
+fn make_2step_blueprint(base: &Path, name: &str) {
+    let bp = base.join("blueprints").join(name);
+    std::fs::create_dir_all(&bp).unwrap();
+    let recipe = format!(
+        r#"[blueprint]
+name = "{name}"
+default_workflow = "test-flow"
+
+[openwiki]
+scope = ["test"]
+"#
+    );
+    std::fs::write(bp.join("janus.toml"), recipe).unwrap();
+
+    let wf_dir = base.join("workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    std::fs::write(
+        wf_dir.join("test-flow.toml"),
+        r#"[workflow]
+name = "test-flow"
+
+[[steps]]
+name = "scout"
+agent = "default"
+command = "sleep 3"
+
+[[steps]]
+name = "build"
+agent = "default"
+command = "echo done"
+"#,
+    )
+    .unwrap();
+}
+
 // ── UTC-03-01 / 03-01b: Step State Transitions ─────────────────────────────
 
 #[test]
@@ -178,6 +222,167 @@ fn utc_03_01_step_state_transitions() {
         Response::GuardVerdict { verdict, .. } => assert_eq!(verdict, "ALLOW"),
         other => panic!("expected GuardVerdict, got {other:?}"),
     }
+}
+
+// ── UTC-03-01b: Dispatch -> STARTING -> RUNNING -> COMPLETED ───────────────
+
+#[test]
+#[ignore = "requires PostgreSQL + tmux"]
+fn utc_03_01b_dispatch_step_transitions() {
+    // Dispatch a 2-step workflow (Contract 3.11). Assert: the absurd-minted
+    // task_id returns; `tmux_alive=true` is observed while step 1 (`sleep 3`)
+    // runs; both steps reach `COMPLETED` with `exit_code=0`; the absurd task +
+    // checkpoint rows land in the per-blueprint DB.
+    //
+    // Unique name per run: the blueprint DB persists across runs, so a fixed name
+    // would leave stale absurd tasks in the queue - `claim_task` would return one
+    // of those (not the just-spawned one) and the engine's task-id guard would
+    // trip. A fresh name gives a fresh queue + overlay.
+    let name = format!(
+        "gate_03_01b_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
+    let state = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents);
+    make_2step_blueprint(d.repo.path(), &name);
+    std::thread::sleep(Duration::from_secs(12)); // wait for PG connect
+
+    let onboard_resp = d
+        .uds(
+            &Request::Onboard { name: name.clone() },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(
+        matches!(onboard_resp, Response::Ok { .. }),
+        "onboard failed: {onboard_resp:?}"
+    );
+
+    // Dispatch returns the absurd-minted task_id synchronously.
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: name.clone(),
+                workflow: None,
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    let task_id = match resp {
+        Response::Dispatch { task_id } => task_id,
+        other => panic!("expected Dispatch, got {other:?}"),
+    };
+    assert_ne!(
+        task_id,
+        uuid::Uuid::nil(),
+        "task_id should be absurd-minted"
+    );
+
+    // PG query helper (psql via CLI). CI uses a TCP DATABASE_URL; locally
+    // `make db-init` binds a Unix socket and sqlx's `from_str` mis-parses the
+    // `?host=` URL form, so the daemon is driven by METAMACH_PG_SOCKET_DIR. psql
+    // (libpq) handles `?host=` fine, so build whichever URL fits the environment.
+    let bp_url = match std::env::var("DATABASE_URL") {
+        Ok(catalog_url) => {
+            catalog_url.replace("metamach_db", &format!("metamach_blueprint_{name}"))
+        }
+        Err(_) => {
+            let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
+                .expect("DATABASE_URL or METAMACH_PG_SOCKET_DIR must be set");
+            format!("postgres://metamach_admin@/metamach_blueprint_{name}?host={socket}")
+        }
+    };
+    let psql = |sql: String| {
+        std::process::Command::new("psql")
+            .args(["-t", "-A"])
+            .arg(&bp_url)
+            .arg("-c")
+            .arg(&sql)
+            .output()
+            .expect("psql")
+    };
+
+    // While step 1 (sleep 3) runs, Progress must report tmux_alive=true at least
+    // once (the daemon's second-pass `has_session` check, Contract 3.3).
+    let observe_deadline = Instant::now() + Duration::from_secs(20);
+    let mut saw_tmux_alive = false;
+    while Instant::now() < observe_deadline {
+        let resp = d
+            .uds(
+                &Request::Progress {
+                    blueprint: Some(name.clone()),
+                },
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        if let Response::Progress { active_tasks } = resp
+            && active_tasks.iter().any(|t| t.tmux_alive)
+        {
+            saw_tmux_alive = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(saw_tmux_alive, "never observed tmux_alive=true mid-run");
+
+    // Wait for the absurd task to reach `completed` (source of truth - avoids
+    // the brief Progress-empty window between step 1 COMPLETED and step 2 STARTING).
+    // Queue name = `<name>_test_flow` (sanitized; workflow `test-flow` -> `test_flow`).
+    let final_deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let out = psql(format!(
+            "SELECT state FROM absurd.t_{name}_test_flow WHERE task_id = '{task_id}'"
+        ));
+        if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "completed" {
+            break;
+        }
+        if Instant::now() > final_deadline {
+            panic!(
+                "absurd task did not reach completed within 30s: {}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    // Both steps COMPLETED with exit_code=0.
+    let out = psql(format!(
+        "SELECT step_name || '=' || status || ':' || COALESCE(exit_code::text, 'null') \
+         FROM metamach_step_meta WHERE task_id = '{task_id}' ORDER BY step_name"
+    ));
+    assert!(
+        out.status.success(),
+        "step_meta query: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rows = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        rows.contains("build=COMPLETED:0"),
+        "build step row missing: {rows}"
+    );
+    assert!(
+        rows.contains("scout=COMPLETED:0"),
+        "scout step row missing: {rows}"
+    );
+
+    // One absurd checkpoint per step (set_checkpoint called per COMPLETED step).
+    let out = psql(format!(
+        "SELECT count(*) FROM absurd.c_{name}_test_flow WHERE task_id = '{task_id}'"
+    ));
+    assert!(
+        out.status.success(),
+        "checkpoint query: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "2",
+        "two checkpoints (one per step), got: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
 }
 
 // ── UTC-03-03: Cold-Start Self-Healing ─────────────────────────────────────

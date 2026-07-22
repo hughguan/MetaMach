@@ -65,6 +65,17 @@ pub trait DurableBackend: Send + Sync {
 
     /// Capture the latest pane text (for HITL stdout_tail / progress dashboard).
     fn capture_pane(&self, id: &SessionId) -> Result<String>;
+
+    /// Poll whether the session's pane has exited, returning its exit code if so.
+    ///
+    /// With `remain-on-exit on` (set by [`create_session`]), the session persists
+    /// after the workload exits - so the pane being "dead" is how the engine
+    /// detects step completion (Review-Spec #5). Returns `Ok(None)` while the
+    /// workload is still running, `Ok(Some(code))` once the pane is dead, and
+    /// `Err` if the session itself is gone (a lost mid-run session -> engine
+    /// marks the step FAILED). Tmux impl: `display-message '#{pane_dead}:
+    /// #{pane_dead_status}'` (tmux 3.3+, already mandated).
+    fn poll_exit(&self, id: &SessionId) -> Result<Option<i32>>;
 }
 
 /// Errors specific to the tmux engine.
@@ -202,6 +213,31 @@ impl DurableBackend for TmuxBackend {
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
+
+    fn poll_exit(&self, id: &SessionId) -> Result<Option<i32>> {
+        // `#{pane_dead}` is "1" once the pane's process has exited (the session
+        // survives because `create_session` set remain-on-exit on); `#{pane_dead
+        // _status}` is the exit code in that case. Format: "<dead>:<status>".
+        // A missing session makes display-message exit non-zero -> Err (engine
+        // treats a lost mid-run session as FAILED).
+        let out = self.run(&[
+            "display-message",
+            "-p",
+            "-t",
+            id.as_str(),
+            "#{pane_dead}:#{pane_dead_status}",
+        ])?;
+        if !out.status.success() {
+            bail!(TmuxError::Command(lossy_stderr(&out)));
+        }
+        let s = String::from_utf8_lossy(&out.stdout);
+        let (dead, status) = s.trim().split_once(':').unwrap_or((s.trim(), ""));
+        if dead.trim() == "1" {
+            Ok(Some(status.trim().parse::<i32>().unwrap_or(0)))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Resolve the tmux binary: PATH lookup, then standard dirs. Falls back to the
@@ -287,6 +323,12 @@ mod tests {
         }
         fn capture_pane(&self, _id: &SessionId) -> Result<String> {
             Ok(String::new())
+        }
+        // The tmux-module FakeBackend doesn't model pane death (its tests exercise
+        // create/kill/attach, not execution). The workflow engine's unit tests use
+        // a separate FakeBackend that returns configurable exit codes.
+        fn poll_exit(&self, _id: &SessionId) -> Result<Option<i32>> {
+            Ok(None)
         }
     }
 

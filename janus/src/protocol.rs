@@ -36,6 +36,14 @@ pub enum Request {
     Onboard { name: String },
     /// `janus offboard --blueprint <name>` (Task 4.2).
     Offboard { name: String },
+    /// Dispatch a blueprint's workflow onto the absurd engine (M4 Task 4.1
+    /// Phase 0b, Contract 3.11). `workflow` overrides the blueprint's
+    /// `default_workflow`; `None` uses the default. Returns the absurd-minted
+    /// `task_id` immediately - the step loop runs detached on the daemon.
+    Dispatch {
+        blueprint: String,
+        workflow: Option<String>,
+    },
 }
 
 /// Daemon -> client response.
@@ -66,6 +74,10 @@ pub enum Response {
     /// Generic success ack (Onboard/Offboard).
     Ok {
         message: String,
+    },
+    /// Ack of a `Dispatch` request (Contract 3.11): the absurd-minted task id.
+    Dispatch {
+        task_id: Uuid,
     },
     Error {
         message: String,
@@ -100,6 +112,11 @@ pub struct ActiveTask {
     pub current_step: Option<String>,
     /// tmux physical-session liveness; lands with Task 2.4 (always false in M2).
     pub tmux_alive: bool,
+    /// The current step's tmux session id (`metamach_step_meta.session_name`),
+    /// for the daemon's `tmux_alive` second-pass liveness check (Contract 3.3).
+    /// Wire-invisible: the dashboard doesn't need it, only the daemon does.
+    #[serde(skip)]
+    pub session_name: Option<String>,
     pub suspended_reason: Option<String>,
     pub steps: Vec<StepStatus>,
 }

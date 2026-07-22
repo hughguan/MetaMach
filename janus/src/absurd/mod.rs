@@ -14,7 +14,9 @@
 //! functions (`spawn_task`/`set_task_checkpoint_state`/`cleanup_tasks`) are called
 //! by the workflow engine (M2.4 tmux + M4); this module is the read/audit path.
 
+pub mod adapter;
 pub mod fallback;
+pub mod schema;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -211,6 +213,12 @@ impl AbsurdDb {
             .max_connections(4)
             .connect_with(opts)
             .await?;
+        // Load the vendored absurd.sql (spawn_task/claim_task/...) BEFORE the
+        // MetaMach overlays - this IS the "absurdctl init" the 002 header
+        // references. Idempotent (create ... if not exists).
+        schema::init_absurd_schema(&pool)
+            .await
+            .with_context(|| format!("init absurd schema in {db_name}"))?;
         sqlx::raw_sql(Self::BLUEPRINT_MIGRATION_002)
             .execute(&pool)
             .await

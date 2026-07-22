@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS metamach_step_meta (
     exit_code       INTEGER,                             -- NULL until step completes
     stdout_tail     TEXT,                                -- most recent ~1KB terminal snapshot
     started_at      TIMESTAMPTZ,                         -- when the step transitioned to RUNNING
+    session_name     VARCHAR(100),                        -- tmux session id (tmux_alive wiring; MetaMach-only, absurd has no concept)
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (task_id, step_name)
 );

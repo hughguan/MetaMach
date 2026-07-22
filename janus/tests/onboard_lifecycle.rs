@@ -484,3 +484,93 @@ fn utc_05_05_re_onboard_inherits_previous_incidents() {
         other => panic!("expected Ok from Onboard, got {other:?}"),
     }
 }
+
+// ── UTC-0a: Absurd schema loads on onboard (Phase 0a) ──────────────────────
+
+#[test]
+#[ignore = "requires PostgreSQL"]
+fn utc_0a_absurd_schema_loads_on_onboard() {
+    // Phase 0a: `ensure_blueprint_db` loads the vendored absurd.sql before the
+    // 002/003 MetaMach overlays. Verify: absurd.get_schema_version() == "main",
+    // absurd.create_queue + spawn_task are callable, and metamach_step_meta has
+    // the new session_name column.
+    const NAME: &str = "absurd0a";
+    let state = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+    let d = Daemon::spawn(state.path(), &agents);
+    make_blueprint(d.repo.path(), NAME);
+    std::thread::sleep(Duration::from_secs(12));
+
+    // Onboard triggers ensure_blueprint_db -> init_absurd_schema + 002 + 003.
+    // If absurd.sql fails to load, onboard errors here.
+    let resp = d
+        .uds(
+            &Request::Onboard { name: NAME.into() },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(
+        matches!(resp, Response::Ok { .. }),
+        "onboard failed (absurd load?): {resp:?}"
+    );
+
+    // Connect to the blueprint DB and verify absurd is loaded + usable.
+    let catalog_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let bp_url = catalog_url.replace("metamach_db", &format!("metamach_blueprint_{NAME}"));
+    let psql = |sql: &str| {
+        std::process::Command::new("psql")
+            .args(["-t", "-A"])
+            .arg(&bp_url)
+            .arg("-c")
+            .arg(sql)
+            .output()
+            .expect("psql")
+    };
+
+    let out = psql("SELECT absurd.get_schema_version()");
+    assert!(
+        out.status.success(),
+        "get_schema_version: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "main",
+        "absurd schema version"
+    );
+
+    // absurd stored procs are callable (queue + task round-trip).
+    let out = psql("SELECT absurd.create_queue('utc0a_q', 'unpartitioned')");
+    assert!(
+        out.status.success(),
+        "create_queue: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = psql("SELECT task_id FROM absurd.spawn_task('utc0a_q', 't', '{}'::jsonb)");
+    assert!(
+        out.status.success(),
+        "spawn_task: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+        "spawn_task must return a task_id"
+    );
+
+    // session_name column on the MetaMach overlay.
+    let out = psql(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_name='metamach_step_meta' AND column_name='session_name'",
+    );
+    assert!(
+        out.status.success(),
+        "columns query: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "session_name",
+        "metamach_step_meta.session_name column"
+    );
+}

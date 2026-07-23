@@ -282,6 +282,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-017: Remote Workload Model — SSH as tmux Transport Prefix
+
+| Field | Value |
+|---|---|
+| **Context** | Phase 2 (`M4-4.1-design.md` §2.1) proposed a separate `SshTmuxBackend` type for cross-host SSH tmux sessions — a new struct, new file (`tmux/ssh.rs`), new `DurableBackend` impl duplicating ~100 lines of identical tmux command construction. The only difference between local and remote tmux is an `ssh <host>` prefix on the CLI command. |
+| **Options Considered** | (1) Separate `SshTmuxBackend` type (M4-4.1-design.md §2.1), (2) Same `TmuxBackend` with optional `ssh <host>` prefix, (3) Multi-daemon topology (remote daemon + remote PG per host). |
+| **Decision** | **Adopted** — Option (2): `TmuxBackend` gains a `with_ssh(host)` constructor. The `ssh <host>` prefix is prepended to all tmux CLI calls (`new-session`, `display-message`, `capture-pane`, etc.). All `DurableBackend` methods remain identical. Remote janush ↔ daemon connectivity uses SSH `-R` reverse tunnel to map the local `janus.sock` to `/tmp/mm-<host>.sock` on the remote host — zero remote configuration. |
+| **Rationale** | All `DurableBackend` operations are tmux CLI calls; `ssh <host> tmux ...` is syntactically identical to `tmux ...`. A single backend with optional SSH prefix is ~20 lines vs ~100 lines of duplicated code. The reverse tunnel keeps Tool Guard local (same agents.toml, same GuardCheck, same verdicts). Remote host needs only tmux + janush (two binaries, scp once) — no daemon, no PG, no agents.toml, no gateway. |
+| **Status** | 📋 Spec'd Only — Phase 2 implementation. ADR locks the decision before code lands. |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

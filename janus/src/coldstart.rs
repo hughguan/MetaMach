@@ -2,67 +2,147 @@
 //! Project-Plan Task 4.1).
 //!
 //! On startup the Daemon scans Absurd Postgres for non-terminal tasks
-//! (`STARTING`/`RUNNING`/`SUSPENDED`). For each, it reads the last `COMPLETED`
-//! Step checkpoint and assigns a fresh tmux session UUID, picking up at the
-//! breakpoint. `tmux-resurrect` is NEVER used - Postgres is the sole source of
+//! (`STARTING`/`RUNNING`/`SUSPENDED`). For each `STARTING`/`RUNNING` task (one
+//! interrupted mid-step by a crash), it loads the recipe + workflow, builds the
+//! absurd engine + tmux backend, and spawns [`workflow::run_workflow`] detached
+//! to resume from the last `COMPLETED` checkpoint (skipping done steps, re-running
+//! the interrupted one in a fresh tmux session). `SUSPENDED` tasks are skipped -
+//! they await HITL approval (the `await_event`/`emit_event` resume loop is a
+//! follow-on). `tmux-resurrect` is NEVER used - Postgres is the sole source of
 //! truth (ARCH §6.4).
-//!
-//! M4 scope: the scan + checkpoint read + UUID assignment + resume-plan logging
-//! are implemented here. The actual step re-execution (driving `herdr-tether`)
-//! is deferred to Task 2.4 (herdr-tether integration); until then a present
-//! non-terminal task is logged and left in its non-terminal state for the
-//! workflow engine to resume.
+
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::absurd::AbsurdDb;
+use crate::absurd::adapter::AbsurdPgAdapter;
+use crate::recipe;
+use crate::spawn::resolve_janush_exe;
+use crate::tmux::TmuxBackend;
+use crate::workflow;
 
-/// Reconcile non-terminal tasks after a cold start. Returns the number of tasks
-/// that have a resumable (last-`COMPLETED`) checkpoint.
-pub async fn reconcile(db: &AbsurdDb) -> Result<usize> {
+/// Reconcile non-terminal tasks after a cold start. For each `STARTING`/`RUNNING`
+/// task, spawn [`workflow::run_workflow`] detached to resume it from the last
+/// `COMPLETED` checkpoint. `SUSPENDED` tasks are left for the HITL resume loop.
+/// Returns the number of tasks spawned for resume.
+pub async fn reconcile(db: Arc<AbsurdDb>, repo_root: Arc<PathBuf>) -> Result<usize> {
     let tasks = db.cold_start_running_tasks().await?;
     if tasks.is_empty() {
         info!("cold-start: no non-terminal tasks to resume");
         return Ok(0);
     }
-    let mut resumable = 0usize;
+    // Pre-flight: resolve janush once (needed for every resume). If it's missing,
+    // there's no point spawning resumes that can't run steps.
+    let janush = match resolve_janush_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(
+                "cold-start: cannot resolve janush ({e}); skipping resume of {} task(s)",
+                tasks.len()
+            );
+            return Ok(0);
+        }
+    };
+
+    let mut spawned = 0usize;
     for t in &tasks {
-        let session = format!("tmux-janus-task-{}-{}", t.task_id, Uuid::new_v4().simple());
-        match &t.last_completed_step {
-            Some(step) => {
-                info!(
-                    task_id = %t.task_id,
-                    blueprint = %t.blueprint,
-                    workflow = %t.workflow_name,
-                    status = %t.status,
-                    last_completed = %step,
-                    session = %session,
-                    "cold-start: resumable task - pick up after `{step}`"
-                );
-                resumable += 1;
-            }
-            None => warn!(
+        // Resume only STARTING/RUNNING (interrupted by a crash). SUSPENDED tasks
+        // await HITL approval - the resume loop is a follow-on.
+        if !matches!(t.status.as_str(), "STARTING" | "RUNNING") {
+            warn!(
                 task_id = %t.task_id,
                 blueprint = %t.blueprint,
                 status = %t.status,
-                "cold-start: non-terminal task has no COMPLETED checkpoint - leaving for HITL"
-            ),
+                "cold-start: skipping non-running task (awaiting HITL)"
+            );
+            continue;
         }
+        // Load the recipe + bound workflow (override if the task's workflow
+        // differs from the blueprint's default).
+        let recipe = match recipe::validate(&t.blueprint, repo_root.as_path()) {
+            Ok(mut r) => {
+                if t.workflow_name != r.default_workflow {
+                    match recipe::load_workflow(&t.workflow_name, repo_root.as_path()) {
+                        Ok(wf) => r.workflow = wf,
+                        Err(e) => {
+                            warn!(
+                                task_id = %t.task_id,
+                                "cold-start: load_workflow `{}` failed ({e}); skipping",
+                                t.workflow_name
+                            );
+                            continue;
+                        }
+                    }
+                }
+                r
+            }
+            Err(e) => {
+                warn!(
+                    task_id = %t.task_id,
+                    blueprint = %t.blueprint,
+                    "cold-start: recipe validate failed ({e}); skipping"
+                );
+                continue;
+            }
+        };
+        let pool = match db.blueprint_pool(&t.blueprint).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                warn!(
+                    task_id = %t.task_id,
+                    blueprint = %t.blueprint,
+                    "cold-start: blueprint pool unreachable; skipping"
+                );
+                continue;
+            }
+            Err(e) => {
+                warn!(
+                    task_id = %t.task_id,
+                    blueprint = %t.blueprint,
+                    "cold-start: blueprint pool error ({e}); skipping"
+                );
+                continue;
+            }
+        };
+        let engine = AbsurdPgAdapter::new(pool);
+        let backend = TmuxBackend::new();
+        let recipe = Arc::new(recipe);
+        info!(
+            task_id = %t.task_id,
+            blueprint = %t.blueprint,
+            workflow = %t.workflow_name,
+            last_completed = ?t.last_completed_step,
+            "cold-start: resuming task"
+        );
+        let db = db.clone();
+        let repo_root = repo_root.clone();
+        let janush = janush.clone();
+        let wf = t.workflow_name.clone();
+        let tid = t.task_id;
+        tokio::spawn(async move {
+            if let Err(e) = workflow::run_workflow(
+                &db, &engine, &backend, &recipe, &wf, &repo_root, tid, &janush,
+            )
+            .await
+            {
+                warn!(task_id = %tid, "cold-start resume failed: {e}");
+            }
+        });
+        spawned += 1;
     }
-    info!(
-        "cold-start: {resumable}/{} task(s) resumable (re-exec deferred to Task 2.4)",
-        tasks.len()
-    );
-    Ok(resumable)
+    info!("cold-start: {spawned}/{} task(s) resumed", tasks.len());
+    Ok(spawned)
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn session_name_shape() {
-        // Cold-start assigns a fresh session UUID per resumable task.
+        // Cold-start resumes into a fresh tmux-janus-task-<task_id>-<idx> session
+        // (named inside run_workflow); the prefix shape is unchanged.
         let s = format!("tmux-janus-task-1042-{}", uuid::Uuid::new_v4().simple());
         assert!(s.starts_with("tmux-janus-task-1042-"));
         // simple() UUID has no dashes, so only the 4 name separators remain.

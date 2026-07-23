@@ -159,18 +159,15 @@ impl DurableEngine for AbsurdPgAdapter {
         params: &'a Value,
     ) -> BoxFut<'a, Result<Uuid>> {
         Box::pin(async move {
-            // `max_attempts: 1` disables absurd's auto-retry. The Phase 0b engine
-            // is a one-shot worker (claim -> run -> complete/fail -> return); it
-            // does NOT re-claim, so a retry run absurd schedules after `fail_run`
-            // would sit `sleeping` forever (orphaned) - `claim_task` doesn't
-            // long-poll, and `coldstart::reconcile` only runs at daemon start and
-            // only resumes non-terminal tasks (a `FAILED` task is terminal). So
-            // auto-retry would orphan, not recover. Phase 1 adds the retry-claim
-            // loop + `resume_from` (re-claim through the backoff, resume from the
-            // last COMPLETED checkpoint); at that point this becomes
-            // `max_attempts: 3` so transients retry within-session before failing.
+            // `max_attempts: 3` lets absurd retry transient failures (e.g. a cargo
+            // build timeout on a slow network) within-session. The Phase 1 engine
+            // is a retry-claim loop: after `fail_run` it re-`claim_task`s the retry
+            // run absurd schedules + resumes from the last `COMPLETED` checkpoint,
+            // so retries no longer orphan (the Phase 0b one-shot worker did). After
+            // 3 failures the task goes terminal `failed` -> MetaMach takes over
+            // (cold-start / Task 4.4 / manual re-dispatch).
             let task_id: Uuid = sqlx::query_scalar(
-                "SELECT task_id FROM absurd.spawn_task($1, $2, $3, '{\"max_attempts\": 1}'::jsonb)",
+                "SELECT task_id FROM absurd.spawn_task($1, $2, $3, '{\"max_attempts\": 3}'::jsonb)",
             )
             .bind(queue)
             .bind(task_name)
@@ -396,9 +393,21 @@ fn queue_ident_suffix(queue: &str, prefix: &str) -> String {
 /// the boxed futures, so the `std::sync::Mutex` guard never crosses an await
 /// point (Send-safe).
 #[cfg(test)]
-#[derive(Default)]
 pub struct FakeEngine {
     state: std::sync::Mutex<FakeState>,
+    /// `max_attempts` applied to subsequently spawned tasks (default 3; tests use
+    /// [`with_max_attempts`](FakeEngine::with_max_attempts) for fewer).
+    default_max_attempts: usize,
+}
+
+#[cfg(test)]
+impl Default for FakeEngine {
+    fn default() -> Self {
+        Self {
+            state: std::sync::Mutex::new(FakeState::default()),
+            default_max_attempts: 3,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -421,10 +430,16 @@ struct FakeTask {
     task_id: Uuid,
     task_name: String,
     params: Value,
-    /// `pending` until claimed, `running` while leased, then `completed`/`failed`.
+    /// `pending` (initial) | `running` (claimed) | `sleeping` (retry pending) |
+    /// `completed` | `failed` (terminal).
     state: String,
-    /// `None` until `claim_task` mints one; the run the engine completes/fails.
-    run_id: Option<Uuid>,
+    max_attempts: usize,
+    attempts: usize,
+    /// The currently-claimed run id (`None` between attempts).
+    current_run: Option<Uuid>,
+    /// Run ids waiting to be claimed: the initial run at spawn + a retry run
+    /// after each `fail_run` while `attempts < max_attempts`.
+    pending_runs: std::collections::VecDeque<Uuid>,
 }
 
 #[cfg(test)]
@@ -433,8 +448,33 @@ impl FakeEngine {
         Self::default()
     }
 
-    /// Snapshot of a task's state (`pending`/`running`/`completed`/`failed`),
-    /// for engine unit-test assertions.
+    /// Set the `max_attempts` applied to subsequently spawned tasks (for tests
+    /// that want fewer retries, e.g. exhaustion in 2 attempts instead of 3).
+    pub fn with_max_attempts(max_attempts: usize) -> Self {
+        Self {
+            state: std::sync::Mutex::new(FakeState::default()),
+            default_max_attempts: max_attempts,
+        }
+    }
+
+    /// Seed a checkpoint for `task_id` as if `step` had `COMPLETED` in a prior
+    /// attempt - used to test the resume path ([`run_workflow`](crate::workflow)
+    /// skips the step via [`resume_index`](crate::workflow)).
+    pub fn seed_checkpoint(&self, task_id: Uuid, step: &str) {
+        self.state
+            .lock()
+            .expect("fake engine mutex")
+            .checkpoints
+            .entry(task_id)
+            .or_default()
+            .push((
+                step.to_string(),
+                serde_json::json!({"step": step, "status": "COMPLETED"}),
+            ));
+    }
+
+    /// Snapshot of a task's state (`pending`/`running`/`sleeping`/`completed`/
+    /// `failed`), for engine unit-test assertions.
     pub fn task_state(&self, task_id: Uuid) -> Option<String> {
         self.state
             .lock()
@@ -478,8 +518,10 @@ impl DurableEngine for FakeEngine {
         let q = queue.to_string();
         let name = task_name.to_string();
         let p = params.clone();
+        let max_attempts = self.default_max_attempts;
         Box::pin(async move {
             let task_id = Uuid::new_v4();
+            let run_id = Uuid::new_v4();
             let mut st = self.state.lock().expect("fake engine mutex");
             st.queues.insert(q.clone());
             st.tasks.insert(
@@ -489,7 +531,10 @@ impl DurableEngine for FakeEngine {
                     task_name: name,
                     params: p,
                     state: "pending".to_string(),
-                    run_id: None,
+                    max_attempts,
+                    attempts: 0,
+                    current_run: None,
+                    pending_runs: [run_id].into(),
                 },
             );
             st.queue_order.entry(q).or_default().push(task_id);
@@ -505,7 +550,7 @@ impl DurableEngine for FakeEngine {
         let q = queue.to_string();
         Box::pin(async move {
             let mut st = self.state.lock().expect("fake engine mutex");
-            // Drain FIFO: first `pending` task in this queue's spawn order.
+            // First task in this queue that's pending/sleeping with a claimable run.
             let task_id = st
                 .queue_order
                 .get(&q)
@@ -515,16 +560,20 @@ impl DurableEngine for FakeEngine {
                 .find(|id| {
                     st.tasks
                         .get(id)
-                        .map(|t| t.state == "pending")
+                        .map(|t| {
+                            matches!(t.state.as_str(), "pending" | "sleeping")
+                                && !t.pending_runs.is_empty()
+                        })
                         .unwrap_or(false)
                 });
             let Some(task_id) = task_id else {
                 return Ok(None);
             };
-            let run_id = Uuid::new_v4();
             let task = st.tasks.get_mut(&task_id).expect("task present");
+            let run_id = task.pending_runs.pop_front().expect("pending run present");
+            task.attempts += 1;
+            task.current_run = Some(run_id);
             task.state = "running".to_string();
-            task.run_id = Some(run_id);
             Ok(Some(ClaimedTask {
                 run_id,
                 task_id,
@@ -554,7 +603,8 @@ impl DurableEngine for FakeEngine {
         Box::pin(async move {
             let mut st = self.state.lock().expect("fake engine mutex");
             for t in st.tasks.values_mut() {
-                if t.run_id == Some(run_id) {
+                if t.current_run == Some(run_id) {
+                    t.current_run = None;
                     t.state = "completed".to_string();
                     break;
                 }
@@ -572,8 +622,16 @@ impl DurableEngine for FakeEngine {
         Box::pin(async move {
             let mut st = self.state.lock().expect("fake engine mutex");
             for t in st.tasks.values_mut() {
-                if t.run_id == Some(run_id) {
-                    t.state = "failed".to_string();
+                if t.current_run == Some(run_id) {
+                    t.current_run = None;
+                    if t.attempts < t.max_attempts {
+                        // absurd schedules a retry run (immediately claimable in
+                        // the fake - no backoff delay, for fast deterministic tests).
+                        t.pending_runs.push_back(Uuid::new_v4());
+                        t.state = "sleeping".to_string();
+                    } else {
+                        t.state = "failed".to_string();
+                    }
                     break;
                 }
             }

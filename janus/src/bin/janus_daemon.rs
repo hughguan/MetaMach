@@ -62,12 +62,14 @@ async fn run() -> Result<()> {
     let repo_root = Arc::new(paths::repo_root());
 
     // Task 4.1: cold-start self-heal - once PG has had a moment to connect, scan
-    // for non-terminal tasks and log resume plans (re-exec deferred to Task 2.4).
+    // for non-terminal tasks and spawn `run_workflow` to resume each from its
+    // last COMPLETED checkpoint (Phase 1; was log-only in Phase 0b).
     {
         let db = db.clone();
+        let repo_root = repo_root.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(3)).await;
-            if let Err(e) = coldstart::reconcile(&db).await {
+            if let Err(e) = coldstart::reconcile(db, repo_root).await {
                 warn!("cold-start reconcile failed: {e}");
             }
         });

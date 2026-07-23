@@ -34,7 +34,7 @@ use crate::absurd::adapter::DurableEngine;
 use crate::paths;
 use crate::protocol::truncate_16k;
 use crate::recipe::ValidatedRecipe;
-use crate::tmux::{DurableBackend, SessionId};
+use crate::tmux::{DurableBackend, SESSION_PREFIX, SessionId};
 
 /// Worker id the engine presents to absurd's `claim_task` (pull-mode lease).
 const WORKER_ID: &str = "janus-daemon";
@@ -46,9 +46,27 @@ const LEASE_EXTEND_INTERVAL: Duration = Duration::from_secs(10);
 /// How many seconds each `extend_claim` adds to the lease.
 const LEASE_EXTEND_BY: i64 = 30;
 
+/// Poll `claim_task` this often while waiting for a retry run to become claimable
+/// (absurd schedules the retry after a backoff; `claim_task` returns `None` until
+/// then). The loop also re-checks `non_terminal_tasks` to distinguish "retry
+/// pending" from "task terminal" so it can exit.
+const RETRY_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 /// All-zeros sentinel for a non-git blueprint (the `target_sha` column's default;
 /// Task 4.4 enforcement is deferred).
 const NULL_SHA: &str = "0000000000000000000000000000000000000000";
+
+/// Outcome of one claim's step loop, returned by [`run_steps`] + acted on by the
+/// [`run_workflow`] retry loop.
+enum StepOutcome {
+    /// All steps from `start_idx` reached `COMPLETED` -> `complete_run` + exit.
+    Done,
+    /// A step exited non-zero (or the poll/lease failed) -> `fail_run` + retry.
+    Failed,
+    /// A step `SUSPENDED` (HITL BLOCK) -> leave the run non-terminal + exit
+    /// (the `await_event`/`emit_event` resume loop is a follow-on).
+    Suspended,
+}
 
 /// Build the absurd queue name for a blueprint/workflow, sanitized to a valid
 /// unquoted PG identifier (`[a-zA-Z0-9_]`). See [`spawn_workflow`] for why
@@ -98,10 +116,15 @@ where
 }
 
 /// Claim + execute the steps of an already-spawned workflow (Phase 2 of
-/// dispatch). Returns the same `task_id`. Run detached by the daemon; the
-/// step-loop duration is bounded only by the steps' real runtimes (lease
-/// extended in the background). `janush` is the resolved proxy-shell binary
-/// (the daemon resolves it; the engine stays pure / unit-testable).
+/// dispatch), resuming from the last `COMPLETED` checkpoint if one exists
+/// (cold-start re-exec). Returns the same `task_id`. Run detached by the daemon.
+///
+/// This is the retry-claim loop: claim a run -> resume from the checkpoint ->
+/// [`run_steps`] -> `complete_run`/`fail_run`. On `fail_run`, absurd schedules a
+/// retry run (max_attempts: 3); the loop re-claims + resumes until the task is
+/// terminal (`completed`/`failed`) or a step `SUSPENDED`s (HITL - run stays
+/// non-terminal, resume is the follow-on). `janush` is the resolved proxy-shell
+/// binary (the daemon resolves it; the engine stays pure / unit-testable).
 #[allow(clippy::too_many_arguments)] // mirrors WebhookPayload::build; all args are genuinely needed.
 pub async fn run_workflow<E, B>(
     db: &AbsurdDb,
@@ -119,27 +142,104 @@ where
 {
     let queue = queue_name(recipe, workflow_name);
 
-    // Pull-claim (absurd owns the lease). The claimed task_id must match the one
-    // absurd just minted - if not, another worker raced us (single-daemon, so
-    // this is a invariant guard, not a recovery path).
-    let claimed = engine
-        .claim_task(&queue, WORKER_ID)
+    loop {
+        // Kill any tmux sessions left from a previous attempt/crash for this task
+        // (tmux survives the daemon dying) before re-running - prevents
+        // double-execution of the resumed step.
+        kill_stale_sessions(backend, task_id)?;
+
+        // Claim a run (absurd owns the lease). `None` means no claimable run: the
+        // retry run isn't available yet (backoff), or the task is terminal.
+        let Some(claimed) = engine.claim_task(&queue, WORKER_ID).await? else {
+            if !task_non_terminal(engine, &queue, task_id).await? {
+                // Terminal (completed/failed) - nothing left to claim.
+                return Ok(task_id);
+            }
+            // Sleeping (retry pending) - wait for the backoff to elapse.
+            tokio::time::sleep(RETRY_POLL_INTERVAL).await;
+            continue;
+        };
+        // Single-daemon invariant: the claimed task is the one we're running.
+        ensure!(
+            claimed.task_id == task_id,
+            "claimed task_id {} != expected task_id {}",
+            claimed.task_id,
+            task_id
+        );
+        let run_id = claimed.run_id;
+
+        // Resume point: the step AFTER the last COMPLETED checkpoint (0 if none -
+        // a fresh dispatch). Failed/interrupted steps have no checkpoint, so they
+        // re-run; completed steps are skipped.
+        let start_idx = resume_index(engine, &queue, task_id, recipe).await?;
+        let target_sha = git_head(repo_root);
+
+        match run_steps(
+            db,
+            engine,
+            backend,
+            recipe,
+            workflow_name,
+            &queue,
+            task_id,
+            run_id,
+            &target_sha,
+            janush,
+            repo_root,
+            start_idx,
+        )
         .await?
-        .with_context(|| format!("claim_task returned None for queue {queue}"))?;
-    ensure!(
-        claimed.task_id == task_id,
-        "claimed task_id {} != spawned task_id {}",
-        claimed.task_id,
-        task_id
-    );
-    let run_id = claimed.run_id;
+        {
+            StepOutcome::Done => {
+                engine
+                    .complete_run(&queue, run_id, &json!({"task_id": task_id}))
+                    .await?;
+                return Ok(task_id);
+            }
+            StepOutcome::Suspended => {
+                // Run stays non-terminal (no complete/fail_run); the HITL
+                // await_event/emit_event resume loop is a follow-on.
+                return Ok(task_id);
+            }
+            StepOutcome::Failed => {
+                engine
+                    .fail_run(
+                        &queue,
+                        run_id,
+                        &json!({"task_id": task_id, "reason": "step_failed"}),
+                    )
+                    .await?;
+                // Loop: absurd mints a retry run if attempts remain, else the
+                // task goes `failed` -> next claim is None -> exit above.
+            }
+        }
+    }
+}
 
-    let target_sha = git_head(repo_root);
-
-    let mut failed = false;
-    let mut suspended = false;
-
-    for (idx, step) in recipe.workflow.steps.iter().enumerate() {
+/// Run the workflow's steps from `start_idx`, writing a checkpoint per
+/// `COMPLETED` step. Returns the outcome; the caller ([`run_workflow`]) does the
+/// `complete_run`/`fail_run`. `start_idx > 0` skips steps already `COMPLETED` in
+/// a prior attempt (resume).
+#[allow(clippy::too_many_arguments)] // mirrors run_workflow; all args are genuinely needed.
+async fn run_steps<E, B>(
+    db: &AbsurdDb,
+    engine: &E,
+    backend: &B,
+    recipe: &ValidatedRecipe,
+    workflow_name: &str,
+    queue: &str,
+    task_id: Uuid,
+    run_id: Uuid,
+    target_sha: &str,
+    janush: &Path,
+    repo_root: &Path,
+    start_idx: usize,
+) -> Result<StepOutcome>
+where
+    E: DurableEngine,
+    B: DurableBackend,
+{
+    for (idx, step) in recipe.workflow.steps.iter().enumerate().skip(start_idx) {
         // One tmux session per step, named tmux-janus-task-<task_id>-<idx> (the
         // idx suffix disambiguates steps; cold-start resume uses a fresh uuid
         // suffix - same prefix shape, ARCH §6.1).
@@ -151,7 +251,7 @@ where
             task_id,
             &step.name,
             workflow_name,
-            &target_sha,
+            target_sha,
             &session_name,
         )
         .await?;
@@ -163,7 +263,7 @@ where
                 let cmd = step_command(step, recipe, task_id, workflow_name, janush);
                 backend.create_session(&session, &cmd, Some(repo_root))?;
 
-                let exit = poll_exit_with_lease(engine, backend, &queue, run_id, &session).await;
+                let exit = poll_exit_with_lease(engine, backend, queue, run_id, &session).await;
                 let stdout_tail = backend
                     .capture_pane(&session)
                     .ok()
@@ -184,8 +284,7 @@ where
                             stdout_tail.as_deref(),
                         )
                         .await?;
-                        failed = true;
-                        break;
+                        return Ok(StepOutcome::Failed);
                     }
                 };
 
@@ -208,21 +307,20 @@ where
                         .await?;
                         engine
                             .set_checkpoint(
-                                &queue,
+                                queue,
                                 task_id,
                                 &step.name,
                                 &json!({"step": step.name, "status": "SUSPENDED"}),
                                 run_id,
                             )
                             .await?;
-                        suspended = true;
-                        break;
+                        return Ok(StepOutcome::Suspended);
                     }
                     _ => {
                         if exit_code == 0 {
                             engine
                                 .set_checkpoint(
-                                    &queue,
+                                    queue,
                                     task_id,
                                     &step.name,
                                     &json!({"step": step.name, "status": "COMPLETED", "exit": 0}),
@@ -248,8 +346,7 @@ where
                                 stdout_tail.as_deref(),
                             )
                             .await?;
-                            failed = true;
-                            break;
+                            return Ok(StepOutcome::Failed);
                         }
                     }
                 }
@@ -259,7 +356,7 @@ where
                 // immediate COMPLETED. (Real Agent steps always carry a command.)
                 engine
                     .set_checkpoint(
-                        &queue,
+                        queue,
                         task_id,
                         &step.name,
                         &json!({"step": step.name, "status": "COMPLETED", "noop": true}),
@@ -279,26 +376,58 @@ where
         }
     }
 
-    // Finalize the absurd run exactly once. complete_run ends the *task* (errors
-    // if called twice / not running), so it is called once per dispatch - not
-    // per step. A suspended task stays non-terminal (resume is the follow-on).
-    if suspended {
-        // intentionally no complete_run/fail_run - run stays "running" in absurd.
-    } else if failed {
-        engine
-            .fail_run(
-                &queue,
-                run_id,
-                &json!({"task_id": task_id, "reason": "step_failed"}),
-            )
-            .await?;
-    } else {
-        engine
-            .complete_run(&queue, run_id, &json!({"task_id": task_id}))
-            .await?;
-    }
+    Ok(StepOutcome::Done)
+}
 
-    Ok(task_id)
+/// Kill any tmux sessions for `task_id` left from a previous attempt/crash (tmux
+/// survives the daemon dying). Called at the top of each claim iteration before
+/// re-running, so a resumed step doesn't double-execute against a stale pane.
+fn kill_stale_sessions<B: DurableBackend>(backend: &B, task_id: Uuid) -> Result<()> {
+    let prefix = format!("{}{}-", SESSION_PREFIX, task_id.simple());
+    for name in backend.list_sessions()? {
+        if name.starts_with(&prefix) {
+            let _ = backend.kill_session(&SessionId::from_name(name));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `task_id` is still non-terminal (`pending`/`sleeping`/`running`) in
+/// absurd - i.e. a retry is pending. Used by the loop to distinguish "retry
+/// pending, keep polling" from "terminal, exit" when `claim_task` returns `None`.
+async fn task_non_terminal<E: DurableEngine>(
+    engine: &E,
+    queue: &str,
+    task_id: Uuid,
+) -> Result<bool> {
+    Ok(engine
+        .non_terminal_tasks(queue)
+        .await?
+        .into_iter()
+        .any(|t| t.task_id == task_id))
+}
+
+/// The step index to (re-)run: the step AFTER the last `COMPLETED` checkpoint
+/// (0 if no checkpoint - a fresh dispatch). Failed/interrupted steps have no
+/// checkpoint, so they re-run; completed steps are skipped.
+async fn resume_index<E: DurableEngine>(
+    engine: &E,
+    queue: &str,
+    task_id: Uuid,
+    recipe: &ValidatedRecipe,
+) -> Result<usize> {
+    Ok(engine
+        .get_last_checkpoint(queue, task_id)
+        .await?
+        .and_then(|(step_name, _)| {
+            recipe
+                .workflow
+                .steps
+                .iter()
+                .position(|s| s.name == step_name)
+        })
+        .map(|i| i + 1)
+        .unwrap_or(0))
 }
 
 /// Poll a tmux session for pane death, renewing the absurd lease every
@@ -404,16 +533,19 @@ mod tests {
     use super::*;
     use crate::absurd::adapter::FakeEngine;
     use crate::recipe::{Workflow, WorkflowSection, WorkflowStep};
+    use std::collections::HashSet;
     use std::collections::VecDeque;
     use std::path::PathBuf;
     use std::sync::Mutex;
 
     /// In-memory `DurableBackend` for engine unit tests: completes each session
     /// instantly with a configurable per-step exit code (popped in
-    /// `create_session` order via `poll_exit`).
+    /// `create_session` order via `poll_exit`). Tracks live sessions so
+    /// [`kill_stale_sessions`] + `has_session`/`list_sessions` are exercisable.
     struct FakeBackend {
         exit_codes: Mutex<VecDeque<i32>>,
         created: Mutex<Vec<String>>,
+        alive: Mutex<HashSet<String>>,
         pane: String,
     }
 
@@ -422,11 +554,19 @@ mod tests {
             Self {
                 exit_codes: Mutex::new(codes.iter().copied().collect()),
                 created: Mutex::new(Vec::new()),
+                alive: Mutex::new(HashSet::new()),
                 pane: "pane-output\n".to_string(),
             }
         }
         fn created_count(&self) -> usize {
             self.created.lock().unwrap().len()
+        }
+        /// Inject a live session (for `kill_stale_sessions` tests).
+        fn seed_alive(&self, name: &str) {
+            self.alive.lock().unwrap().insert(name.to_string());
+        }
+        fn is_alive(&self, name: &str) -> bool {
+            self.alive.lock().unwrap().contains(name)
         }
     }
 
@@ -437,20 +577,23 @@ mod tests {
             _command: &str,
             _cwd: Option<&Path>,
         ) -> Result<()> {
-            self.created.lock().unwrap().push(id.as_str().to_string());
+            let name = id.as_str().to_string();
+            self.created.lock().unwrap().push(name.clone());
+            self.alive.lock().unwrap().insert(name);
             Ok(())
         }
         fn attach(&self, _id: &SessionId) -> Result<()> {
             Ok(())
         }
-        fn kill_session(&self, _id: &SessionId) -> Result<()> {
+        fn kill_session(&self, id: &SessionId) -> Result<()> {
+            self.alive.lock().unwrap().remove(id.as_str());
             Ok(())
         }
-        fn has_session(&self, _id: &SessionId) -> Result<bool> {
-            Ok(false)
+        fn has_session(&self, id: &SessionId) -> Result<bool> {
+            Ok(self.alive.lock().unwrap().contains(id.as_str()))
         }
         fn list_sessions(&self) -> Result<Vec<String>> {
-            Ok(vec![])
+            Ok(self.alive.lock().unwrap().iter().cloned().collect())
         }
         fn capture_pane(&self, _id: &SessionId) -> Result<String> {
             Ok(self.pane.clone())
@@ -539,12 +682,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_workflow_stops_on_first_failure() {
+    async fn run_workflow_retries_then_succeeds() {
+        // step 2 fails on attempt 1 (exit 1), succeeds on attempt 2 (exit 0).
+        // Codes pop per create_session: a1 scout(0)+build(1); a2 resumes at build
+        // (scout's checkpoint) -> build(0).
         let tmp = tempfile::tempdir().unwrap();
         let db = degraded_db(tmp.path());
-        let engine = FakeEngine::new();
-        // step 1 ok, step 2 exits 1.
-        let backend = FakeBackend::new(&[0, 1]);
+        let engine = FakeEngine::new(); // max_attempts: 3
+        let backend = FakeBackend::new(&[0, 1, 0]);
         let recipe = two_step_recipe();
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
@@ -563,14 +708,104 @@ mod tests {
         .await
         .expect("workflow ok");
 
-        // fail_run called once -> task failed.
+        // Retried once then completed.
+        assert_eq!(engine.task_state(task_id).as_deref(), Some("completed"));
+        // a1: scout+build sessions; a2: build session (scout skipped via checkpoint).
+        assert_eq!(backend.created_count(), 3);
+        let cp = engine.last_checkpoint(task_id).expect("checkpoint");
+        assert_eq!(cp.0, "build");
+    }
+
+    #[tokio::test]
+    async fn run_workflow_retries_exhausted() {
+        // step 2 always fails; max_attempts: 2 -> failed after 2 attempts.
+        let tmp = tempfile::tempdir().unwrap();
+        let db = degraded_db(tmp.path());
+        let engine = FakeEngine::with_max_attempts(2);
+        let backend = FakeBackend::new(&[0, 1, 1]);
+        let recipe = two_step_recipe();
+
+        let task_id = spawn_workflow(&engine, &recipe, "test-flow")
+            .await
+            .expect("spawn");
+        run_workflow(
+            &db,
+            &engine,
+            &backend,
+            &recipe,
+            "test-flow",
+            tmp.path(),
+            task_id,
+            Path::new("/bin/janush"),
+        )
+        .await
+        .expect("workflow ok");
+
         assert_eq!(engine.task_state(task_id).as_deref(), Some("failed"));
-        // Step 2's session WAS created (the engine creates the session before
-        // polling), but no third step ran.
-        assert_eq!(backend.created_count(), 2);
-        // Last checkpoint is step 1 (step 2 failed before its checkpoint write).
+        // a1: scout+build; a2: build (resumed). 3 sessions.
+        assert_eq!(backend.created_count(), 3);
+        // step 2 never completed -> last checkpoint stays at scout.
         let cp = engine.last_checkpoint(task_id).expect("checkpoint");
         assert_eq!(cp.0, "scout");
+    }
+
+    #[tokio::test]
+    async fn run_workflow_resumes_from_checkpoint() {
+        // Cold-start resume: scout already COMPLETED (seeded checkpoint) ->
+        // run_workflow skips it, runs only build.
+        let tmp = tempfile::tempdir().unwrap();
+        let db = degraded_db(tmp.path());
+        let engine = FakeEngine::new();
+        let backend = FakeBackend::new(&[0]); // build succeeds
+        let recipe = two_step_recipe();
+
+        let task_id = spawn_workflow(&engine, &recipe, "test-flow")
+            .await
+            .expect("spawn");
+        engine.seed_checkpoint(task_id, "scout"); // scout already done
+        run_workflow(
+            &db,
+            &engine,
+            &backend,
+            &recipe,
+            "test-flow",
+            tmp.path(),
+            task_id,
+            Path::new("/bin/janush"),
+        )
+        .await
+        .expect("workflow ok");
+
+        assert_eq!(engine.task_state(task_id).as_deref(), Some("completed"));
+        // Only build's session was created (scout skipped).
+        assert_eq!(backend.created_count(), 1);
+        let cp = engine.last_checkpoint(task_id).expect("checkpoint");
+        assert_eq!(cp.0, "build");
+    }
+
+    #[test]
+    fn kill_stale_sessions_kills_only_the_task_sessions() {
+        let backend = FakeBackend::new(&[]);
+        let tid = Uuid::new_v4();
+        let stale = format!("{}{}-0", SESSION_PREFIX, tid.simple());
+        let other_task = format!("{}{}-0", SESSION_PREFIX, Uuid::new_v4().simple());
+        let unrelated = "some-other-session".to_string();
+        for s in [&stale, &other_task, &unrelated] {
+            backend.seed_alive(s);
+        }
+        kill_stale_sessions(&backend, tid).expect("kill stale");
+        assert!(
+            !backend.is_alive(&stale),
+            "stale session for tid should be killed"
+        );
+        assert!(
+            backend.is_alive(&other_task),
+            "other task's session should remain"
+        );
+        assert!(
+            backend.is_alive(&unrelated),
+            "unrelated session should remain"
+        );
     }
 
     #[test]

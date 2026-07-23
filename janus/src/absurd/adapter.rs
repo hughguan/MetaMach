@@ -32,6 +32,16 @@ pub struct ClaimedTask {
     pub params: Value,
 }
 
+/// Outcome of [`DurableEngine::await_event`] - mirrors absurd's `(should_suspend,
+/// payload)` return. `Suspended` = the run is now `sleeping` (lease cleared,
+/// `emit_event` will wake it for re-claim); `Resolved(payload)` = the event was
+/// already emitted (payload = the verdict) or the await timed out (payload null).
+#[derive(Debug, Clone)]
+pub enum AwaitOutcome {
+    Suspended,
+    Resolved(Value),
+}
+
 /// A non-terminal task for cold-start reconciliation (`pending`/`running`/`sleeping`).
 #[derive(Debug, Clone)]
 pub struct TaskInfo {
@@ -115,8 +125,10 @@ pub trait DurableEngine: Send + Sync {
         payload: &'a Value,
     ) -> BoxFut<'a, Result<()>>;
     /// `absurd.await_event(queue, task_id, run_id, step, event_name, timeout)` -
-    /// blocks (PG-side poll) until the event fires or timeout; HITL SUSPEND.
-    /// Returns the event payload. Defined in Phase 0a; driven by the 0b engine.
+    /// HITL SUSPEND. Returns [`AwaitOutcome`]: `Suspended` (run now `sleeping`,
+    /// `emit_event` will wake it) or `Resolved(payload)` (event already emitted,
+    /// payload = the verdict; null on timeout). absurd clears the lease on
+    /// suspend, so the run won't auto-fail during the HITL wait.
     fn await_event<'a>(
         &'a self,
         queue: &'a str,
@@ -125,7 +137,7 @@ pub trait DurableEngine: Send + Sync {
         step: &'a str,
         event_name: &'a str,
         timeout_secs: Option<i64>,
-    ) -> BoxFut<'a, Result<Value>>;
+    ) -> BoxFut<'a, Result<AwaitOutcome>>;
 }
 
 // --- Production impl: sqlx -> absurd stored procs -------------------------
@@ -336,21 +348,31 @@ impl DurableEngine for AbsurdPgAdapter {
         step: &'a str,
         event_name: &'a str,
         timeout_secs: Option<i64>,
-    ) -> BoxFut<'a, Result<Value>> {
+    ) -> BoxFut<'a, Result<AwaitOutcome>> {
         Box::pin(async move {
-            // absurd.await_event blocks in PG until the event fires or timeout.
-            let payload: Value = sqlx::query_scalar(
-                "SELECT payload FROM absurd.await_event($1, $2, $3, $4, $5, $6)",
+            // absurd.await_event returns (should_suspend, payload): should_suspend
+            // = true means the run is now `sleeping` (await emit_event); false
+            // means the event was already emitted (payload = verdict) or timed
+            // out (payload null). payload is SQL NULL on suspend -> decode as
+            // Option<Value>.
+            let (should_suspend, payload): (bool, Option<Value>) = sqlx::query_as(
+                "SELECT should_suspend, payload FROM absurd.await_event($1, $2, $3, $4, $5, $6)",
             )
             .bind(queue)
             .bind(task_id)
             .bind(run_id)
             .bind(step)
             .bind(event_name)
-            .bind(timeout_secs)
+            // absurd.await_event's p_timeout is `integer` (i32); the trait carries
+            // i64 (hitl_timeout_secs), so cast - the HITL window (<= 30 min) fits.
+            .bind(timeout_secs.map(|t| t as i32))
             .fetch_one(&self.pool)
             .await?;
-            Ok(payload)
+            Ok(if should_suspend {
+                AwaitOutcome::Suspended
+            } else {
+                AwaitOutcome::Resolved(payload.unwrap_or(Value::Null))
+            })
         })
     }
 }
@@ -471,6 +493,19 @@ impl FakeEngine {
                 step.to_string(),
                 serde_json::json!({"step": step, "status": "COMPLETED"}),
             ));
+    }
+
+    /// Seed a checkpoint for `task_id`/`step` with an arbitrary `state` (e.g. a
+    /// HITL verdict `{"hitl_verdict":"APPROVED"}` or `{"status":"SUSPENDED"}`) -
+    /// used to test [`resume_point`](crate::workflow) branching.
+    pub fn seed_checkpoint_state(&self, task_id: Uuid, step: &str, state: serde_json::Value) {
+        self.state
+            .lock()
+            .expect("fake engine mutex")
+            .checkpoints
+            .entry(task_id)
+            .or_default()
+            .push((step.to_string(), state));
     }
 
     /// Snapshot of a task's state (`pending`/`running`/`sleeping`/`completed`/
@@ -726,19 +761,24 @@ impl DurableEngine for FakeEngine {
         _step: &'a str,
         event_name: &'a str,
         _timeout_secs: Option<i64>,
-    ) -> BoxFut<'a, Result<Value>> {
-        // The Phase 0b engine does NOT call await_event (the resume loop is the
-        // follow-on). For trait completeness: drain an emitted payload if present,
-        // else return Null (never blocks the test).
+    ) -> BoxFut<'a, Result<AwaitOutcome>> {
+        // Mirrors absurd: if the event has been emitted (via emit_event), resolve
+        // with its payload; else return Suspended (the run "sleeps"). The engine's
+        // loop treats Suspended as "re-claim later" - in the fake, emit_event
+        // resolves it on the next await_event call.
         Box::pin(async move {
-            Ok(self
+            let key = (queue.to_string(), event_name.to_string());
+            let resolved = self
                 .state
                 .lock()
                 .expect("fake engine mutex")
                 .events
-                .get_mut(&(queue.to_string(), event_name.to_string()))
-                .and_then(|v| v.first().cloned())
-                .unwrap_or(Value::Null))
+                .get(&key)
+                .and_then(|v| v.first().cloned());
+            Ok(match resolved {
+                Some(payload) => AwaitOutcome::Resolved(payload),
+                None => AwaitOutcome::Suspended,
+            })
         })
     }
 }

@@ -30,9 +30,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::absurd::AbsurdDb;
-use crate::absurd::adapter::DurableEngine;
+use crate::absurd::adapter::{AwaitOutcome, DurableEngine};
 use crate::paths;
-use crate::protocol::truncate_16k;
+use crate::protocol::{self, truncate_16k};
 use crate::recipe::ValidatedRecipe;
 use crate::tmux::{DurableBackend, SESSION_PREFIX, SessionId};
 
@@ -63,16 +63,34 @@ enum StepOutcome {
     Done,
     /// A step exited non-zero (or the poll/lease failed) -> `fail_run` + retry.
     Failed,
-    /// A step `SUSPENDED` (HITL BLOCK) -> leave the run non-terminal + exit
-    /// (the `await_event`/`emit_event` resume loop is a follow-on).
-    Suspended,
+    /// A step `SUSPENDED` (HITL BLOCK) -> await the verdict (`await_event`) +
+    /// re-run the step on approval. Carries the suspended step's index + name.
+    Suspended { step_idx: usize, step_name: String },
+}
+
+/// What the [`run_workflow`] loop should do at a given resume point, derived from
+/// the last absurd checkpoint (see [`resume_point`]).
+enum ResumeAction {
+    /// Run the steps from `start_idx` (fresh dispatch, skip `COMPLETED`, or
+    /// re-run an `APPROVED` HITL step).
+    Run,
+    /// The last checkpoint is a `SUSPENDED` step with no verdict yet (e.g. a
+    /// re-claim after the HITL timeout) -> `await_event` to resolve it.
+    AwaitHITL,
+    /// The last checkpoint is a `REJECTED` verdict -> `fail_run` + exit.
+    FailHITL,
 }
 
 /// Build the absurd queue name for a blueprint/workflow, sanitized to a valid
 /// unquoted PG identifier (`[a-zA-Z0-9_]`). See [`spawn_workflow`] for why
 /// sanitization is required (absurd's `%I` table naming vs. the adapter's
 /// unquoted reads).
-fn queue_name(recipe: &ValidatedRecipe, workflow_name: &str) -> String {
+/// Build the absurd queue name for a blueprint/workflow, sanitized to a valid
+/// unquoted PG identifier (`[a-zA-Z0-9_]`). See [`spawn_workflow`] for why
+/// sanitization is required (absurd's `%I` table naming vs. the adapter's
+/// unquoted reads). Public so the HITL verdict sink can build the same queue
+/// name for `emit_event`.
+pub fn queue_name(blueprint: &str, workflow_name: &str) -> String {
     fn sanitize(s: &str) -> String {
         s.chars()
             .map(|c| {
@@ -84,7 +102,7 @@ fn queue_name(recipe: &ValidatedRecipe, workflow_name: &str) -> String {
             })
             .collect()
     }
-    format!("{}_{}", sanitize(&recipe.name), sanitize(workflow_name))
+    format!("{}_{}", sanitize(blueprint), sanitize(workflow_name))
 }
 
 /// Enqueue a workflow on the absurd engine (Phase 1 of dispatch). Returns the
@@ -106,7 +124,7 @@ where
     // the adapter reads `t_<queue>` unquoted - so a dash would make reads miss
     // the table. Sanitizing at construction makes the adapter's defensive
     // `queue_ident_suffix` a no-op and keeps the two in sync.
-    let queue = queue_name(recipe, workflow_name);
+    let queue = queue_name(&recipe.name, workflow_name);
     let task_name = format!("{}.{}", recipe.name, workflow_name);
     engine.create_queue(&queue).await?;
     let payload = serde_json::to_value(&recipe.workflow.steps)
@@ -140,7 +158,7 @@ where
     E: DurableEngine,
     B: DurableBackend,
 {
-    let queue = queue_name(recipe, workflow_name);
+    let queue = queue_name(&recipe.name, workflow_name);
 
     loop {
         // Kill any tmux sessions left from a previous attempt/crash for this task
@@ -168,49 +186,110 @@ where
         );
         let run_id = claimed.run_id;
 
-        // Resume point: the step AFTER the last COMPLETED checkpoint (0 if none -
-        // a fresh dispatch). Failed/interrupted steps have no checkpoint, so they
-        // re-run; completed steps are skipped.
-        let start_idx = resume_index(engine, &queue, task_id, recipe).await?;
+        // Resume point: derived from the last absurd checkpoint. `Run` skips
+        // COMPLETED steps (or re-runs an APPROVED HITL step); `AwaitHITL` re-awaits
+        // a still-suspended step (e.g. after the HITL timeout); `FailHITL` ends a
+        // REJECTED step.
+        let (start_idx, action) = resume_point(engine, &queue, task_id, recipe).await?;
         let target_sha = git_head(repo_root);
 
-        match run_steps(
-            db,
-            engine,
-            backend,
-            recipe,
-            workflow_name,
-            &queue,
-            task_id,
-            run_id,
-            &target_sha,
-            janush,
-            repo_root,
-            start_idx,
-        )
-        .await?
-        {
-            StepOutcome::Done => {
-                engine
-                    .complete_run(&queue, run_id, &json!({"task_id": task_id}))
-                    .await?;
-                return Ok(task_id);
-            }
-            StepOutcome::Suspended => {
-                // Run stays non-terminal (no complete/fail_run); the HITL
-                // await_event/emit_event resume loop is a follow-on.
-                return Ok(task_id);
-            }
-            StepOutcome::Failed => {
+        match action {
+            ResumeAction::FailHITL => {
                 engine
                     .fail_run(
                         &queue,
                         run_id,
-                        &json!({"task_id": task_id, "reason": "step_failed"}),
+                        &json!({"task_id": task_id, "reason": "hitl_rejected"}),
                     )
                     .await?;
-                // Loop: absurd mints a retry run if attempts remain, else the
-                // task goes `failed` -> next claim is None -> exit above.
+                return Ok(task_id);
+            }
+            ResumeAction::AwaitHITL => {
+                // Re-claimed with a SUSPENDED checkpoint + no verdict yet.
+                let step_name = recipe.workflow.steps[start_idx].name.clone();
+                if let Some(tid) = hitl_await_and_rerun(
+                    db,
+                    engine,
+                    backend,
+                    recipe,
+                    workflow_name,
+                    &queue,
+                    task_id,
+                    run_id,
+                    &target_sha,
+                    janush,
+                    repo_root,
+                    start_idx,
+                    step_name,
+                )
+                .await?
+                {
+                    return Ok(tid);
+                }
+                // else: Suspended (run sleeping, re-claim on wake) or Failed -> loop.
+            }
+            ResumeAction::Run => {
+                match run_steps(
+                    db,
+                    engine,
+                    backend,
+                    recipe,
+                    workflow_name,
+                    &queue,
+                    task_id,
+                    run_id,
+                    &target_sha,
+                    janush,
+                    repo_root,
+                    start_idx,
+                )
+                .await?
+                {
+                    StepOutcome::Done => {
+                        engine
+                            .complete_run(&queue, run_id, &json!({"task_id": task_id}))
+                            .await?;
+                        return Ok(task_id);
+                    }
+                    StepOutcome::Failed => {
+                        engine
+                            .fail_run(
+                                &queue,
+                                run_id,
+                                &json!({"task_id": task_id, "reason": "step_failed"}),
+                            )
+                            .await?;
+                        // Loop: absurd mints a retry run if attempts remain, else
+                        // the task goes `failed` -> next claim is None -> exit.
+                    }
+                    StepOutcome::Suspended {
+                        step_idx,
+                        step_name,
+                    } => {
+                        // Run still claimed. Await the HITL verdict in place; on
+                        // approval re-run the step (the GuardCheck ALLOWs it now).
+                        if let Some(tid) = hitl_await_and_rerun(
+                            db,
+                            engine,
+                            backend,
+                            recipe,
+                            workflow_name,
+                            &queue,
+                            task_id,
+                            run_id,
+                            &target_sha,
+                            janush,
+                            repo_root,
+                            step_idx,
+                            step_name,
+                        )
+                        .await?
+                        {
+                            return Ok(tid);
+                        }
+                        // else: Suspended (run sleeping) or Failed -> loop.
+                    }
+                }
             }
         }
     }
@@ -305,16 +384,16 @@ where
                             stdout_tail.as_deref(),
                         )
                         .await?;
-                        engine
-                            .set_checkpoint(
-                                queue,
-                                task_id,
-                                &step.name,
-                                &json!({"step": step.name, "status": "SUSPENDED"}),
-                                run_id,
-                            )
-                            .await?;
-                        return Ok(StepOutcome::Suspended);
+                        // NOTE: no absurd `set_checkpoint` here - a SUSPENDED checkpoint
+                        // would make `await_event` return Resolved (its first check sees
+                        // any checkpoint) instead of Suspended, so the run would never
+                        // sleep + the engine would misread it as a verdict. The overlay
+                        // `finalize_step` above (status=SUSPENDED) is enough for the
+                        // dashboard; the verdict checkpoint is written by `emit_event`.
+                        return Ok(StepOutcome::Suspended {
+                            step_idx: idx,
+                            step_name: step.name.clone(),
+                        });
                     }
                     _ => {
                         if exit_code == 0 {
@@ -407,27 +486,156 @@ async fn task_non_terminal<E: DurableEngine>(
         .any(|t| t.task_id == task_id))
 }
 
-/// The step index to (re-)run: the step AFTER the last `COMPLETED` checkpoint
-/// (0 if no checkpoint - a fresh dispatch). Failed/interrupted steps have no
-/// checkpoint, so they re-run; completed steps are skipped.
-async fn resume_index<E: DurableEngine>(
+/// The resume point + action, derived from the last absurd checkpoint:
+/// - no checkpoint -> `(0, Run)` (fresh dispatch)
+/// - `status == "COMPLETED"` -> `(idx+1, Run)` (skip the done step)
+/// - `hitl_verdict == "APPROVED"|"OVERRIDDEN"` -> `(idx, Run)` (re-run the approved step)
+/// - `hitl_verdict == "REJECTED"` -> `(idx, FailHITL)`
+/// - else (SUSPENDED / no verdict yet) -> `(idx, AwaitHITL)`
+async fn resume_point<E: DurableEngine>(
     engine: &E,
     queue: &str,
     task_id: Uuid,
     recipe: &ValidatedRecipe,
-) -> Result<usize> {
-    Ok(engine
-        .get_last_checkpoint(queue, task_id)
+) -> Result<(usize, ResumeAction)> {
+    let Some((step_name, state)) = engine.get_last_checkpoint(queue, task_id).await? else {
+        return Ok((0, ResumeAction::Run));
+    };
+    let idx = recipe
+        .workflow
+        .steps
+        .iter()
+        .position(|s| s.name == step_name)
+        .unwrap_or(0);
+    let status = state.get("status").and_then(|v| v.as_str());
+    let verdict = state.get("hitl_verdict").and_then(|v| v.as_str());
+    Ok(if status == Some("COMPLETED") {
+        (idx + 1, ResumeAction::Run)
+    } else if matches!(verdict, Some("APPROVED") | Some("OVERRIDDEN")) {
+        (idx, ResumeAction::Run)
+    } else if verdict == Some("REJECTED") {
+        (idx, ResumeAction::FailHITL)
+    } else {
+        (idx, ResumeAction::AwaitHITL)
+    })
+}
+
+/// Result of awaiting a HITL verdict for a suspended step.
+enum HitlAwaitResult {
+    /// `await_event` returned `Suspended` - the run is now `sleeping`; re-claim
+    /// on wake (the loop continues).
+    Suspended,
+    /// The verdict is `APPROVED`/`OVERRIDDEN` - re-run the step.
+    Approved,
+    /// The verdict is `REJECTED` or the await timed out (null payload) - fail.
+    RejectedOrTimeout,
+}
+
+/// `await_event` on the HITL verdict event `hitl.verdict:<task_id>`, mapped to a
+/// [`HitlAwaitResult`]. Timeout = `protocol::hitl_timeout_secs()` (30 min default).
+async fn hitl_await<E: DurableEngine>(
+    engine: &E,
+    queue: &str,
+    task_id: Uuid,
+    run_id: Uuid,
+    step_name: &str,
+) -> Result<HitlAwaitResult> {
+    let event_name = format!("hitl.verdict:{task_id}");
+    match engine
+        .await_event(
+            queue,
+            task_id,
+            run_id,
+            step_name,
+            &event_name,
+            Some(protocol::hitl_timeout_secs()),
+        )
         .await?
-        .and_then(|(step_name, _)| {
-            recipe
-                .workflow
-                .steps
-                .iter()
-                .position(|s| s.name == step_name)
-        })
-        .map(|i| i + 1)
-        .unwrap_or(0))
+    {
+        AwaitOutcome::Suspended => Ok(HitlAwaitResult::Suspended),
+        AwaitOutcome::Resolved(payload) => {
+            match payload.get("hitl_verdict").and_then(|v| v.as_str()) {
+                Some("APPROVED") | Some("OVERRIDDEN") => Ok(HitlAwaitResult::Approved),
+                _ => Ok(HitlAwaitResult::RejectedOrTimeout),
+            }
+        }
+    }
+}
+
+/// Await the HITL verdict for `step_idx`/`step_name` + act on it. Returns
+/// `Some(task_id)` when the task is terminal (caller returns); `None` when the
+/// loop should continue (`Suspended` -> run sleeping; `Failed` -> retry).
+#[allow(clippy::too_many_arguments)] // mirrors run_steps; all args are genuinely needed.
+async fn hitl_await_and_rerun<E, B>(
+    db: &AbsurdDb,
+    engine: &E,
+    backend: &B,
+    recipe: &ValidatedRecipe,
+    workflow_name: &str,
+    queue: &str,
+    task_id: Uuid,
+    run_id: Uuid,
+    target_sha: &str,
+    janush: &Path,
+    repo_root: &Path,
+    step_idx: usize,
+    step_name: String,
+) -> Result<Option<Uuid>>
+where
+    E: DurableEngine,
+    B: DurableBackend,
+{
+    match hitl_await(engine, queue, task_id, run_id, &step_name).await? {
+        HitlAwaitResult::Suspended => Ok(None), // run sleeping; loop re-claims on wake
+        HitlAwaitResult::Approved => {
+            // Re-run the step (the GuardCheck handler ALLOWs it now that
+            // hitl_verdict=APPROVED is recorded on the overlay).
+            match run_steps(
+                db,
+                engine,
+                backend,
+                recipe,
+                workflow_name,
+                queue,
+                task_id,
+                run_id,
+                target_sha,
+                janush,
+                repo_root,
+                step_idx,
+            )
+            .await?
+            {
+                StepOutcome::Done => {
+                    engine
+                        .complete_run(queue, run_id, &json!({"task_id": task_id}))
+                        .await?;
+                    Ok(Some(task_id))
+                }
+                StepOutcome::Failed => {
+                    engine
+                        .fail_run(
+                            queue,
+                            run_id,
+                            &json!({"task_id": task_id, "reason": "step_failed"}),
+                        )
+                        .await?;
+                    Ok(None)
+                }
+                StepOutcome::Suspended { .. } => Ok(None), // re-await on the next loop iteration
+            }
+        }
+        HitlAwaitResult::RejectedOrTimeout => {
+            engine
+                .fail_run(
+                    queue,
+                    run_id,
+                    &json!({"task_id": task_id, "reason": "hitl_rejected"}),
+                )
+                .await?;
+            Ok(Some(task_id))
+        }
+    }
 }
 
 /// Poll a tmux session for pane death, renewing the absurd lease every
@@ -808,6 +1016,49 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn resume_point_branches_on_checkpoint_state() {
+        // two_step_recipe: scout (idx 0), build (idx 1).
+        let engine = FakeEngine::new();
+        let recipe = two_step_recipe();
+        let task_id = Uuid::new_v4();
+        let queue = "testbp_test_flow";
+
+        // No checkpoint -> fresh dispatch (0, Run).
+        let (idx, act) = resume_point(&engine, queue, task_id, &recipe)
+            .await
+            .unwrap();
+        assert_eq!((idx, matches!(act, ResumeAction::Run)), (0, true));
+
+        // COMPLETED scout -> skip to build (1, Run).
+        engine.seed_checkpoint_state(task_id, "scout", json!({"status": "COMPLETED"}));
+        let (idx, act) = resume_point(&engine, queue, task_id, &recipe)
+            .await
+            .unwrap();
+        assert_eq!((idx, matches!(act, ResumeAction::Run)), (1, true));
+
+        // APPROVED build -> re-run build (1, Run).
+        engine.seed_checkpoint_state(task_id, "build", json!({"hitl_verdict": "APPROVED"}));
+        let (idx, act) = resume_point(&engine, queue, task_id, &recipe)
+            .await
+            .unwrap();
+        assert_eq!((idx, matches!(act, ResumeAction::Run)), (1, true));
+
+        // REJECTED build -> fail (1, FailHITL).
+        engine.seed_checkpoint_state(task_id, "build", json!({"hitl_verdict": "REJECTED"}));
+        let (idx, act) = resume_point(&engine, queue, task_id, &recipe)
+            .await
+            .unwrap();
+        assert_eq!((idx, matches!(act, ResumeAction::FailHITL)), (1, true));
+
+        // SUSPENDED build (no verdict yet) -> await (1, AwaitHITL).
+        engine.seed_checkpoint_state(task_id, "build", json!({"status": "SUSPENDED"}));
+        let (idx, act) = resume_point(&engine, queue, task_id, &recipe)
+            .await
+            .unwrap();
+        assert_eq!((idx, matches!(act, ResumeAction::AwaitHITL)), (1, true));
+    }
+
     #[test]
     fn git_head_returns_full_hash_in_git_repo() {
         let dir = tempfile::tempdir().unwrap();
@@ -865,9 +1116,9 @@ mod tests {
                 steps: vec![],
             },
         };
-        assert_eq!(queue_name(&recipe, "test-flow"), "gate_test_flow");
-        assert_eq!(queue_name(&recipe, "a.b c"), "gate_a_b_c");
-        assert_eq!(queue_name(&recipe, "clean"), "gate_clean");
+        assert_eq!(queue_name(&recipe.name, "test-flow"), "gate_test_flow");
+        assert_eq!(queue_name(&recipe.name, "a.b c"), "gate_a_b_c");
+        assert_eq!(queue_name(&recipe.name, "clean"), "gate_clean");
     }
 
     #[test]

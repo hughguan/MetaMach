@@ -577,6 +577,178 @@ command = "sleep 6"
     drop(d2);
 }
 
+// ── UTC-04-01: HITL Resume (emit_event -> await_event -> re-run) ───────────
+
+#[test]
+#[ignore = "requires PostgreSQL + tmux"]
+fn utc_04_01_hitl_resume() {
+    // Dispatch a 2-step workflow whose step 2 (`echo hi`, deployer) is
+    // require_approval -> suspends. Simulate the Director's approval (the verdict
+    // sink's record_hitl_resolution + emit_event) via psql, then assert the
+    // engine wakes, re-runs step 2 (GuardCheck ALLOWs via hitl_verdict=APPROVED),
+    // and both steps reach COMPLETED.
+    let name = format!(
+        "gate_04_01_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
+    let state = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(
+        &agents,
+        r#"
+[agent.default]
+bash_safe = true
+
+[agent.deployer]
+permissions = ["bash-full"]
+require_approval = ["echo hi"]
+"#,
+    )
+    .unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents);
+    // step 1 = true (default), step 2 = echo hi (deployer, require_approval).
+    let bp = d.repo_path().join("blueprints").join(&name);
+    std::fs::create_dir_all(&bp).unwrap();
+    std::fs::write(
+        bp.join("janus.toml"),
+        format!(
+            r#"[blueprint]
+name = "{name}"
+default_workflow = "test-flow"
+[openwiki]
+scope = ["test"]
+"#
+        ),
+    )
+    .unwrap();
+    let wf_dir = d.repo_path().join("workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    std::fs::write(
+        wf_dir.join("test-flow.toml"),
+        r#"[workflow]
+name = "test-flow"
+[[steps]]
+name = "scout"
+agent = "default"
+command = "true"
+[[steps]]
+name = "build"
+agent = "deployer"
+command = "echo hi"
+"#,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_secs(12)); // PG connect
+
+    d.uds(
+        &Request::Onboard { name: name.clone() },
+        Duration::from_secs(15),
+    )
+    .unwrap();
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: name.clone(),
+                workflow: None,
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    let task_id = match resp {
+        Response::Dispatch { task_id } => task_id,
+        other => panic!("expected Dispatch, got {other:?}"),
+    };
+
+    let bp_url = match std::env::var("DATABASE_URL") {
+        Ok(catalog_url) => {
+            catalog_url.replace("metamach_db", &format!("metamach_blueprint_{name}"))
+        }
+        Err(_) => {
+            let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
+                .expect("DATABASE_URL or METAMACH_PG_SOCKET_DIR must be set");
+            format!("postgres://metamach_admin@/metamach_blueprint_{name}?host={socket}")
+        }
+    };
+    let psql = |sql: String| {
+        std::process::Command::new("psql")
+            .args(["-t", "-A"])
+            .arg(&bp_url)
+            .arg("-c")
+            .arg(&sql)
+            .output()
+            .expect("psql")
+    };
+
+    // Poll until step 2 (build) is SUSPENDED (the HITL BLOCK fired).
+    let suspend_deadline = Instant::now() + Duration::from_secs(20);
+    let mut suspended = false;
+    while Instant::now() < suspend_deadline {
+        if let Response::Progress { active_tasks } = d
+            .uds(
+                &Request::Progress {
+                    blueprint: Some(name.clone()),
+                },
+                Duration::from_secs(5),
+            )
+            .unwrap()
+            && active_tasks.iter().any(|t| {
+                t.steps
+                    .iter()
+                    .any(|s| s.name == "build" && s.status == "SUSPENDED")
+            })
+        {
+            suspended = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(suspended, "step 2 never reached SUSPENDED");
+
+    // Simulate the Director's approval: record hitl_verdict=APPROVED on the
+    // overlay (so the GuardCheck ALLOWs the re-run) + emit_event (so the engine's
+    // await_event wakes). Queue = `<name>_test_flow` (workflow `test-flow` -> `test_flow`).
+    psql(format!(
+        "UPDATE metamach_step_meta SET hitl_verdict='APPROVED' WHERE task_id='{task_id}' AND step_name='build'"
+    ));
+    let payload = r#"{"hitl_verdict":"APPROVED"}"#;
+    psql(format!(
+        "SELECT absurd.emit_event('{name}_test_flow', 'hitl.verdict:{task_id}', '{payload}'::jsonb)"
+    ));
+
+    // Wait for the absurd task to reach `completed` (engine wakes + re-runs build).
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let out = psql(format!(
+            "SELECT state FROM absurd.t_{name}_test_flow WHERE task_id = '{task_id}'"
+        ));
+        if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "completed" {
+            break;
+        }
+        if Instant::now() > deadline {
+            panic!(
+                "task did not reach completed after HITL approve within 30s: {}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    // Both steps COMPLETED (step 2 resumed after approval).
+    let out = psql(format!(
+        "SELECT step_name || '|' || status FROM metamach_step_meta WHERE task_id = '{task_id}' ORDER BY step_name"
+    ));
+    let rows = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        rows.contains("build|COMPLETED"),
+        "build should be COMPLETED: {rows}"
+    );
+    assert!(
+        rows.contains("scout|COMPLETED"),
+        "scout should be COMPLETED: {rows}"
+    );
+}
+
 // ── UTC-03-04: Daemon Crash Recovery ───────────────────────────────────────
 
 #[test]

@@ -22,7 +22,7 @@ use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::MakeWriter;
 
 use janus::absurd::AbsurdDb;
-use janus::absurd::adapter::AbsurdPgAdapter;
+use janus::absurd::adapter::{AbsurdPgAdapter, DurableEngine};
 use janus::cognitive;
 use janus::gateway::{self, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
@@ -240,6 +240,28 @@ async fn handle_request(
                     rewritten_argv: None,
                     correlation_id: verdict.correlation_id,
                     cause: Some("cognitive".to_string()),
+                }
+            } else {
+                verdict
+            };
+
+            // HITL resume (M4 §3.3): if this `require_approval` step was already
+            // APPROVED (the engine is re-running it after a HITL resume), ALLOW it
+            // - otherwise the re-run would re-BLOCK infinitely. The verdict sink
+            // records APPROVED on the overlay; the engine's resume re-runs the
+            // step, janush re-sends this GuardCheck, and we let it through.
+            let verdict = if matches!(verdict.cause.as_deref(), Some("require_approval"))
+                && let (Some(bp), Some(tid), Some(sn)) =
+                    (&blueprint_id, &task_id, step_name.as_deref())
+                && let Ok(Some(v)) = db.hitl_verdict(bp, *tid, sn).await
+                && v == "APPROVED"
+            {
+                Verdict {
+                    kind: VerdictKind::Allow,
+                    reason: None,
+                    rewritten_argv: None,
+                    correlation_id: verdict.correlation_id,
+                    cause: None,
                 }
             } else {
                 verdict
@@ -479,6 +501,37 @@ impl VerdictSink for DbVerdictSink {
                 .await
             {
                 warn!("record_hitl_resolution failed: {e}");
+            }
+            // M4 §3.3: emit the resume signal so the engine's `await_event` wakes
+            // and re-runs the suspended step (APPROVED) or fails it (REJECTED).
+            // Queue = `<blueprint>_<workflow>` (sanitized, matching the engine's
+            // `queue_name`); workflow_name is denormalized on the overlay.
+            let wf = match db.step_workflow_name(&blueprint, tid, &step).await {
+                Ok(Some(w)) => w,
+                _ => {
+                    warn!(blueprint = %blueprint, %tid, "HITL emit: workflow_name lookup failed; resume deferred");
+                    return;
+                }
+            };
+            let queue = workflow::queue_name(&blueprint, &wf);
+            let event_name = format!("hitl.verdict:{tid}");
+            let pool = match db.blueprint_pool(&blueprint).await {
+                Ok(Some(p)) => p,
+                _ => {
+                    warn!(blueprint = %blueprint, %tid, "HITL emit: blueprint pool unreachable; resume deferred");
+                    return;
+                }
+            };
+            let engine = AbsurdPgAdapter::new(pool);
+            if let Err(e) = engine
+                .emit_event(
+                    &queue,
+                    &event_name,
+                    &serde_json::json!({"hitl_verdict": verdict_str}),
+                )
+                .await
+            {
+                warn!(blueprint = %blueprint, %tid, "HITL emit_event failed: {e}");
             }
         });
     }

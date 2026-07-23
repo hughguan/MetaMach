@@ -497,7 +497,7 @@ impl AbsurdDb {
                  ON CONFLICT (task_id, step_name) DO UPDATE \
                  SET status = 'STARTING', workflow_name = EXCLUDED.workflow_name, \
                      target_sha = EXCLUDED.target_sha, session_name = EXCLUDED.session_name, \
-                     exit_code = NULL, started_at = NULL, hitl_verdict = NULL, updated_at = NOW()",
+                     exit_code = NULL, started_at = NULL, updated_at = NOW()",
             )
             .bind(task_id)
             .bind(step_name)
@@ -590,6 +590,50 @@ impl AbsurdDb {
         .fetch_optional(&pool)
         .await?;
         Ok(row.map(|(s,)| s))
+    }
+
+    /// HITL: read a step's recorded verdict (`APPROVED`/`REJECTED`/`OVERRIDDEN`)
+    /// or `None`. Used by the `GuardCheck` handler to ALLOW an already-approved
+    /// step on re-run, so the engine's HITL resume doesn't re-block infinitely.
+    pub async fn hitl_verdict(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+    ) -> Result<Option<String>> {
+        let Some(pool) = self.blueprint_pool(blueprint).await? else {
+            return Ok(None);
+        };
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT hitl_verdict FROM metamach_step_meta WHERE task_id = $1 AND step_name = $2",
+        )
+        .bind(task_id)
+        .bind(step_name)
+        .fetch_optional(&pool)
+        .await?;
+        Ok(row.and_then(|(v,)| v))
+    }
+
+    /// Read a step's `workflow_name` (denormalized on the overlay) so the HITL
+    /// verdict sink can build the absurd queue name (`<blueprint>_<workflow>`)
+    /// for `emit_event`.
+    pub async fn step_workflow_name(
+        &self,
+        blueprint: &str,
+        task_id: Uuid,
+        step_name: &str,
+    ) -> Result<Option<String>> {
+        let Some(pool) = self.blueprint_pool(blueprint).await? else {
+            return Ok(None);
+        };
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT workflow_name FROM metamach_step_meta WHERE task_id = $1 AND step_name = $2",
+        )
+        .bind(task_id)
+        .bind(step_name)
+        .fetch_optional(&pool)
+        .await?;
+        Ok(row.and_then(|(w,)| w))
     }
 
     /// Task 4.3: idempotent tenant registration (Feature-Spec §2.5.3). Catalog DB

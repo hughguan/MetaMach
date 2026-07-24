@@ -66,6 +66,12 @@ enum StepOutcome {
     /// A step `SUSPENDED` (HITL BLOCK) -> await the verdict (`await_event`) +
     /// re-run the step on approval. Carries the suspended step's index + name.
     Suspended { step_idx: usize, step_name: String },
+    /// A step completed execution but the HEAD advanced mid-step (Task 4.4
+    /// `target_sha` enforcement): the pinned SHA no longer matches current HEAD.
+    /// The step result is discarded, the step is marked `SUSPENDED` with
+    /// `CONCURRENCY_RACE_ALERT`, and the retry loop picks it up against the new
+    /// HEAD (the absurd retry run mints a fresh claim).
+    StaleHead { step_name: String },
 }
 
 /// What the [`run_workflow`] loop should do at a given resume point, derived from
@@ -263,6 +269,22 @@ where
                         // Loop: absurd mints a retry run if attempts remain, else
                         // the task goes `failed` -> next claim is None -> exit.
                     }
+                    StepOutcome::StaleHead { step_name, .. } => {
+                        // Task 4.4: HEAD advanced mid-step. fail_run so absurd
+                        // schedules a retry; the next claim picks up the new HEAD.
+                        tracing::warn!(
+                            task_id = %task_id,
+                            step = %step_name,
+                            "stale-head reschedule: step will re-run against new HEAD"
+                        );
+                        engine
+                            .fail_run(
+                                &queue,
+                                run_id,
+                                &json!({"task_id": task_id, "reason": "stale_head"}),
+                            )
+                            .await?;
+                    }
                     StepOutcome::Suspended {
                         step_idx,
                         step_name,
@@ -403,6 +425,35 @@ where
                     }
                     _ => {
                         if exit_code == 0 {
+                            // Task 4.4 target_sha enforcement: if HEAD advanced
+                            // mid-step (code was pushed while the step ran),
+                            // the step result is stale - discard it, mark
+                            // SUSPENDED with CONCURRENCY_RACE_ALERT, and let the
+                            // retry loop re-run against the new HEAD.
+                            if target_sha != NULL_SHA {
+                                let current = git_head(repo_root);
+                                if current != *target_sha {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        step = %step.name,
+                                        pinned = %target_sha,
+                                        current = %current,
+                                        "CONCURRENCY_RACE_ALERT: HEAD advanced mid-step"
+                                    );
+                                    db.finalize_step(
+                                        &recipe.name,
+                                        task_id,
+                                        &step.name,
+                                        "SUSPENDED",
+                                        Some(exit_code),
+                                        stdout_tail.as_deref(),
+                                    )
+                                    .await?;
+                                    return Ok(StepOutcome::StaleHead {
+                                        step_name: step.name.clone(),
+                                    });
+                                }
+                            }
                             engine
                                 .set_checkpoint(
                                     queue,
@@ -636,7 +687,7 @@ where
                         .await?;
                     Ok(Some(task_id))
                 }
-                StepOutcome::Failed => {
+                StepOutcome::Failed | StepOutcome::StaleHead { .. } => {
                     engine
                         .fail_run(
                             queue,

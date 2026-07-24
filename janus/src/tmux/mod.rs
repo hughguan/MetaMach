@@ -11,11 +11,14 @@
 
 pub mod lifecycle;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use thiserror::Error;
+use tracing::warn;
 
 /// Isolated tmux server socket name (never pollutes the director's personal tmux).
 pub const TMUX_SOCKET: &str = "metamach-tmux";
@@ -89,10 +92,21 @@ pub enum TmuxError {
     Command(String),
 }
 
-/// Production backend: drives a real `tmux -L metamach-tmux` server.
+/// Production backend: drives a real `tmux -L metamach-tmux` server. Local by
+/// default; `with_ssh` prepends `ssh <host>` to every tmux CLI call for cross-host
+/// execution (ADR-017 - no separate `SshTmuxBackend` type; `ssh <host> tmux ...` is
+/// syntactically `tmux ...`, so all `DurableBackend` methods are identical).
 #[derive(Clone, Debug)]
 pub struct TmuxBackend {
     tmux: PathBuf,
+    ssh: Option<SshTarget>,
+}
+
+/// An SSH jump target for a remote `TmuxBackend` (ADR-017).
+#[derive(Clone, Debug)]
+pub struct SshTarget {
+    pub host: String,
+    pub user: Option<String>,
 }
 
 impl Default for TmuxBackend {
@@ -108,25 +122,85 @@ impl TmuxBackend {
     pub fn new() -> Self {
         Self {
             tmux: resolve_tmux(),
+            ssh: None,
         }
     }
 
-    /// Build a `tmux -L metamach-tmux ...` command.
+    /// A backend that drives tmux on a remote `host` over SSH (ADR-017). Every tmux
+    /// CLI call is prefixed with `ssh -o BatchMode=yes -o ConnectTimeout=5 -o
+    /// StrictHostKeyChecking=accept-new [-l user] <host>` (key-based only -
+    /// Deployment-Spec §4.2). The remote host needs `tmux` on PATH (the bare `tmux`
+    /// is resolved by the remote shell). The reverse tunnel for janush <-> daemon
+    /// is managed by the caller (the `BackendFactory`), not here.
+    pub fn with_ssh(host: String, user: Option<String>) -> Self {
+        Self {
+            tmux: resolve_tmux(),
+            ssh: Some(SshTarget { host, user }),
+        }
+    }
+
+    /// Whether this backend targets a remote host over SSH.
+    pub fn is_remote(&self) -> bool {
+        self.ssh.is_some()
+    }
+
+    /// Build a `tmux -L metamach-tmux ...` command (local) or
+    /// `ssh <flags> [-l user] <host> tmux -L metamach-tmux ...` (remote).
     fn tmux_cmd(&self, args: &[&str]) -> Command {
-        let mut cmd = Command::new(&self.tmux);
-        cmd.args(["-L", TMUX_SOCKET]);
-        cmd.args(args.iter().copied());
-        cmd
+        match &self.ssh {
+            None => {
+                let mut cmd = Command::new(&self.tmux);
+                cmd.args(["-L", TMUX_SOCKET]);
+                cmd.args(args.iter().copied());
+                cmd
+            }
+            Some(ssh) => {
+                // `ssh host tmux ...` - the remote shell resolves `tmux` via PATH.
+                let mut cmd = Command::new("ssh");
+                cmd.args([
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=5",
+                    "-o",
+                    "StrictHostKeyChecking=accept-new",
+                ]);
+                if let Some(user) = &ssh.user {
+                    cmd.args(["-l", user]);
+                }
+                cmd.arg(&ssh.host);
+                cmd.arg("tmux");
+                cmd.args(["-L", TMUX_SOCKET]);
+                cmd.args(args.iter().copied());
+                cmd
+            }
+        }
     }
 
     /// Run a tmux control command and capture its output.
     fn run(&self, args: &[&str]) -> Result<Output> {
-        if self.tmux.as_os_str().is_empty() {
+        if self.tmux.as_os_str().is_empty() && self.ssh.is_none() {
             bail!(TmuxError::TmuxNotFound);
         }
-        self.tmux_cmd(args)
-            .output()
-            .with_context(|| format!("spawn tmux ({})", self.tmux.display()))
+        let host = self.ssh.as_ref().map(|s| s.host.as_str());
+        self.tmux_cmd(args).output().with_context(|| match host {
+            Some(h) => format!("spawn ssh {h} tmux"),
+            None => format!("spawn tmux ({})", self.tmux.display()),
+        })
+    }
+
+    /// The `(program, args)` this backend would pass to `tmux_cmd` (test-only - for
+    /// asserting local `tmux ...` vs remote `ssh ... tmux ...` without spawning).
+    #[cfg(test)]
+    #[allow(dead_code)] // test-only helper preserved for future shutdown tests
+    pub(crate) fn tmux_cmd_program_and_args(&self, args: &[&str]) -> (String, Vec<String>) {
+        let cmd = self.tmux_cmd(args);
+        let program = cmd.get_program().to_string_lossy().into_owned();
+        let argv: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
+        (program, argv)
     }
 }
 
@@ -236,6 +310,114 @@ impl DurableBackend for TmuxBackend {
             Ok(Some(status.trim().parse::<i32>().unwrap_or(0)))
         } else {
             Ok(None)
+        }
+    }
+}
+
+// --- Backend factory (M4 Phase 2, ADR-017) ---------------------------------
+
+/// Builds a [`DurableBackend`] per step, keyed by the step's host. `None` -> the
+/// local backend; `Some(host)` -> a remote `TmuxBackend::with_ssh(host)` (cached
+/// per-host so the reverse tunnel is shared across steps on the same host). The
+/// production impl is [`TmuxFactory`]; tests use a fake (returns a shared backend).
+pub trait BackendFactory: Send + Sync {
+    fn get(&self, host: Option<&str>) -> Arc<dyn DurableBackend>;
+}
+
+/// Production [`BackendFactory`] (ADR-017). Local steps use a shared
+/// `TmuxBackend::new()`; remote steps use a per-host `TmuxBackend::with_ssh`
+/// (cached) with an SSH `-R` reverse tunnel mapping the local `janus.sock` to
+/// `/tmp/mm-<host>.sock` on the remote (so the remote janush reaches the local
+/// daemon). Tunnels are killed on drop (workflow end).
+type RemoteCache = HashMap<String, (Arc<TmuxBackend>, Option<Child>)>;
+
+pub struct TmuxFactory {
+    local: Arc<TmuxBackend>,
+    /// host -> (remote backend, reverse-tunnel ssh child).
+    remote: Mutex<RemoteCache>,
+    user: Option<String>,
+}
+
+impl TmuxFactory {
+    /// `user` is the SSH login user for all remote hosts (from the blueprint's
+    /// `[remote] user`); `None` -> SSH default.
+    pub fn new(user: Option<String>) -> Self {
+        Self {
+            local: Arc::new(TmuxBackend::new()),
+            remote: Mutex::new(HashMap::new()),
+            user,
+        }
+    }
+
+    /// Spawn `ssh -N -o BatchMode=yes -o ConnectTimeout=5 -o
+    /// StrictHostKeyChecking=accept-new [-l user] -R /tmp/mm-<host>.sock:<local-sock>
+    /// <host>` - the reverse tunnel (Unix-socket streamlocal forwarding, OpenSSH
+    /// 6.7+). Backgrounded; held until the factory drops.
+    fn spawn_reverse_tunnel(host: &str, user: &Option<String>) -> Result<Child> {
+        let local_sock = crate::paths::sock_path();
+        let remote_sock = format!("/tmp/mm-{host}.sock");
+        let mut cmd = Command::new("ssh");
+        cmd.args([
+            "-N",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+        ]);
+        if let Some(user) = user {
+            cmd.args(["-l", user]);
+        }
+        cmd.arg("-R")
+            .arg(format!("{remote_sock}:{}", local_sock.display()));
+        cmd.arg(host);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd.spawn()
+            .with_context(|| format!("spawn ssh -R reverse tunnel to {host}"))
+    }
+}
+
+impl BackendFactory for TmuxFactory {
+    fn get(&self, host: Option<&str>) -> Arc<dyn DurableBackend> {
+        match host {
+            None => self.local.clone(),
+            Some(h) => {
+                let mut remote = self.remote.lock().expect("TmuxFactory remote mutex");
+                // Lazily build the remote backend + reverse tunnel (cached per host
+                // so steps on the same host share one tunnel).
+                let entry = remote.entry(h.to_string()).or_insert_with(|| {
+                    let backend = Arc::new(TmuxBackend::with_ssh(h.to_string(), self.user.clone()));
+                    // Best-effort tunnel: if SSH isn't configured, warn + proceed
+                    // (the step fails at create_session/janush-connect with a
+                    // clearer error than crashing the engine task).
+                    let tunnel = match Self::spawn_reverse_tunnel(h, &self.user) {
+                        Ok(child) => Some(child),
+                        Err(e) => {
+                            warn!(host = h, "reverse tunnel spawn failed: {e}");
+                            None
+                        }
+                    };
+                    (backend, tunnel)
+                });
+                entry.0.clone()
+            }
+        }
+    }
+}
+
+impl Drop for TmuxFactory {
+    fn drop(&mut self) {
+        // Kill all reverse tunnels (the remote tmux sessions persist - they're
+        // cleaned by kill_stale_sessions on the next run, or manually).
+        let mut remote = self.remote.lock().expect("TmuxFactory remote mutex");
+        for (_, (_, mut tunnel)) in remote.drain() {
+            if let Some(child) = tunnel.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
 }

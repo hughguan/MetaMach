@@ -34,7 +34,7 @@ use crate::absurd::adapter::{AwaitOutcome, DurableEngine};
 use crate::paths;
 use crate::protocol::{self, truncate_16k};
 use crate::recipe::ValidatedRecipe;
-use crate::tmux::{DurableBackend, SESSION_PREFIX, SessionId};
+use crate::tmux::{BackendFactory, DurableBackend, SESSION_PREFIX, SessionId};
 
 /// Worker id the engine presents to absurd's `claim_task` (pull-mode lease).
 const WORKER_ID: &str = "janus-daemon";
@@ -144,10 +144,10 @@ where
 /// non-terminal, resume is the follow-on). `janush` is the resolved proxy-shell
 /// binary (the daemon resolves it; the engine stays pure / unit-testable).
 #[allow(clippy::too_many_arguments)] // mirrors WebhookPayload::build; all args are genuinely needed.
-pub async fn run_workflow<E, B>(
+pub async fn run_workflow<E, F>(
     db: &AbsurdDb,
     engine: &E,
-    backend: &B,
+    factory: &F,
     recipe: &ValidatedRecipe,
     workflow_name: &str,
     repo_root: &Path,
@@ -156,15 +156,16 @@ pub async fn run_workflow<E, B>(
 ) -> Result<Uuid>
 where
     E: DurableEngine,
-    B: DurableBackend,
+    F: BackendFactory,
 {
     let queue = queue_name(&recipe.name, workflow_name);
 
     loop {
         // Kill any tmux sessions left from a previous attempt/crash for this task
         // (tmux survives the daemon dying) before re-running - prevents
-        // double-execution of the resumed step.
-        kill_stale_sessions(backend, task_id)?;
+        // double-execution of the resumed step. Iterates the workflow's hosts
+        // (local + each remote) so remote stale sessions are cleaned too.
+        kill_stale_sessions(factory, recipe, task_id)?;
 
         // Claim a run (absurd owns the lease). `None` means no claimable run: the
         // retry run isn't available yet (backoff), or the task is terminal.
@@ -210,7 +211,7 @@ where
                 if let Some(tid) = hitl_await_and_rerun(
                     db,
                     engine,
-                    backend,
+                    factory,
                     recipe,
                     workflow_name,
                     &queue,
@@ -232,7 +233,7 @@ where
                 match run_steps(
                     db,
                     engine,
-                    backend,
+                    factory,
                     recipe,
                     workflow_name,
                     &queue,
@@ -271,7 +272,7 @@ where
                         if let Some(tid) = hitl_await_and_rerun(
                             db,
                             engine,
-                            backend,
+                            factory,
                             recipe,
                             workflow_name,
                             &queue,
@@ -300,10 +301,10 @@ where
 /// `complete_run`/`fail_run`. `start_idx > 0` skips steps already `COMPLETED` in
 /// a prior attempt (resume).
 #[allow(clippy::too_many_arguments)] // mirrors run_workflow; all args are genuinely needed.
-async fn run_steps<E, B>(
+async fn run_steps<E, F>(
     db: &AbsurdDb,
     engine: &E,
-    backend: &B,
+    factory: &F,
     recipe: &ValidatedRecipe,
     workflow_name: &str,
     queue: &str,
@@ -316,7 +317,7 @@ async fn run_steps<E, B>(
 ) -> Result<StepOutcome>
 where
     E: DurableEngine,
-    B: DurableBackend,
+    F: BackendFactory,
 {
     for (idx, step) in recipe.workflow.steps.iter().enumerate().skip(start_idx) {
         // One tmux session per step, named tmux-janus-task-<task_id>-<idx> (the
@@ -324,6 +325,11 @@ where
         // suffix - same prefix shape, ARCH §6.1).
         let session = SessionId::new_for_task(&format!("{}-{}", task_id.simple(), idx));
         let session_name = session.as_str().to_string();
+        // Per-step backend selection (ADR-017): the step's `host` -> blueprint
+        // `[remote]` fallback. `None` -> local `TmuxBackend`; `Some` -> remote
+        // `TmuxBackend::with_ssh` (cached per-host by the factory).
+        let host = step.host.as_deref().or(recipe.remote_host.as_deref());
+        let backend = factory.get(host);
 
         db.upsert_step_start(
             &recipe.name,
@@ -339,10 +345,10 @@ where
 
         match step.command.as_deref() {
             Some(_) => {
-                let cmd = step_command(step, recipe, task_id, workflow_name, janush);
+                let cmd = step_command(step, recipe, task_id, workflow_name, janush, host);
                 backend.create_session(&session, &cmd, Some(repo_root))?;
 
-                let exit = poll_exit_with_lease(engine, backend, queue, run_id, &session).await;
+                let exit = poll_exit_with_lease(engine, &*backend, queue, run_id, &session).await;
                 let stdout_tail = backend
                     .capture_pane(&session)
                     .ok()
@@ -461,11 +467,29 @@ where
 /// Kill any tmux sessions for `task_id` left from a previous attempt/crash (tmux
 /// survives the daemon dying). Called at the top of each claim iteration before
 /// re-running, so a resumed step doesn't double-execute against a stale pane.
-fn kill_stale_sessions<B: DurableBackend>(backend: &B, task_id: Uuid) -> Result<()> {
+/// Iterates the workflow's distinct hosts (local `None` + each remote) so remote
+/// stale sessions are cleaned on retry/resume too (ADR-017).
+fn kill_stale_sessions<F: BackendFactory>(
+    factory: &F,
+    recipe: &ValidatedRecipe,
+    task_id: Uuid,
+) -> Result<()> {
     let prefix = format!("{}{}-", SESSION_PREFIX, task_id.simple());
-    for name in backend.list_sessions()? {
-        if name.starts_with(&prefix) {
-            let _ = backend.kill_session(&SessionId::from_name(name));
+    // Distinct hosts the workflow touches: local always + each step's host
+    // (-> recipe.remote_host fallback).
+    let mut hosts: Vec<Option<&str>> = vec![None];
+    for step in &recipe.workflow.steps {
+        let h = step.host.as_deref().or(recipe.remote_host.as_deref());
+        if !hosts.contains(&h) {
+            hosts.push(h);
+        }
+    }
+    for host in hosts {
+        let backend = factory.get(host);
+        for name in backend.list_sessions()? {
+            if name.starts_with(&prefix) {
+                let _ = backend.kill_session(&SessionId::from_name(name));
+            }
         }
     }
     Ok(())
@@ -566,10 +590,10 @@ async fn hitl_await<E: DurableEngine>(
 /// `Some(task_id)` when the task is terminal (caller returns); `None` when the
 /// loop should continue (`Suspended` -> run sleeping; `Failed` -> retry).
 #[allow(clippy::too_many_arguments)] // mirrors run_steps; all args are genuinely needed.
-async fn hitl_await_and_rerun<E, B>(
+async fn hitl_await_and_rerun<E, F>(
     db: &AbsurdDb,
     engine: &E,
-    backend: &B,
+    factory: &F,
     recipe: &ValidatedRecipe,
     workflow_name: &str,
     queue: &str,
@@ -583,7 +607,7 @@ async fn hitl_await_and_rerun<E, B>(
 ) -> Result<Option<Uuid>>
 where
     E: DurableEngine,
-    B: DurableBackend,
+    F: BackendFactory,
 {
     match hitl_await(engine, queue, task_id, run_id, &step_name).await? {
         HitlAwaitResult::Suspended => Ok(None), // run sleeping; loop re-claims on wake
@@ -593,7 +617,7 @@ where
             match run_steps(
                 db,
                 engine,
-                backend,
+                factory,
                 recipe,
                 workflow_name,
                 queue,
@@ -651,7 +675,7 @@ async fn poll_exit_with_lease<E, B>(
 ) -> Result<i32>
 where
     E: DurableEngine,
-    B: DurableBackend,
+    B: DurableBackend + ?Sized,
 {
     let mut since_extend = Duration::ZERO;
     loop {
@@ -667,26 +691,38 @@ where
     }
 }
 
-/// Build the tmux workload string for a step: `env HERDR_PLUGIN_STATE_DIR=...
-/// JANUS_AGENT=... ... janush -c '<command>'`. `janush` reads the `JANUS_*` env
-/// vars to populate its `GuardCheck` (verified in `bin/janush.rs`), so the
-/// daemon's `suspend_step` path fires with the correct task/step context on a
-/// HITL BLOCK. `HERDR_PLUGIN_STATE_DIR` is set explicitly so janush resolves the
-/// daemon socket even when the long-lived `metamach-tmux` server's frozen env
-/// points at a stale state dir.
+/// Build the tmux workload string for a step: `env <SOCK_ENV>=... JANUS_AGENT=...
+/// ... janush -c '<command>'`. `janush` reads the `JANUS_*` env vars to populate
+/// its `GuardCheck` (verified in `bin/janush.rs`), so the daemon's `suspend_step`
+/// path fires with the correct task/step context on a HITL BLOCK.
+///
+/// `host` selects the socket env: `None` (local) -> `HERDR_PLUGIN_STATE_DIR` (set
+/// explicitly so janush resolves the daemon socket even when the long-lived
+/// `metamach-tmux` server's frozen env points at a stale state dir); `Some(host)`
+/// (remote) -> `JANUS_SOCK_PATH=/tmp/mm-<host>.sock` (the SSH `-R` reverse tunnel
+/// back to the local daemon - ADR-017).
 fn step_command(
     step: &crate::recipe::WorkflowStep,
     recipe: &ValidatedRecipe,
     task_id: Uuid,
     workflow_name: &str,
     janush: &Path,
+    host: Option<&str>,
 ) -> String {
     let command = step.command.as_deref().unwrap_or("true");
+    // Local: HERDR_PLUGIN_STATE_DIR (janush -> state_dir/janus.sock). Remote:
+    // JANUS_SOCK_PATH=/tmp/mm-<host>.sock (the reverse tunnel).
+    let sock_env = match host {
+        None => format!(
+            "HERDR_PLUGIN_STATE_DIR={}",
+            shell_quote(&paths::state_dir().to_string_lossy())
+        ),
+        Some(h) => format!("JANUS_SOCK_PATH=/tmp/mm-{h}.sock"),
+    };
     format!(
-        "env HERDR_PLUGIN_STATE_DIR={state_dir} JANUS_AGENT={agent} \
+        "env {sock_env} JANUS_AGENT={agent} \
          JANUS_BLUEPRINT={blueprint} JANUS_TASK_ID={task_id} JANUS_STEP={step_name} \
          JANUS_WORKFLOW={workflow} {janush} -c {command}",
-        state_dir = shell_quote(&paths::state_dir().to_string_lossy()),
         agent = shell_quote(&step.agent),
         blueprint = shell_quote(&recipe.name),
         task_id = task_id,
@@ -744,7 +780,7 @@ mod tests {
     use std::collections::HashSet;
     use std::collections::VecDeque;
     use std::path::PathBuf;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     /// In-memory `DurableBackend` for engine unit tests: completes each session
     /// instantly with a configurable per-step exit code (popped in
@@ -821,6 +857,7 @@ mod tests {
             name: "testbp".to_string(),
             default_workflow: "test-flow".to_string(),
             remote_host: None,
+            remote_user: None,
             openwiki_scope: vec!["test".to_string()],
             config_text: String::new(),
             workflow: Workflow {
@@ -856,12 +893,36 @@ mod tests {
         AbsurdDb::open_degraded(&dir.join("fallback.db")).expect("open degraded")
     }
 
+    /// In-memory [`BackendFactory`] for engine unit tests. Always returns the
+    /// same shared [`FakeBackend`] regardless of host (the tests don't use
+    /// remote steps). Wraps the [`FakeBackend`] so the engine's per-step
+    /// `factory.get(host)` calls resolve to it.
+    struct FakeFactory(Arc<FakeBackend>);
+
+    impl FakeFactory {
+        fn new(codes: &[i32]) -> Self {
+            Self(Arc::new(FakeBackend::new(codes)))
+        }
+    }
+
+    impl BackendFactory for FakeFactory {
+        fn get(&self, _host: Option<&str>) -> Arc<dyn DurableBackend> {
+            self.0.clone()
+        }
+    }
+
+    impl BackendFactory for FakeBackend {
+        fn get(&self, _host: Option<&str>) -> Arc<dyn DurableBackend> {
+            Arc::new(FakeBackend::new(&[]))
+        }
+    }
+
     #[tokio::test]
     async fn run_workflow_happy_path_completes_all_steps() {
         let tmp = tempfile::tempdir().unwrap();
         let db = degraded_db(tmp.path());
         let engine = FakeEngine::new();
-        let backend = FakeBackend::new(&[0, 0]);
+        let factory = FakeFactory::new(&[0, 0]);
         let recipe = two_step_recipe();
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
@@ -870,7 +931,7 @@ mod tests {
         run_workflow(
             &db,
             &engine,
-            &backend,
+            &factory,
             &recipe,
             "test-flow",
             tmp.path(),
@@ -883,7 +944,7 @@ mod tests {
         // absurd run completed (complete_run called once at the end).
         assert_eq!(engine.task_state(task_id).as_deref(), Some("completed"));
         // Two steps -> two tmux sessions created + two checkpoints written.
-        assert_eq!(backend.created_count(), 2);
+        assert_eq!(factory.0.created_count(), 2);
         let cp = engine.last_checkpoint(task_id).expect("checkpoint");
         assert_eq!(cp.0, "build"); // last checkpoint is the final step
         assert!(cp.1.to_string().contains("COMPLETED"));
@@ -897,7 +958,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let db = degraded_db(tmp.path());
         let engine = FakeEngine::new(); // max_attempts: 3
-        let backend = FakeBackend::new(&[0, 1, 0]);
+        let factory = FakeFactory::new(&[0, 1, 0]);
         let recipe = two_step_recipe();
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
@@ -906,7 +967,7 @@ mod tests {
         run_workflow(
             &db,
             &engine,
-            &backend,
+            &factory,
             &recipe,
             "test-flow",
             tmp.path(),
@@ -919,7 +980,7 @@ mod tests {
         // Retried once then completed.
         assert_eq!(engine.task_state(task_id).as_deref(), Some("completed"));
         // a1: scout+build sessions; a2: build session (scout skipped via checkpoint).
-        assert_eq!(backend.created_count(), 3);
+        assert_eq!(factory.0.created_count(), 3);
         let cp = engine.last_checkpoint(task_id).expect("checkpoint");
         assert_eq!(cp.0, "build");
     }
@@ -930,7 +991,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let db = degraded_db(tmp.path());
         let engine = FakeEngine::with_max_attempts(2);
-        let backend = FakeBackend::new(&[0, 1, 1]);
+        let factory = FakeFactory::new(&[0, 1, 1]);
         let recipe = two_step_recipe();
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
@@ -939,7 +1000,7 @@ mod tests {
         run_workflow(
             &db,
             &engine,
-            &backend,
+            &factory,
             &recipe,
             "test-flow",
             tmp.path(),
@@ -951,7 +1012,7 @@ mod tests {
 
         assert_eq!(engine.task_state(task_id).as_deref(), Some("failed"));
         // a1: scout+build; a2: build (resumed). 3 sessions.
-        assert_eq!(backend.created_count(), 3);
+        assert_eq!(factory.0.created_count(), 3);
         // step 2 never completed -> last checkpoint stays at scout.
         let cp = engine.last_checkpoint(task_id).expect("checkpoint");
         assert_eq!(cp.0, "scout");
@@ -964,7 +1025,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let db = degraded_db(tmp.path());
         let engine = FakeEngine::new();
-        let backend = FakeBackend::new(&[0]); // build succeeds
+        let factory = FakeFactory::new(&[0]); // build succeeds
         let recipe = two_step_recipe();
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
@@ -974,7 +1035,7 @@ mod tests {
         run_workflow(
             &db,
             &engine,
-            &backend,
+            &factory,
             &recipe,
             "test-flow",
             tmp.path(),
@@ -986,14 +1047,15 @@ mod tests {
 
         assert_eq!(engine.task_state(task_id).as_deref(), Some("completed"));
         // Only build's session was created (scout skipped).
-        assert_eq!(backend.created_count(), 1);
+        assert_eq!(factory.0.created_count(), 1);
         let cp = engine.last_checkpoint(task_id).expect("checkpoint");
         assert_eq!(cp.0, "build");
     }
 
     #[test]
     fn kill_stale_sessions_kills_only_the_task_sessions() {
-        let backend = FakeBackend::new(&[]);
+        let factory = FakeFactory::new(&[]);
+        let backend = &factory.0;
         let tid = Uuid::new_v4();
         let stale = format!("{}{}-0", SESSION_PREFIX, tid.simple());
         let other_task = format!("{}{}-0", SESSION_PREFIX, Uuid::new_v4().simple());
@@ -1001,7 +1063,8 @@ mod tests {
         for s in [&stale, &other_task, &unrelated] {
             backend.seed_alive(s);
         }
-        kill_stale_sessions(&backend, tid).expect("kill stale");
+        let recipe = two_step_recipe();
+        kill_stale_sessions(&factory, &recipe, tid).expect("kill stale");
         assert!(
             !backend.is_alive(&stale),
             "stale session for tid should be killed"
@@ -1106,6 +1169,7 @@ mod tests {
             name: "gate".to_string(),
             default_workflow: "test-flow".to_string(),
             remote_host: None,
+            remote_user: None,
             openwiki_scope: vec![],
             config_text: String::new(),
             workflow: Workflow {
@@ -1150,6 +1214,7 @@ mod tests {
             name: "gatemetric".to_string(),
             default_workflow: "fw".to_string(),
             remote_host: None,
+            remote_user: None,
             openwiki_scope: vec![],
             config_text: String::new(),
             workflow: Workflow {
@@ -1162,7 +1227,7 @@ mod tests {
         };
         let janush = PathBuf::from("/bin/janush");
         let task_id = Uuid::nil();
-        let cmd = step_command(&step, &recipe, task_id, "fw", &janush);
+        let cmd = step_command(&step, &recipe, task_id, "fw", &janush, None);
         assert!(cmd.starts_with("env HERDR_PLUGIN_STATE_DIR="));
         assert!(cmd.contains("JANUS_AGENT='deployer'"));
         assert!(cmd.contains("JANUS_BLUEPRINT='gatemetric'"));

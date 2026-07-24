@@ -100,6 +100,9 @@ pub struct ValidatedRecipe {
     pub name: String,
     pub default_workflow: String,
     pub remote_host: Option<String>,
+    /// SSH login user for the remote host (M4 Phase 2, `[remote] user`); `None`
+    /// -> SSH default. Separate from `remote_host` (which is the host only).
+    pub remote_user: Option<String>,
     pub openwiki_scope: Vec<String>,
     /// `janus.toml` verbatim -> JSONB `blueprints.config`.
     pub config_text: String,
@@ -187,10 +190,12 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     let workflow = load_workflow(&recipe.blueprint.default_workflow, repo_root)?;
 
     let remote_host = recipe.remote_host().map(str::to_string);
+    let remote_user = recipe.remote.as_ref().and_then(|r| r.user.clone());
     Ok(ValidatedRecipe {
         name: recipe.blueprint.name,
         default_workflow: recipe.blueprint.default_workflow,
         remote_host,
+        remote_user,
         openwiki_scope: recipe.openwiki.scope,
         config_text,
         workflow,

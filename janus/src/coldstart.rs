@@ -21,7 +21,7 @@ use crate::absurd::AbsurdDb;
 use crate::absurd::adapter::AbsurdPgAdapter;
 use crate::recipe;
 use crate::spawn::resolve_janush_exe;
-use crate::tmux::TmuxBackend;
+use crate::tmux::TmuxFactory;
 use crate::workflow;
 
 /// Reconcile non-terminal tasks after a cold start. For each `STARTING`/`RUNNING`
@@ -108,7 +108,9 @@ pub async fn reconcile(db: Arc<AbsurdDb>, repo_root: Arc<PathBuf>) -> Result<usi
             }
         };
         let engine = AbsurdPgAdapter::new(pool);
-        let backend = TmuxBackend::new();
+        // Per-step backend factory (ADR-017): local + remote (with reverse tunnel)
+        // backends, cached per-host. SSH user from the blueprint's `[remote] user`.
+        let factory = TmuxFactory::new(recipe.remote_user.clone());
         let recipe = Arc::new(recipe);
         info!(
             task_id = %t.task_id,
@@ -124,7 +126,7 @@ pub async fn reconcile(db: Arc<AbsurdDb>, repo_root: Arc<PathBuf>) -> Result<usi
         let tid = t.task_id;
         tokio::spawn(async move {
             if let Err(e) = workflow::run_workflow(
-                &db, &engine, &backend, &recipe, &wf, &repo_root, tid, &janush,
+                &db, &engine, &factory, &recipe, &wf, &repo_root, tid, &janush,
             )
             .await
             {

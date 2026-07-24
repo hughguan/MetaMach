@@ -27,7 +27,7 @@ use janus::cognitive;
 use janus::gateway::{self, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
 use janus::protocol::{GatewayVerdict, Request, Response};
-use janus::tmux::{DurableBackend, SessionId, TmuxBackend};
+use janus::tmux::{DurableBackend, SessionId, TmuxBackend, TmuxFactory};
 use janus::tool_guard::webhook::{LoggingSender, TelegramSender};
 use janus::tool_guard::{Engine, Verdict, VerdictKind};
 use janus::{coldstart, lifecycle, recipe, workflow};
@@ -403,13 +403,15 @@ async fn handle_dispatch(
 
     // Phase 2: claim + execute, detached. The Arcs + owned recipe make the
     // future 'static for tokio::spawn. (`janush` was resolved pre-spawn above.)
-    let backend = TmuxBackend::new();
+    // The TmuxFactory builds local + remote (reverse-tunnel) backends per step
+    // (ADR-017); SSH user from the blueprint's `[remote] user`.
+    let factory = TmuxFactory::new(recipe.remote_user.clone());
     let recipe = Arc::new(recipe);
     let bp = blueprint.clone();
     let wf = workflow_name.clone();
     tokio::spawn(async move {
         if let Err(e) = workflow::run_workflow(
-            &db, &engine, &backend, &recipe, &wf, &repo_root, task_id, &janush,
+            &db, &engine, &factory, &recipe, &wf, &repo_root, task_id, &janush,
         )
         .await
         {

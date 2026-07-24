@@ -23,6 +23,15 @@ pub fn state_dir() -> PathBuf {
 }
 
 pub fn sock_path() -> PathBuf {
+    // M4 Phase 2 (ADR-017): on a remote host, janush reaches the local daemon via
+    // an SSH `-R` reverse tunnel that maps `/tmp/mm-<host>.sock` on the remote to
+    // the local `janus.sock`. The engine sets `JANUS_SOCK_PATH=/tmp/mm-<host>.sock`
+    // in the remote step's env; janush honors it here. Locally, unset -> state_dir.
+    if let Ok(p) = std::env::var("JANUS_SOCK_PATH")
+        && !p.is_empty()
+    {
+        return PathBuf::from(p);
+    }
     state_dir().join("janus.sock")
 }
 

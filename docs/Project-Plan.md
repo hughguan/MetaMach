@@ -176,7 +176,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 
 ### Tasks
 
-#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7) - PARTIAL (Log Replay + workflow engine + cold-start re-exec/retry done; cross-host SSH + HITL resume + Task 4.4 deferred)
+#### Task 4.1: Cross-Host `janus::tmux` Driver, Cold-Start Self-Heal & SQLite Log Replay (Check-in Unit 7) - ✅ DONE (Phase 0a absurd adapter, Phase 0b workflow engine + Dispatch, Phase 1 cold-start re-exec/retry, HITL resume loop, Phase 2 cross-host SSH transport via TmuxFactory + reverse tunnel; only Task 4.4 target_sha enforcement remains deferred)
 - **Description:** Drive cross-host SOP sessions through the internalized `janus::tmux`, implement cold-start zero-state self-heal (no tmux-resurrect), and the degraded-mode SQLite fallback + Log Replay per 0.3.0 §1.2/§2.4.
 - **Implementation:**
     - When a Workflow Step declares a remote compilation server, the Daemon drives the internal `janus::tmux` module (not an external binary) to inject the payload env via SSH into a `remain-on-exit` remote session.

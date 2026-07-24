@@ -808,19 +808,27 @@ fn utc_03_05_concurrent_workflow_isolation() {
         .unwrap();
     }
 
-    // Progress reports both blueprints independently.
-    let resp = d
-        .uds(
-            &Request::Progress { blueprint: None },
-            Duration::from_secs(5),
-        )
-        .unwrap();
-    match resp {
-        Response::Progress { active_tasks } => {
-            // No tasks dispatched yet — just verify the structure.
-            assert!(active_tasks.is_empty());
+    // Progress reports both blueprints independently. Use per-blueprint
+    // scoping (not global) since CI runs multiple tests against the same
+    // catalog DB — previous tests' dispatched tasks may still be running.
+    for name in [JOY, GATE] {
+        let resp = d
+            .uds(
+                &Request::Progress {
+                    blueprint: Some(name.into()),
+                },
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        match resp {
+            Response::Progress { active_tasks } => {
+                assert!(
+                    active_tasks.is_empty(),
+                    "no tasks should exist for freshly-onboarded {name}"
+                );
+            }
+            other => panic!("expected Progress, got {other:?}"),
         }
-        other => panic!("expected Progress, got {other:?}"),
     }
 
     // GuardCheck still works with both blueprints onboard (no leak between them).

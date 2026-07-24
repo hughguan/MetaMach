@@ -53,6 +53,12 @@ jobs:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
 
+      - name: Ensure rustfmt & clippy
+        # dtolnay/rust-toolchain sometimes fails to install components
+        # when a cached toolchain is restored. This is idempotent.
+        run: |
+          rustup component add rustfmt clippy 2>/dev/null || true
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -60,8 +66,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             janus/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('janus/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('janus/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.rust }}-
 
       - name: Check formatting
         run: cargo fmt --all --manifest-path janus/Cargo.toml -- --check

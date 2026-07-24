@@ -302,7 +302,19 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Do nothing — 16KB truncation is sufficient, (2) Add a Stream Filter layer before `truncate_16k` that strips ANSI, collapses progress bars, and deduplicates repeating lines, (3) Full PTY state-machine parser (overkill). |
 | **Decision** | **Adopted** — Option (2): `janus/src/workflow/filter.rs` provides `clean_pty_output(raw) -> String` as a pure function. Inserted into the existing `capture_pane -> truncate_16k` pipeline in `run_steps`. Three stages: ANSI strip, progress bar collapse, duplicate line dedup. |
 | **Rationale** | ~100 lines of pure functions, 0 new dependencies, unit-testable (input: ANSI string, output: clean text). Transforms 16KB of escape-code noise into 2KB of structured output. Does not change any API, protocol, or database schema. |
-| **Status** | 📋 Spec'd Only — 0.4.6 implementation pending. |
+| **Status** | ✅ Implemented in 0.4.6 (`6591699`). |
+
+---
+
+## ADR-019: Configurable Agents — Provisioning, Quota & Fallback (0.4.7)
+
+| Field | Value |
+|---|---|
+| **Context** | The existing `configs/agents.toml` defines Tool Guard permissions ("what can agent X do?"). It has no concept of which LLM backs each agent, quota limits, or fallback chains when the primary agent is exhausted. As the workflow engine dispatches real agents, it needs to know which LLM provider to use and what to do when quotas are exceeded. |
+| **Options Considered** | (1) Keep agents.toml Tool-Guard-only, add provisioning elsewhere, (2) Extend agents.toml with an optional `[agent.X.provision]` section (co-located with the agent it provisions), (3) Separate provisioning config file. |
+| **Decision** | **Adopted** — Option (2): extend `agents.toml` with optional `[agent.X.provision]` sections. Each agent can declare an `adapter` (claude-code, codex, aider), a `command`, a `system_prompt`, a `quota` block (`max_tokens_per_day`, `max_cost_usd_per_day`, `max_requests_per_hour`), and a `fallback_agent` for automatic degradation. No new file, 100% backward compatible — existing Tool Guard entries need no changes. |
+| **Rationale** | Co-locating provisioning with permissions keeps the agent definition in one place. The `AgentStack` parser (`janus/src/agent.rs`, ~150 lines) resolves fallback chains recursively. Runtime quota tracking is deferred to 0.5.0+ (needs the engine); the config format and parser ship first so the engine has a defined provisioning model to consume. |
+| **Status** | 📋 Spec'd Only — 0.4.7 implementation pending. |
 
 ---
 

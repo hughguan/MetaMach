@@ -326,7 +326,19 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Keep herdr-janus as-is (HITL = Teams/Telegram only), (2) Enhance the Progress view with HITL gate interaction + live log display, (3) Build a separate observer binary. |
 | **Decision** | **Adopted** — Option (2): enhance the existing `herdr-janus` binary. Add `y`/`n` keybindings for HITL approval/rejection (sends `GateAction` UDS request via the existing `janus::gateway` callback path), `Enter` to expand a step's 16KB `stdout_tail`, and red-highlight + countdown for SUSPENDED steps. No new binary, no new dependencies — ~100 lines in `herdr-janus`. |
 | **Rationale** | The gateway callback path already handles HITL verdicts; this adds a TUI entrypoint. The Observer is a UX enhancement on existing infrastructure — same UDS, same Progress data, same gateway. Zero daemon changes beyond one new UDS request type (`GateAction`). |
-| **Status** | 📋 Spec'd Only — 0.4.8 implementation pending. |
+| **Status** | ✅ Implemented in 0.4.8 (`97665f4`). |
+
+---
+
+## ADR-021: Pipeline DAG — Workflow Composition Engine (0.4.9)
+
+| Field | Value |
+|---|---|
+| **Context** | The 0.4.x workflow engine executes flat `[[steps]]` sequentially. Complex pipelines require composing multiple Workflows with dependency edges (compile → audit → flash), parallel execution of independent nodes, and reuse of shared Workflow libraries across Blueprints. |
+| **Options Considered** | (1) Keep flat sequential model (no composition), (2) Add a `Pipeline` DAG layer above Workflows with `needs:` edges and topological scheduling, (3) Redefine Workflow to include branching/looping (breaking change). |
+| **Decision** | **Adopted** — Option (2): introduce `Pipeline` as a new abstraction layer between Blueprint and Workflow. A `pipelines/<name>.toml` file defines a DAG of `[[nodes]]` each referencing a Workflow. `needs:` edges define dependencies; nodes at the same level run in parallel. Workflow and Blueprint keep their current definitions — Pipeline is an addition, not a redefinition. |
+| **Rationale** | Preserves backward compatibility: existing `Blueprint → Workflow` bindings continue working. Adds composition without breaking changes. TOML format consistent with existing config files. Topological sort + parallel scheduling is a well-understood pattern with low implementation risk (~500 lines). |
+| **Status** | 📋 Spec'd Only — 0.4.9 implementation pending. |
 
 ---
 

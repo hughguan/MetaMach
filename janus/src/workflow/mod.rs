@@ -36,6 +36,8 @@ use crate::protocol::{self, truncate_16k};
 use crate::recipe::ValidatedRecipe;
 use crate::tmux::{BackendFactory, DurableBackend, SESSION_PREFIX, SessionId};
 
+pub mod filter;
+
 /// Worker id the engine presents to absurd's `claim_task` (pull-mode lease).
 const WORKER_ID: &str = "janus-daemon";
 
@@ -374,7 +376,7 @@ where
                 let stdout_tail = backend
                     .capture_pane(&session)
                     .ok()
-                    .map(|s| truncate_16k(&s));
+                    .map(|s| truncate_16k(&filter::clean_pty_output(&s)));
                 let _ = backend.kill_session(&session);
 
                 let exit_code = match exit {

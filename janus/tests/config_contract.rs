@@ -138,3 +138,94 @@ fn herdr_env_fallback_and_override() {
         }
     }
 }
+
+// ── Manual integration tests (requires Herdr binary) ───────────────────
+
+/// Check whether `herdr` is on PATH.
+fn herdr_available() -> bool {
+    std::process::Command::new("herdr")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[test]
+#[ignore = "requires running herdr server"]
+fn herdr_plugin_link_parses_manifest() {
+    if !herdr_available() {
+        eprintln!("skipping: herdr not on PATH");
+        return;
+    }
+    // Unlink first (idempotent on first run; ignores errors).
+    let _ = std::process::Command::new("herdr")
+        .args(["plugin", "unlink", "metamach.janus"])
+        .output();
+
+    // Link from the CARGO_MANIFEST_DIR (contains herdr-plugin.toml).
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let out = std::process::Command::new("herdr")
+        .args(["plugin", "link", manifest_dir])
+        .output()
+        .expect("run herdr plugin link");
+    assert!(
+        out.status.success(),
+        "herdr plugin link failed: {} {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Verify the plugin appears in the list.
+    let out = std::process::Command::new("herdr")
+        .args(["plugin", "list", "--json"])
+        .output()
+        .expect("run herdr plugin list");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("metamach.janus"),
+        "plugin list should contain metamach.janus: {stdout}"
+    );
+
+    // Clean up.
+    let _ = std::process::Command::new("herdr")
+        .args(["plugin", "unlink", "metamach.janus"])
+        .output();
+}
+
+#[test]
+#[ignore = "requires running herdr server"]
+fn herdr_min_version_is_satisfied() {
+    if !herdr_available() {
+        eprintln!("skipping: herdr not on PATH");
+        return;
+    }
+    // Read the declared min_herdr_version from the manifest.
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let manifest_path = std::path::Path::new(manifest_dir).join("herdr-plugin.toml");
+    let text = std::fs::read_to_string(manifest_path).expect("read herdr-plugin.toml");
+    let val: toml::Table = toml::from_str(&text).expect("parse");
+    let min_ver = val["min_herdr_version"]
+        .as_str()
+        .expect("min_herdr_version");
+
+    // Get the installed Herdr version (e.g. "0.7.3").
+    let out = std::process::Command::new("herdr")
+        .arg("--version")
+        .output()
+        .expect("herdr --version");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Herdr output: "herdr 0.7.3" — extract the version.
+    let installed_ver = stdout.split_whitespace().nth(1).unwrap_or("0.0.0");
+
+    // Simple comparison: major.minor.patch must be >=.
+    let min_parts: Vec<u32> = min_ver.split('.').filter_map(|s| s.parse().ok()).collect();
+    let inst_parts: Vec<u32> = installed_ver
+        .split('.')
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    assert!(
+        inst_parts >= min_parts,
+        "installed Herdr {installed_ver} is older than min_herdr_version {min_ver}"
+    );
+}

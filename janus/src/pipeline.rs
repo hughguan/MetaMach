@@ -59,7 +59,7 @@ impl PipelineConfig {
     }
 
     /// Validate node uniqueness and dependency references.
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         if self.nodes.is_empty() {
             bail!("pipeline '{}' has no nodes", self.pipeline.name);
         }

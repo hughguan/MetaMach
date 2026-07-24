@@ -338,7 +338,19 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Keep flat sequential model (no composition), (2) Add a `Pipeline` DAG layer above Workflows with `needs:` edges and topological scheduling, (3) Redefine Workflow to include branching/looping (breaking change). |
 | **Decision** | **Adopted** — Option (2): introduce `Pipeline` as a new abstraction layer between Blueprint and Workflow. A `pipelines/<name>.toml` file defines a DAG of `[[nodes]]` each referencing a Workflow. `needs:` edges define dependencies; nodes at the same level run in parallel. Workflow and Blueprint keep their current definitions — Pipeline is an addition, not a redefinition. |
 | **Rationale** | Preserves backward compatibility: existing `Blueprint → Workflow` bindings continue working. Adds composition without breaking changes. TOML format consistent with existing config files. Topological sort + parallel scheduling is a well-understood pattern with low implementation risk (~500 lines). |
-| **Status** | 📋 Spec'd Only — 0.4.9 implementation pending. |
+| **Status** | ✅ Implemented in 0.4.9 (`314c423`). |
+
+---
+
+## ADR-022: Agent Planner — LLM-Assisted Pipeline Generation (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | Writing `pipelines/<name>.toml` by hand requires knowing Workflow names, node IDs, and dependency edges. For non-programmer Factory Directors, this is a significant adoption barrier. |
+| **Options Considered** | (1) Manual TOML editing only (status quo), (2) LLM-assisted CLI tool that generates Pipeline TOML from natural language, (3) Web-based drag-and-drop editor (Canvas Studio, 0.6.0). |
+| **Decision** | **Adopted** — Option (2): `janus pipeline plan` CLI subcommand. The Planner reads the Workflow library (`workflows/*.toml`), sends a catalog + user prompt to the LLM (using existing Coding Plan provider), receives generated Pipeline TOML, runs `janus pipeline validate`, and writes `pipelines/<name>.toml`. Three-phase interactive workflow: Draft → Revise → Commit. |
+| **Rationale** | CLI-only, zero daemon changes, zero new API keys (reuses Coding Plan provider). LLM is advisory — `janus pipeline validate` is the final gate. Fallback: hand-write pipelines always works. Natural-language generation removes the biggest UX barrier for non-programmer users. |
+| **Status** | 📋 Spec'd Only — 0.5.0 implementation pending. |
 
 ---
 

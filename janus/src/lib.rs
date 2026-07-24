@@ -18,6 +18,7 @@ pub mod coldstart;
 pub mod gateway;
 pub mod lifecycle;
 pub mod paths;
+pub mod pipeline;
 pub mod protocol;
 pub mod recipe;
 pub mod spawn;

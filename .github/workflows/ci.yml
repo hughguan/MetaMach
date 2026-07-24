@@ -81,20 +81,10 @@ jobs:
         run: psql "postgres://metamach_admin@localhost:5432/metamach_db" -v ON_ERROR_STOP=1 -f janus/migrations/001_catalog.sql
 
       - name: Run tests
+        # PG-gated tests use runtime-skip (check DATABASE_URL) instead of
+        # `#[ignore]` — they run automatically when PG is available (CI) and
+        # skip gracefully when it's not (local dev without `make db-init`).
         run: cargo test --workspace --manifest-path janus/Cargo.toml
-        env:
-          # PG service connection for integration tests
-          DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
-          # tmux available for janus::tmux tests
-          TMUX_TMPDIR: /tmp
-
-      - name: Run PG-gated tests (ignored)
-        # The `#[ignore]`d integration tests (UTC-05-02/04/04b, UTC-03-01/03/05)
-        # need the postgres:16 service + tmux. They pass in parallel on CI, so
-        # this is a blocking gate (regressions fail the build). If SSH-credential
-        # tests are added later, split them into a separate `continue-on-error`
-        # step so an absent SSH key doesn't break this gate.
-        run: cargo test --workspace --manifest-path janus/Cargo.toml -- --ignored
         env:
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
           TMUX_TMPDIR: /tmp

@@ -12,6 +12,7 @@
 //! Daemon over `janus.sock` via the protocol defined in [`protocol`].
 
 pub mod absurd;
+pub mod agent;
 pub mod cognitive;
 pub mod coldstart;
 pub mod gateway;

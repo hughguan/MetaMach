@@ -9,7 +9,7 @@
 # ensure `herdr-janus` is resolvable on PATH (installed to bin/ by `make compile`).
 id = "metamach.janus"
 name = "MetaMach Janus"
-version = "0.4.1"
+version = "0.4.2"
 min_herdr_version = "0.7.3"
 
 [[panes]]

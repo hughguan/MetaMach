@@ -4,6 +4,52 @@ All notable changes to MetaMach are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-23
+
+M4 Task 4.1 complete — workflow engine + cold-start resume + HITL resume loop +
+cross-host SSH transport + target_sha enforcement.
+
+### Added
+- **Phase 0a absurd adapter** (`init_absurd_schema` + `DurableEngine` trait +
+  `AbsurdPgAdapter`): vendored `absurd.sql` loaded on `janus onboard`, exposing
+  `spawn_task`/`claim_task`/`complete_run`/`fail_run`/`set_checkpoint`/
+  `await_event`/`emit_event`/`extend_claim` behind a Rust trait.
+- **Phase 0b workflow engine** (`workflow.rs`): `run_workflow` drives a
+  blueprint's steps via absurd pull-mode (`create_queue`/`spawn_task`/
+  `claim_task`), creating tmux sessions under `janush` as SHELL (Tool Guard
+  interception on every Agent command), `pane_dead_status` exit-code capture,
+  lease extension every 10s for long steps, `session_name` on
+  `metamach_step_meta` + `tmux_alive` wired in the daemon Progress handler.
+- **`Request::Dispatch`** (Contract 3.11): dispatches a blueprint's workflow;
+  returns the absurd-minted `task_id` immediately; the step loop runs detached.
+- **Phase 1 cold-start resume**: `coldstart::reconcile` no longer just logs —
+  it validates the recipe, builds the engine + backend, and spawns
+  `run_workflow` detached for each `STARTING`/`RUNNING` task from its last
+  `COMPLETED` checkpoint.
+- **Retry-claim loop**: `max_attempts: 3` on absurd's `spawn_task`; after
+  `fail_run` the engine re-claims the retry run absurd schedules and resumes
+  from the last checkpoint (transient failures retry within-session).
+- **HITL resume loop** (M4 §3.3): `AwaitOutcome { Suspended, Resolved }`;
+  `resume_point()` reads checkpoint state; `hitl_await_and_rerun()` calls
+  `await_event` — on APPROVED re-runs the step (GuardCheck ALLOWs via
+  `hitl_verdict=APPROVED`), on REJECTED `fail_run`.
+- **Phase 2 cross-host SSH transport** (ADR-017): `TmuxFactory` produces
+  local or remote `TmuxBackend` per step host; SSH `-R` reverse tunnel maps
+  the local `janus.sock` to `/tmp/mm-<host>.sock` on the remote host so
+  remote `janush` reaches the local daemon. No separate backend type — same
+  `TmuxBackend` with `ssh <host>` prefix.
+- **Task 4.4 `target_sha` enforcement**: after a step exits successfully,
+  the engine compares the pinned `target_sha` against current `git HEAD`;
+  mismatch → step marked `SUSPENDED` with `CONCURRENCY_RACE_ALERT` →
+  `fail_run` → absurd retry re-runs against the new HEAD.
+
+### Changed
+- `run_workflow` generic over `F: BackendFactory` (not `B: DurableBackend`);
+  per-step backend resolved via `factory.get(host)`.
+- `ValidatedRecipe` carries `remote_user` (from `[remote] user`).
+- `step_command` takes `host: Option<&str>` — sets `JANUS_SOCK_PATH` for
+  remote sessions (the reverse-tunnel socket).
+
 ## [0.4.1] - 2026-07-20
 
 Patch release: M5 release-gate hardening + test coverage. The 0.4.0 `--ignored`

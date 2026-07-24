@@ -41,6 +41,10 @@ struct App {
     daemon_online: bool,
     last_error: Option<String>,
     last_progress: Instant,
+    /// ADR-020: `Enter` toggles log detail for the selected Progress row.
+    show_log: bool,
+    /// ADR-020: log detail text (loaded from step stdout_tail on Enter).
+    log_text: Option<String>,
 }
 
 impl App {
@@ -53,6 +57,8 @@ impl App {
             daemon_online: false,
             last_error: None,
             last_progress: Instant::now(),
+            show_log: false,
+            log_text: None,
         }
     }
 
@@ -148,6 +154,57 @@ impl App {
             self.last_error = Some("daemon not reachable".to_string());
         }
     }
+
+    /// ADR-020: send approve (true) or reject (false) for the selected SUSPENDED task.
+    fn send_gate_action(&mut self, approve: bool) {
+        let task = match self.tasks.get(self.selected) {
+            Some(t) if t.status == "SUSPENDED" => t,
+            _ => {
+                self.last_error = Some("selected task is not SUSPENDED".into());
+                return;
+            }
+        };
+        let req = Request::GateAction {
+            task_id: task.task_id,
+            approve,
+        };
+        match uds::request_to(&paths::sock_path(), &req, Duration::from_secs(5)) {
+            Ok(Response::Ok { message }) => {
+                self.last_error = None;
+                let _ = message;
+            }
+            Ok(Response::Error { message }) => {
+                self.last_error = Some(message);
+            }
+            Err(e) => {
+                self.last_error = Some(e.to_string());
+            }
+            _ => {
+                self.last_error = Some("unexpected response".into());
+            }
+        }
+    }
+
+    /// ADR-020: toggle log detail view for the selected task's current step.
+    fn toggle_log(&mut self) {
+        if self.show_log {
+            self.show_log = false;
+            self.log_text = None;
+            return;
+        }
+        let text = self
+            .tasks
+            .get(self.selected)
+            .and_then(|t| {
+                t.steps
+                    .iter()
+                    .find(|s| Some(s.name.as_str()) == t.current_step.as_deref())
+            })
+            .and_then(|s| s.stdout_tail.clone())
+            .unwrap_or_else(|| "(no output)".to_string());
+        self.show_log = true;
+        self.log_text = Some(text);
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -186,6 +243,16 @@ fn run(app: &mut App) -> io::Result<()> {
                 KeyCode::Down | KeyCode::Char('j') => app.down(),
                 KeyCode::Up | KeyCode::Char('k') => app.up(),
                 KeyCode::Char('r') => app.retry_daemon(),
+                // ADR-020: TUI HITL approval in Progress view.
+                KeyCode::Char('y') if app.view == View::Progress => {
+                    app.send_gate_action(true);
+                }
+                KeyCode::Char('n') if app.view == View::Progress => {
+                    app.send_gate_action(false);
+                }
+                KeyCode::Enter if app.view == View::Progress => {
+                    app.toggle_log();
+                }
                 _ => {} // swallow: focus stays locked inside the popup
             }
         }
@@ -195,18 +262,35 @@ fn run(app: &mut App) -> io::Result<()> {
 
 fn ui(f: &mut ratatui::Frame, app: &App) {
     let area = f.area();
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(5),
-        Constraint::Length(3),
-    ])
-    .split(area);
+    let constraints = if app.show_log && app.view == View::Progress {
+        vec![
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(10), // log detail
+            Constraint::Length(3),
+        ]
+    } else {
+        vec![
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(3),
+        ]
+    };
+    let chunks = Layout::vertical(constraints).split(area);
+    let footer_idx = if app.show_log && app.view == View::Progress {
+        3
+    } else {
+        2
+    };
     render_title(f, chunks[0], app);
     match app.view {
         View::Dispatch => render_dispatch(f, chunks[1], app),
         View::Progress => render_progress(f, chunks[1], app),
     }
-    render_footer(f, chunks[2], app);
+    if app.show_log && app.view == View::Progress {
+        render_log_detail(f, chunks[2], app);
+    }
+    render_footer(f, chunks[footer_idx], app);
 }
 
 fn render_title(f: &mut ratatui::Frame, area: Rect, app: &App) {
@@ -342,6 +426,31 @@ fn render_progress(f: &mut ratatui::Frame, area: Rect, app: &App) {
     f.render_widget(table, area);
 }
 
+fn render_log_detail(f: &mut ratatui::Frame, area: Rect, app: &App) {
+    let text = app.log_text.as_deref().unwrap_or("(no output)");
+    let task_name = app
+        .tasks
+        .get(app.selected)
+        .map(|t| {
+            format!(
+                "{} / {}",
+                t.blueprint_id,
+                t.current_step.as_deref().unwrap_or("?")
+            )
+        })
+        .unwrap_or_else(|| "?".to_string());
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("Log: {task_name} (Enter to close)"));
+    f.render_widget(
+        Paragraph::new(text)
+            .style(Style::default().fg(Color::White))
+            .block(block)
+            .scroll((0, 0)),
+        area,
+    );
+}
+
 fn render_footer(f: &mut ratatui::Frame, area: Rect, app: &App) {
     let status = if app.daemon_online {
         Span::styled("online", Style::default().fg(Color::Green))
@@ -365,6 +474,20 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect, app: &App) {
                 .fg(Color::Green),
         ),
         Span::raw(" view   "),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Cyan),
+        ),
+        Span::raw(" log   "),
+        Span::styled(
+            "y/n",
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Yellow),
+        ),
+        Span::raw(" approve/reject   "),
         Span::styled(
             "Esc",
             Style::default()

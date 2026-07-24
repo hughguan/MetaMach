@@ -44,6 +44,10 @@ pub enum Request {
         blueprint: String,
         workflow: Option<String>,
     },
+    /// HITL gate action from the Observer TUI (ADR-020): approve or reject a
+    /// SUSPENDED step. Uses `task_id` so the daemon can resolve the correlation_id
+    /// from its pending-verdict map.
+    GateAction { task_id: Uuid, approve: bool },
 }
 
 /// Daemon -> client response.

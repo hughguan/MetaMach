@@ -27,6 +27,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use base64::Engine as _;
 
@@ -294,6 +295,52 @@ impl Gateway {
             Err(_) => Err(GatewayError::Timeout),
         }
     }
+
+    /// Find the correlation_id for a SUSPENDED task (TUI HITL lookup, ADR-020).
+    /// Returns `None` if no pending verdict matches this task_id.
+    pub fn find_correlation_by_task(&self, task_id: Uuid) -> Option<String> {
+        self.pending
+            .lock()
+            .expect("pending mutex")
+            .iter()
+            .find(|(_, v)| v.task_id == Some(task_id))
+            .map(|(cid, _)| cid.clone())
+    }
+
+    /// Resolve a HITL verdict from the TUI Observer (ADR-020). Skips HMAC
+    /// (UDS-originated, already authenticated by the socket path).
+    pub fn resolve_tui(&self, run_id: &str, approve: bool) -> CallbackStatus {
+        let action = serde_json::json!({"action": if approve { "approve" } else { "reject" }});
+        let action = parse_action(&serde_json::to_vec(&action).unwrap_or_default());
+        let Some(action) = action else {
+            return CallbackStatus::BadRequest;
+        };
+        let tx = {
+            let mut p = self.pending.lock().expect("pending mutex");
+            let Some(entry) = p.get_mut(run_id) else {
+                return CallbackStatus::Gone;
+            };
+            if Utc::now() > entry.expires_at {
+                p.remove(run_id);
+                return CallbackStatus::Gone;
+            }
+            if entry.resolved {
+                return CallbackStatus::Conflict;
+            }
+            entry.resolved = true;
+            entry.tx.take()
+        };
+        let verdict = action_to_verdict(action);
+        let delivered = match tx {
+            Some(tx) => tx.send(verdict).is_ok(),
+            None => false,
+        };
+        if !delivered {
+            self.pending.lock().expect("pending mutex").remove(run_id);
+            return CallbackStatus::Gone;
+        }
+        CallbackStatus::Resolved
+    }
 }
 
 impl HitlGateway for Gateway {
@@ -468,7 +515,7 @@ fn action_to_verdict(action: HitlAction) -> GatewayVerdict {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum CallbackStatus {
+pub enum CallbackStatus {
     Resolved,
     Conflict,
     Gone,
@@ -477,7 +524,7 @@ enum CallbackStatus {
 }
 
 impl CallbackStatus {
-    fn parts(self) -> (u16, &'static str) {
+    pub fn parts(self) -> (u16, &'static str) {
         match self {
             CallbackStatus::Resolved => (200, "ok"),
             CallbackStatus::Conflict => (409, "conflict"),

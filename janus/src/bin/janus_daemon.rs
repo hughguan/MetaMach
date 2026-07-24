@@ -24,7 +24,7 @@ use tracing_subscriber::fmt::MakeWriter;
 use janus::absurd::AbsurdDb;
 use janus::absurd::adapter::{AbsurdPgAdapter, DurableEngine};
 use janus::cognitive;
-use janus::gateway::{self, Gateway, HitlGateway, VerdictSink};
+use janus::gateway::{self, CallbackStatus, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
 use janus::protocol::{GatewayVerdict, Request, Response};
 use janus::tmux::{DurableBackend, SessionId, TmuxBackend, TmuxFactory};
@@ -347,6 +347,23 @@ async fn handle_request(
         }
         // M4 Task 4.1 Phase 0b: dispatch a workflow (Contract 3.11). Returns the
         // absurd-minted task_id synchronously; the step loop runs detached.
+        Request::GateAction { task_id, approve } => {
+            // ADR-020: TUI HITL approve/reject. Resolve the correlation_id from
+            // the gateway's pending-verdict map and deliver the verdict.
+            match gateway.find_correlation_by_task(task_id) {
+                Some(cid) => match gateway.resolve_tui(&cid, approve) {
+                    CallbackStatus::Resolved => Response::Ok {
+                        message: "verdict delivered".into(),
+                    },
+                    st => Response::Error {
+                        message: format!("gateway: {:?}", st.parts().1),
+                    },
+                },
+                None => Response::Error {
+                    message: "no pending HITL verdict for this task".into(),
+                },
+            }
+        }
         Request::Dispatch {
             blueprint,
             workflow,

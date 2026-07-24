@@ -4,6 +4,25 @@ All notable changes to MetaMach are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.4.3] - 2026-07-24
+
+M4 Task 4.1 complete — Pipeline DAG — all 0.4.x features shipped.
+
+### Added
+- **Phase 0b workflow engine**: absurd pull-mode, tmux under janush, lease extension
+- **Phase 1 cold-start resume**: actual re-exec from last checkpoint
+- **HITL resume loop**: await_event — emit_event — re-run on approval
+- **Phase 2 SSH transport**: TmuxFactory + reverse tunnel (ADR-017)
+- **Task 4.4 target_sha enforcement**: stale HEAD detection + auto-reschedule
+- **0.4.6 Stream Filter (ADR-018)**: ANSI strip + progress bar collapse
+- **0.4.7 Configurable Agents (ADR-019)**: [agent.X.provision] config
+- **0.4.8 Observer Panel (ADR-020)**: TUI HITL y/n + log detail Enter
+- **0.4.9 Pipeline DAG (ADR-021)**: pipelines/*.toml + topological sort
+- **0.5.0 Agent Planner (ADR-022)**: janus pipeline plan + validate
+- **Herdr contract tests**: 3 static + 2 manual + 1 e2e
+- **147 tests** (144 default + 3 manual Herdr)
+
 ## [0.4.2] - 2026-07-23
 
 M4 Task 4.1 complete — workflow engine + cold-start resume + HITL resume loop +

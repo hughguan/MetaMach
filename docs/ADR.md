@@ -354,6 +354,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-023: Time-Driven Suspension — Quota Exhaustion & Scheduled Sleep (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | The 0.4.x engine's only pause mechanism is event-driven HITL (`await_event`). When an Agent's quota is exhausted (Coding Plan returns 429 or quota exceeded), the engine retries up to `max_attempts: 3` — if all fail, the task goes terminal `FAILED` and the Director must manually re-dispatch. For quota resets at UTC midnight (e.g., Coding Plan daily limits), a time-driven sleep is the correct response: suspend the task until the quota window renews rather than failing or retrying blindly. |
+| **Options Considered** | (1) Keep `max_attempts: 3` retry only (status quo — treats quota exhaustion as transient failure), (2) Add time-driven sleep via absurd's `sleep()` stored procedure: detect quota exhaustion in the engine → call `engine.sleep(seconds)` → absurd auto-wakes the task → re-claim → resume, (3) Handle quota exhaustion entirely in the Agent Adapter layer (outside the engine). |
+| **Decision** | **Adopted** — Option (2): add `sleep` to the `DurableEngine` trait and integrate it into the engine's retry loop. On step exit ≠ 0, the engine inspects `stdout_tail` for quota-exhaustion patterns (429, quota exceeded, rate limit) and the Configurable Agent's quota config (ADR-019). If quota exhaustion is detected, the engine calls `engine.sleep(queue, task_id, run_id, seconds)` instead of `fail_run` — absurd suspends the task for the specified duration, then auto-wakes it. The engine re-claims and resumes from the same step. |
+| **Rationale** | absurd already supports `sleep()` — this is a one-method addition to the `DurableEngine` trait. The pattern detection in `stdout_tail` is heuristic but low-risk: if the detection is wrong, the engine falls back to `fail_run`. The sleep duration is configurable via `JANUS_QUOTA_SLEEP_SECONDS` (default: until next UTC hour boundary, or a fixed 300s). Time-driven sleep fills the gap between "retry immediately" and "fail permanently" — it's the correct response for quota-bound resources. |
+| **Status** | 📋 Spec'd Only — 0.5.0 implementation. |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

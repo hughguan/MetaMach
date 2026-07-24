@@ -986,8 +986,13 @@ mod tests {
     /// outage), then verifies `replay_fallback` merges them into the routed
     /// per-blueprint `metamach_step_meta` overlay and drains the ring.
     #[tokio::test]
-    #[ignore = "requires PostgreSQL"]
     async fn replay_fallback_merges_events_into_overlay() {
+        if std::env::var("DATABASE_URL").is_err()
+            && std::env::var("METAMACH_PG_SOCKET_DIR").is_err()
+        {
+            eprintln!("skipping: PostgreSQL not available");
+            return;
+        }
         let bp = "replaytest";
         let tmp = tempfile::tempdir().expect("tmp");
         let db = std::sync::Arc::new(

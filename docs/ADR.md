@@ -294,6 +294,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-018: Stream Filter — ANSI Strip + Progress Bar Collapse (0.4.6)
+
+| Field | Value |
+|---|---|
+| **Context** | The `truncate_16k` budget caps step output at 16KB, but ANSI escape codes, progress bars (`[=====>  ] 45%`), and repetitive lines (`ACK` × 50) consume the budget with noise. HITL cards and Progress logs show unreadable terminal escape sequences instead of clean text. |
+| **Options Considered** | (1) Do nothing — 16KB truncation is sufficient, (2) Add a Stream Filter layer before `truncate_16k` that strips ANSI, collapses progress bars, and deduplicates repeating lines, (3) Full PTY state-machine parser (overkill). |
+| **Decision** | **Adopted** — Option (2): `janus/src/workflow/filter.rs` provides `clean_pty_output(raw) -> String` as a pure function. Inserted into the existing `capture_pane -> truncate_16k` pipeline in `run_steps`. Three stages: ANSI strip, progress bar collapse, duplicate line dedup. |
+| **Rationale** | ~100 lines of pure functions, 0 new dependencies, unit-testable (input: ANSI string, output: clean text). Transforms 16KB of escape-code noise into 2KB of structured output. Does not change any API, protocol, or database schema. |
+| **Status** | 📋 Spec'd Only — 0.4.6 implementation pending. |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

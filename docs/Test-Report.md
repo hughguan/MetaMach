@@ -2,7 +2,7 @@
 
 > **Date:** 2026-07-24  
 > **Environment:** macOS, Rust 1.88 (Edition 2024), no PG, no tmux  
-> **Result:** ✅ **147 tests — 143 passed, 0 failed, 4 skipped**
+> **Result:** ✅ **147 tests — 144 passed, 0 failed, 3 skipped (manual Herdr)**
 
 ---
 
@@ -10,14 +10,14 @@
 
 | Category | Passed | Skipped | Description |
 |---|---|---|---|
-| Unit tests (lib) | 102 | 1 | Core logic: absurd, agent, cognitive, gateway, lifecycle, pipeline, protocol, recipe, tmux, tool_guard, workflow |
+| Unit tests (lib) | 103 | 0 | Core logic: absurd, agent, cognitive, gateway, lifecycle, pipeline, protocol, recipe, tmux, tool_guard, workflow |
 | Binary tests | 3 | 0 | `herdr-janus` TUI rendering |
 | Static contract | 3 | 0 | `herdr-plugin.toml` validation + paths fallback |
 | Integration tests | 27 | 0 | UDS contract, gateway HTTP, onboard/offboard lifecycle, step workflow, tmux sessions |
 | Runtime-skip tests | 11 | 0 | PG-gated tests (skipped locally, run in CI) |
 | Manual integration | 0 | 3 | Herdr plugin link + e2e smoke |
 
-**Total: 147 (143 passed + 4 skipped)**
+**Total: 147 (144 passed + 0 failed + 3 manual skipped)**
 
 ---
 
@@ -287,7 +287,7 @@ cd janus
 cargo test --workspace
 ```
 
-**Runs:** 143 tests (4 skipped — 1 PG-gated lib + 3 manual `#[ignore]`)
+**Runs:** 144 tests (4 skipped — 1 PG-gated lib + 3 manual `#[ignore]`)
 
 ### With PostgreSQL (CI or `make db-init`)
 
@@ -328,7 +328,7 @@ cargo test --workspace
 
 | Module | Unit Tests | Integration | PG-gated | Manual |
 |---|---|---|---|---|
-| absurd | 8 | — | 1 | — |
+| absurd | 8 | — | 0 | — |
 | agent | 6 | — | — | — |
 | cognitive | 7 | — | — | — |
 | coldstart | 1 | — | — | — |

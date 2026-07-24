@@ -229,3 +229,117 @@ fn herdr_min_version_is_satisfied() {
         "installed Herdr {installed_ver} is older than min_herdr_version {min_ver}"
     );
 }
+
+// ── End-to-end smoke test (PG + tmux + Herdr + janus-daemon) ───────────
+
+#[test]
+#[ignore = "requires PG + tmux + herdr"]
+#[allow(clippy::collapsible_if)]
+fn e2e_smoke_onboard_dispatch_progress() {
+    let pg_ok =
+        std::env::var("DATABASE_URL").is_ok() || std::env::var("METAMACH_PG_SOCKET_DIR").is_ok();
+    let tmux_ok = std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let herdr_ok = std::process::Command::new("herdr")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !pg_ok || !tmux_ok || !herdr_ok {
+        eprintln!("skipping e2e: PG={pg_ok} tmux={tmux_ok} herdr={herdr_ok}");
+        return;
+    }
+
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(
+        &agents,
+        "[agent.default]\nbash_safe = true\nbash_blacklist = [\"rm -rf /\"]\n",
+    )
+    .unwrap();
+
+    let bp_name = format!("e2e_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let bp_dir = repo.path().join("blueprints").join(&bp_name);
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("janus.toml"),
+        format!("[blueprint]\nname = \"{bp_name}\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"e2e\"]\n"),
+    )
+    .unwrap();
+    let wf_dir = repo.path().join("workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    std::fs::write(
+        wf_dir.join("smoke.toml"),
+        "[workflow]\nname = \"smoke\"\n\n[[steps]]\nname = \"hello\"\nagent = \"default\"\ncommand = \"echo e2e-ok\"\n",
+    )
+    .unwrap();
+
+    let mut daemon = std::process::Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
+        .env("HERDR_PLUGIN_STATE_DIR", state.path())
+        .env("HERDR_PLUGIN_ROOT", repo.path())
+        .env("JANUS_AGENTS_TOML", &agents)
+        .env("JANUS_GATEWAY_LISTEN_PORT", "0")
+        .env("RUST_LOG", "warn")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn janus-daemon");
+
+    let sock = state.path().join("janus.sock");
+    let start = std::time::Instant::now();
+    while !sock.exists() && start.elapsed() < std::time::Duration::from_secs(15) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(sock.exists(), "daemon did not bind janus.sock");
+    std::thread::sleep(std::time::Duration::from_secs(12));
+
+    let req = janus::protocol::Request::Onboard {
+        name: bp_name.clone(),
+    };
+    let resp =
+        janus::uds::request_to(&sock, &req, std::time::Duration::from_secs(15)).expect("onboard");
+    assert!(
+        matches!(resp, janus::protocol::Response::Ok { .. }),
+        "onboard: {resp:?}"
+    );
+
+    let req = janus::protocol::Request::Dispatch {
+        blueprint: bp_name.clone(),
+        workflow: None,
+    };
+    let resp =
+        janus::uds::request_to(&sock, &req, std::time::Duration::from_secs(15)).expect("dispatch");
+    let _task_id = match resp {
+        janus::protocol::Response::Dispatch { task_id } => task_id,
+        other => panic!("expected Dispatch, got {other:?}"),
+    };
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut completed = false;
+    while std::time::Instant::now() < deadline {
+        let req = janus::protocol::Request::Progress {
+            blueprint: Some(bp_name.clone()),
+        };
+        if let Ok(janus::protocol::Response::Progress { active_tasks }) =
+            janus::uds::request_to(&sock, &req, std::time::Duration::from_secs(5))
+        {
+            if active_tasks
+                .iter()
+                .any(|t| t.steps.iter().any(|s| s.status == "COMPLETED"))
+            {
+                completed = true;
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    assert!(completed, "workflow did not reach COMPLETED within 30s");
+
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+}

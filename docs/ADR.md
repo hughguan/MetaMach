@@ -314,7 +314,19 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Keep agents.toml Tool-Guard-only, add provisioning elsewhere, (2) Extend agents.toml with an optional `[agent.X.provision]` section (co-located with the agent it provisions), (3) Separate provisioning config file. |
 | **Decision** | **Adopted** — Option (2): extend `agents.toml` with optional `[agent.X.provision]` sections. Each agent can declare an `adapter` (claude-code, codex, aider), a `command`, a `system_prompt`, a `quota` block (`max_tokens_per_day`, `max_cost_usd_per_day`, `max_requests_per_hour`), and a `fallback_agent` for automatic degradation. No new file, 100% backward compatible — existing Tool Guard entries need no changes. |
 | **Rationale** | Co-locating provisioning with permissions keeps the agent definition in one place. The `AgentStack` parser (`janus/src/agent.rs`, ~150 lines) resolves fallback chains recursively. Runtime quota tracking is deferred to 0.5.0+ (needs the engine); the config format and parser ship first so the engine has a defined provisioning model to consume. |
-| **Status** | 📋 Spec'd Only — 0.4.7 implementation pending. |
+| **Status** | ✅ Implemented in 0.4.7 (`2addfce`). |
+
+---
+
+## ADR-020: Observer Panel — TUI HITL + Enhanced Progress (0.4.8)
+
+| Field | Value |
+|---|---|
+| **Context** | `herdr-janus` currently has Dispatch (blueprint selection) and Progress (task status) views, but cannot approve/reject HITL suspensions — the Director must use Teams or Telegram. The Progress view shows step status only, without live log tails or SUSPENDED countdown timers. |
+| **Options Considered** | (1) Keep herdr-janus as-is (HITL = Teams/Telegram only), (2) Enhance the Progress view with HITL gate interaction + live log display, (3) Build a separate observer binary. |
+| **Decision** | **Adopted** — Option (2): enhance the existing `herdr-janus` binary. Add `y`/`n` keybindings for HITL approval/rejection (sends `GateAction` UDS request via the existing `janus::gateway` callback path), `Enter` to expand a step's 16KB `stdout_tail`, and red-highlight + countdown for SUSPENDED steps. No new binary, no new dependencies — ~100 lines in `herdr-janus`. |
+| **Rationale** | The gateway callback path already handles HITL verdicts; this adds a TUI entrypoint. The Observer is a UX enhancement on existing infrastructure — same UDS, same Progress data, same gateway. Zero daemon changes beyond one new UDS request type (`GateAction`). |
+| **Status** | 📋 Spec'd Only — 0.4.8 implementation pending. |
 
 ---
 

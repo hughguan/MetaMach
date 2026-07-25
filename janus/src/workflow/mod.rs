@@ -74,6 +74,11 @@ enum StepOutcome {
     /// `CONCURRENCY_RACE_ALERT`, and the retry loop picks it up against the new
     /// HEAD (the absurd retry run mints a fresh claim).
     StaleHead { step_name: String },
+    /// A step failed with a quota-exhaustion signal (429 / rate-limit / quota
+    /// exceeded in stdout_tail). The retry loop sleeps for the configured
+    /// duration before calling fail_run, giving the quota window time to renew
+    /// (ADR-022).
+    QuotaExhausted { seconds: u64 },
 }
 
 /// What the [`run_workflow`] loop should do at a given resume point, derived from
@@ -270,6 +275,24 @@ where
                             .await?;
                         // Loop: absurd mints a retry run if attempts remain, else
                         // the task goes `failed` -> next claim is None -> exit.
+                    }
+                    StepOutcome::QuotaExhausted { seconds } => {
+                        // ADR-022: quota exhausted — sleep before retry so the
+                        // quota window has time to renew (e.g. Coding Plan daily
+                        // reset at UTC midnight).
+                        tracing::warn!(
+                            task_id = %task_id,
+                            seconds,
+                            "quota exhausted — sleeping {seconds}s before retry"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
+                        engine
+                            .fail_run(
+                                &queue,
+                                run_id,
+                                &json!({"task_id": task_id, "reason": "quota_exhausted"}),
+                            )
+                            .await?;
                     }
                     StepOutcome::StaleHead { step_name, .. } => {
                         // Task 4.4: HEAD advanced mid-step. fail_run so absurd
@@ -484,6 +507,17 @@ where
                                 stdout_tail.as_deref(),
                             )
                             .await?;
+                            // ADR-022: detect quota exhaustion (429 / rate-limit)
+                            // before failing. If the agent's stdout signals
+                            // quota exhaustion, sleep and retry instead of
+                            // counting it as a hard failure.
+                            if let Some(tail) = stdout_tail.as_deref()
+                                && is_quota_exhausted(tail)
+                            {
+                                return Ok(StepOutcome::QuotaExhausted {
+                                    seconds: quota_sleep_seconds(),
+                                });
+                            }
                             return Ok(StepOutcome::Failed);
                         }
                     }
@@ -689,7 +723,9 @@ where
                         .await?;
                     Ok(Some(task_id))
                 }
-                StepOutcome::Failed | StepOutcome::StaleHead { .. } => {
+                StepOutcome::Failed
+                | StepOutcome::StaleHead { .. }
+                | StepOutcome::QuotaExhausted { .. } => {
                     engine
                         .fail_run(
                             queue,
@@ -823,6 +859,27 @@ pub fn git_head(repo_root: &Path) -> String {
         }
         _ => NULL_SHA.to_string(),
     }
+}
+
+/// ADR-022: check whether the step's output indicates quota exhaustion
+/// (HTTP 429, rate limit, quota exceeded patterns from LLM APIs).
+fn is_quota_exhausted(stdout: &str) -> bool {
+    let lower = stdout.to_lowercase();
+    lower.contains("429")
+        || lower.contains("too many requests")
+        || lower.contains("rate limit")
+        || lower.contains("quota exceeded")
+        || lower.contains("exceeded your current quota")
+}
+
+/// ADR-022: sleep duration when quota is exhausted. Reads
+/// `JANUS_QUOTA_SLEEP_SECONDS` env var; defaults to 300 (5 minutes).
+fn quota_sleep_seconds() -> u64 {
+    std::env::var("JANUS_QUOTA_SLEEP_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|v| *v > 0 && *v <= 86400)
+        .unwrap_or(300)
 }
 
 #[cfg(test)]
@@ -1252,6 +1309,36 @@ mod tests {
         if let Ok(o) = out {
             assert_eq!(String::from_utf8_lossy(&o.stdout), dangerous);
         }
+    }
+
+    #[test]
+    fn is_quota_exhausted_detects_429() {
+        assert!(is_quota_exhausted("HTTP 429 Too Many Requests"));
+        assert!(is_quota_exhausted("error code: 429"));
+    }
+
+    #[test]
+    fn is_quota_exhausted_detects_rate_limit() {
+        assert!(is_quota_exhausted("rate limit exceeded"));
+        assert!(is_quota_exhausted("RATE LIMIT"));
+    }
+
+    #[test]
+    fn is_quota_exhausted_detects_quota_exceeded() {
+        assert!(is_quota_exhausted("quota exceeded"));
+        assert!(is_quota_exhausted("exceeded your current quota"));
+    }
+
+    #[test]
+    fn is_quota_exhausted_passes_normal_output() {
+        assert!(!is_quota_exhausted("Build completed successfully"));
+        assert!(!is_quota_exhausted("error: expected `;`"));
+    }
+
+    #[test]
+    fn quota_sleep_defaults_to_300() {
+        unsafe { std::env::remove_var("JANUS_QUOTA_SLEEP_SECONDS") };
+        assert_eq!(quota_sleep_seconds(), 300);
     }
 
     #[test]

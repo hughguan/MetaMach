@@ -76,6 +76,8 @@ impl PipelineConfig {
                 }
             }
         }
+        // Cycle detection: plan() does topological sort and rejects cycles.
+        let _ = self.plan()?;
         Ok(())
     }
 

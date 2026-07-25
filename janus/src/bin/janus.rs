@@ -304,8 +304,11 @@ fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> 
 
 fn validate_pipeline(path: &Path) -> Result<()> {
     let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    let _config: PipelineConfig =
+    let config: PipelineConfig =
         toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    config
+        .validate()
+        .with_context(|| format!("validate {}", path.display()))?;
     println!("Pipeline {} is valid.", path.display());
     Ok(())
 }
@@ -338,4 +341,86 @@ fn discover_workflows(repo_root: &Path) -> Result<Vec<(String, String)>> {
         }
     }
     Ok(workflows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_workflows(dir: &Path, files: &[(&str, &str, Option<&str>)]) {
+        let wf_dir = dir.join("workflows");
+        std::fs::create_dir_all(&wf_dir).unwrap();
+        for (name, _body, desc) in files {
+            let desc_line = desc
+                .map(|d| format!("description = \"{}\"\n", d))
+                .unwrap_or_default();
+            std::fs::write(
+                wf_dir.join(format!("{name}.toml")),
+                format!("[workflow]\nname = \"{name}\"\n{desc_line}"),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn discover_workflows_finds_toml_files() {
+        let dir = tempfile::tempdir().unwrap();
+        setup_workflows(
+            dir.path(),
+            &[
+                ("wf_build", "", Some("Build firmware")),
+                ("wf_flash", "", Some("Flash to device")),
+            ],
+        );
+        let wfs = discover_workflows(dir.path()).unwrap();
+        assert_eq!(wfs.len(), 2);
+        assert!(
+            wfs.iter()
+                .any(|(n, d)| n == "wf_build" && d == "Build firmware")
+        );
+        assert!(
+            wfs.iter()
+                .any(|(n, d)| n == "wf_flash" && d == "Flash to device")
+        );
+    }
+
+    #[test]
+    fn discover_workflows_returns_empty_for_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let wfs = discover_workflows(dir.path()).unwrap();
+        assert!(wfs.is_empty());
+    }
+
+    #[test]
+    fn discover_workflows_skips_non_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let wf_dir = dir.path().join("workflows");
+        std::fs::create_dir_all(&wf_dir).unwrap();
+        std::fs::write(wf_dir.join("README.md"), "docs").unwrap();
+        setup_workflows(dir.path(), &[("wf_build", "", None)]);
+        let wfs = discover_workflows(dir.path()).unwrap();
+        assert_eq!(wfs.len(), 1);
+    }
+
+    #[test]
+    fn validate_pipeline_rejects_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = "[pipeline]\nname = \"cycle\"\n\n[[nodes]]\nid = \"a\"\nworkflow = \"wf_a\"\nneeds = [\"b\"]\n\n[[nodes]]\nid = \"b\"\nworkflow = \"wf_b\"\nneeds = [\"a\"]\n";
+        let path = dir.path().join("cycle.toml");
+        std::fs::write(&path, toml).unwrap();
+        let err = validate_pipeline(&path).unwrap_err();
+        assert!(
+            err.to_string().contains("cycle"),
+            "expected cycle error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_pipeline_accepts_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = "[pipeline]\nname = \"ok\"\n\n[[nodes]]\nid = \"a\"\nworkflow = \"wf_a\"\n";
+        let path = dir.path().join("ok.toml");
+        std::fs::write(&path, toml).unwrap();
+        validate_pipeline(&path).expect("valid pipeline");
+    }
 }

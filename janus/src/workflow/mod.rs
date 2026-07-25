@@ -378,6 +378,11 @@ where
         let host = step.host.as_deref().or(recipe.remote_host.as_deref());
         let backend = factory.get(host);
 
+        let env_snapshot = serde_json::json!({
+            "timestamp": env_timestamp(),
+            "tty_devices": env_tty_devices(),
+        });
+
         db.upsert_step_start(
             &recipe.name,
             task_id,
@@ -385,6 +390,7 @@ where
             workflow_name,
             target_sha,
             &session_name,
+            &env_snapshot,
         )
         .await?;
         db.set_step_running(&recipe.name, task_id, &step.name)
@@ -811,15 +817,41 @@ fn step_command(
     format!(
         "env {sock_env} JANUS_AGENT={agent} \
          JANUS_BLUEPRINT={blueprint} JANUS_TASK_ID={task_id} JANUS_STEP={step_name} \
-         JANUS_WORKFLOW={workflow} {janush} -c {command}",
+         JANUS_WORKFLOW={workflow} \
+         JANUS_ENV_TIMESTAMP={timestamp} \
+         JANUS_ENV_TTY_DEVICES={tty_devices} \
+         {janush} -c {command}",
         agent = shell_quote(&step.agent),
         blueprint = shell_quote(&recipe.name),
         task_id = task_id,
         step_name = shell_quote(&step.name),
         workflow = shell_quote(workflow_name),
+        timestamp = shell_quote(&env_timestamp()),
+        tty_devices = shell_quote(&env_tty_devices()),
         janush = shell_quote(&janush.to_string_lossy()),
         command = shell_quote(command),
     )
+}
+
+/// ADR-024: UTC timestamp at step dispatch (ISO 8601).
+fn env_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+/// ADR-024: comma-separated serial devices found under /dev at step dispatch.
+fn env_tty_devices() -> String {
+    let mut devices = Vec::new();
+    for prefix in &["ttyUSB", "ttyACM", "ttyS"] {
+        if let Ok(entries) = std::fs::read_dir("/dev") {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with(prefix) {
+                    devices.push(name);
+                }
+            }
+        }
+    }
+    devices.join(",")
 }
 
 /// Single-quote a string for shell consumption, escaping internal single-quotes
@@ -1342,6 +1374,22 @@ mod tests {
     }
 
     #[test]
+    fn env_timestamp_is_iso_8601() {
+        let ts = env_timestamp();
+        // ISO 8601 / RFC 3339: "2026-07-24T12:00:00+00:00"
+        assert!(ts.contains('T'));
+        assert!(ts.contains('-'));
+        assert!(ts.ends_with("Z") || ts.contains('+'));
+    }
+
+    #[test]
+    fn env_tty_devices_returns_comma_separated() {
+        let devs = env_tty_devices();
+        // May be empty on CI, but must be a valid string (no crash).
+        assert!(!devs.contains(' '), "no spaces in device list: {devs}");
+    }
+
+    #[test]
     fn step_command_includes_janush_and_env_context() {
         let step = WorkflowStep {
             name: "flash".to_string(),
@@ -1374,6 +1422,8 @@ mod tests {
         assert!(cmd.contains("JANUS_TASK_ID=00000000-0000-0000-0000-000000000000"));
         assert!(cmd.contains("JANUS_STEP='flash'"));
         assert!(cmd.contains("JANUS_WORKFLOW='fw'"));
+        assert!(cmd.contains("JANUS_ENV_TIMESTAMP="));
+        assert!(cmd.contains("JANUS_ENV_TTY_DEVICES="));
         assert!(cmd.contains("'/bin/janush' -c 'make flash'"));
     }
 }

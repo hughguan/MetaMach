@@ -156,6 +156,7 @@ impl AbsurdDb {
     /// progress (they read `metamach_step_meta`, not absurd's tables).
     const BLUEPRINT_MIGRATION_002: &str = include_str!("../../migrations/002_blueprint.sql");
     const BLUEPRINT_MIGRATION_003: &str = include_str!("../../migrations/003_hitl_verdict.sql");
+    const BLUEPRINT_MIGRATION_004: &str = include_str!("../../migrations/004_env_snapshot.sql");
 
     /// Create `metamach_blueprint_<name>` (if absent) + apply the per-blueprint
     /// overlay migrations (002 + 003). Called by `janus onboard` so offboard/
@@ -228,6 +229,10 @@ impl AbsurdDb {
             .execute(&pool)
             .await
             .with_context(|| format!("apply 003_hitl_verdict.sql to {db_name}"))?;
+        sqlx::raw_sql(Self::BLUEPRINT_MIGRATION_004)
+            .execute(&pool)
+            .await
+            .with_context(|| format!("apply 004_env_snapshot.sql to {db_name}"))?;
         self.blueprint_pools
             .write()
             .expect("bp lock")
@@ -480,6 +485,7 @@ impl AbsurdDb {
     /// (`ON CONFLICT` resets to `STARTING` for a re-dispatch of the same
     /// task_id+step). Degrades to a fallback event if the blueprint DB is
     /// unreachable (consistent with [`suspend_step`]).
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_step_start(
         &self,
         blueprint: &str,
@@ -488,15 +494,17 @@ impl AbsurdDb {
         workflow_name: &str,
         target_sha: &str,
         session_name: &str,
+        env_snapshot: &serde_json::Value,
     ) -> Result<()> {
         if let Some(pool) = self.blueprint_pool(blueprint).await? {
             sqlx::query(
                 "INSERT INTO metamach_step_meta \
-                    (task_id, step_name, blueprint_name, workflow_name, status, target_sha, session_name) \
-                 VALUES ($1, $2, $3, $4, 'STARTING', $5, $6) \
+                    (task_id, step_name, blueprint_name, workflow_name, status, target_sha, session_name, env_snapshot) \
+                 VALUES ($1, $2, $3, $4, 'STARTING', $5, $6, $7) \
                  ON CONFLICT (task_id, step_name) DO UPDATE \
                  SET status = 'STARTING', workflow_name = EXCLUDED.workflow_name, \
                      target_sha = EXCLUDED.target_sha, session_name = EXCLUDED.session_name, \
+                     env_snapshot = EXCLUDED.env_snapshot, \
                      exit_code = NULL, started_at = NULL, updated_at = NOW()",
             )
             .bind(task_id)
@@ -505,6 +513,7 @@ impl AbsurdDb {
             .bind(workflow_name)
             .bind(target_sha)
             .bind(session_name)
+            .bind(env_snapshot)
             .execute(&pool)
             .await?;
             Ok(())

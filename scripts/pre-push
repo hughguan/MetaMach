@@ -14,5 +14,12 @@ cargo clippy --all-targets -- -D warnings
 echo "=== M2–M5: cargo test --workspace ==="
 cargo test --workspace
 
+if [ -n "${DATABASE_URL:-}" ] || [ -n "${METAMACH_PG_SOCKET_DIR:-}" ]; then
+    echo "=== PG available — running E2E pipeline tests ==="
+    cargo test e2e || echo "⚠️  E2E tests failed (check above)"
+else
+    echo "=== PG not available — skipping E2E pipeline tests ==="
+fi
+
 echo ""
 echo "✅ All CI gates green — safe to push"

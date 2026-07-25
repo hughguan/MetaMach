@@ -120,19 +120,26 @@ fn e2e_onboard_dispatch_complete() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
-    // Minimal 1-step workflow.
+    // Use the same pattern as step_workflow tests (proven in CI).
     let bp = repo.path().join("blueprints").join("smoke_e2e");
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
         bp.join("janus.toml"),
-        "[blueprint]\nname = \"smoke_e2e\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+        "[blueprint]\nname = \"smoke_e2e\"\nscope = \"embedded\"\ndescription = \"e2e smoke test\"\nworkflow = \"smoke\"\n",
     )
     .unwrap();
     let wf = repo.path().join("workflows");
     std::fs::create_dir_all(&wf).unwrap();
     std::fs::write(
         wf.join("smoke.toml"),
-        "[workflow]\nname = \"smoke\"\n\n[[steps]]\nname = \"hello\"\nagent = \"default\"\ncommand = \"echo e2e-ok\"\n",
+        r#"[workflow]
+name = "smoke"
+
+[[steps]]
+name = "hello"
+agent = "default"
+command = "true"
+"#,
     )
     .unwrap();
 

@@ -119,7 +119,7 @@ fn e2e_onboard_dispatch_complete() {
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
         bp.join("janus.toml"),
-        "[blueprint]\nname = \"smoke_e2e\"\nscope = \"embedded\"\ndescription = \"e2e smoke test\"\ndefault_workflow = \"smoke\"\n",
+        "[blueprint]\nname = \"smoke_e2e\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
     )
     .unwrap();
     let wf = repo.path().join("workflows");

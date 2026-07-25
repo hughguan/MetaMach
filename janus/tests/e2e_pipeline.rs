@@ -73,7 +73,7 @@ impl Drop for Daemon {
     }
 }
 
-fn poll_until_completed(d: &Daemon, _blueprint: &str, timeout: Duration) -> (bool, String) {
+fn poll_until_completed(d: &Daemon, blueprint: &str, timeout: Duration) -> (bool, String) {
     let deadline = Instant::now() + timeout;
     let mut last_state = String::new();
     while Instant::now() < deadline {
@@ -82,16 +82,20 @@ fn poll_until_completed(d: &Daemon, _blueprint: &str, timeout: Duration) -> (boo
             Duration::from_secs(5),
         );
         if let Ok(Response::Progress { active_tasks }) = &resp {
-            if !active_tasks.is_empty() {
-                for t in active_tasks {
+            let ours: Vec<_> = active_tasks
+                .iter()
+                .filter(|t| t.blueprint_id == blueprint)
+                .collect();
+            if !ours.is_empty() {
+                for t in &ours {
                     if t.steps.iter().any(|s| s.status == "COMPLETED") {
-                        return (true, format!("COMPLETED: {active_tasks:?}"));
+                        return (true, format!("COMPLETED: {ours:?}"));
                     }
                     if t.status == "FAILED" || t.status == "SUSPENDED" {
-                        return (false, format!("task {0}: {active_tasks:?}", t.status));
+                        return (false, format!("task {0}: {ours:?}", t.status));
                     }
                 }
-                last_state = format!("{active_tasks:?}");
+                last_state = format!("{ours:?}");
             }
         } else {
             last_state = format!("Progress error: {resp:?}");

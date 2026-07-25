@@ -75,14 +75,12 @@ impl Drop for Daemon {
 
 /// Poll Progress until a step reaches COMPLETED or deadline expires.
 /// Returns the final Progress response for diagnostics.
-fn poll_until_completed(d: &Daemon, blueprint: &str, timeout: Duration) -> (bool, String) {
+fn poll_until_completed(d: &Daemon, _blueprint: &str, timeout: Duration) -> (bool, String) {
     let deadline = Instant::now() + timeout;
     let mut last_state = String::new();
     while Instant::now() < deadline {
         let resp = d.uds(
-            &Request::Progress {
-                blueprint: Some(blueprint.into()),
-            },
+            &Request::Progress { blueprint: None },
             Duration::from_secs(5),
         );
         if let Ok(Response::Progress { active_tasks }) = &resp {

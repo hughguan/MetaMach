@@ -352,7 +352,7 @@ mod tests {
         std::fs::create_dir_all(&wf_dir).unwrap();
         for (name, _body, desc) in files {
             let desc_line = desc
-                .map(|d| format!("description = \"{}\"\n", d))
+                .map(|d| format!("description = \"{d}\"\n"))
                 .unwrap_or_default();
             std::fs::write(
                 wf_dir.join(format!("{name}.toml")),

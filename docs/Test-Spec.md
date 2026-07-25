@@ -128,7 +128,7 @@ To guarantee MetaMach 0.3.0's high availability and strong anti-seismic, anti-bl
 | **UTC-10-09** | WebhookPayload Enrichment | Validate enriched payload carries all Hermes fields | HITL triggered; gateway dispatch called | 1. Inspect the `WebhookPayload` passed to `gateway::dispatch()`. | 1. `correlation_id` is non-empty. 2. `blueprint`, `step`, `stdout_tail`, `expires_at` are all populated. 3. `stdout_tail == scene` (always equal at construction). | **Major** |
 | **UTC-10-10** | expires_at Expiry (410 Gone) | Validate callback after expiry is rejected | Pending verdict with `expires_at` in the past | 1. POST a callback to `/v1/runs/{run_id}/actions` after `expires_at`. | 1. Returns `410 Gone`. 2. Verdict is not applied. 3. Pending-verdict map entry is cleaned up. | **Major** |
 
-### Test Suite 2.11: End-to-End Multi-Agent Pipeline (0.5.0)
+### Test Suite 2.11: End-to-End Multi-Agent Pipeline (0.5.0 — manual pre-release)
 
 > **Gate Type: Manual Pre-Release Validation.** These tests require real LLM agents
 > (Claude Code, Codex, Pi), API keys, PG, and tmux. They are **not CI-gated** —

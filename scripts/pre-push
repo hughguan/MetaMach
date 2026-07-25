@@ -17,6 +17,15 @@ cargo test --workspace
 if [ -n "${DATABASE_URL:-}" ] || [ -n "${METAMACH_PG_SOCKET_DIR:-}" ]; then
     echo "=== PG available — running E2E pipeline tests ==="
     cargo test e2e || echo "⚠️  E2E tests failed (check above)"
+elif command -v pg_ctl >/dev/null 2>&1 && command -v initdb >/dev/null 2>&1; then
+    echo "=== PG not running — attempting make db-init ==="
+    if make -s -C "$(git rev-parse --show-toplevel)" db-init 2>/dev/null; then
+        export DATABASE_URL="postgres://metamach_admin@localhost:5432/metamach_db"
+        echo "=== PG ready — running E2E pipeline tests ==="
+        cargo test e2e || echo "⚠️  E2E tests failed (check above)"
+    else
+        echo "=== PG init failed — skipping E2E pipeline tests ==="
+    fi
 else
     echo "=== PG not available — skipping E2E pipeline tests ==="
 fi

@@ -44,6 +44,9 @@ pub struct AgentProvision {
     /// Quota limits (all fields optional; omitted = unlimited).
     #[serde(default)]
     pub quota: Option<AgentQuota>,
+    /// ADR-026: pre-flight probe hooks for hardware idempotency.
+    #[serde(default)]
+    pub preflight: Option<PreflightConfig>,
 }
 
 /// Quota limits for a provisioned agent. All fields are optional — `None` means
@@ -61,6 +64,88 @@ pub struct AgentQuota {
     /// can have its own fallback. Chains that loop are detected at resolve time.
     #[serde(default)]
     pub fallback_agent: Option<String>,
+}
+
+/// ADR-026: pre-flight probe hook configuration for hardware idempotency.
+/// Maps a command pattern prefix to a probe shell command. Before executing
+/// a matching command, janush runs the probe — if it returns 0 and stdout
+/// contains `BYPASS`, the command is skipped (already done). If the probe
+/// returns non-zero, the command escalates to HITL suspension.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PreflightConfig {
+    /// Probe command for `esptool.py write_flash` - verifies the chip already
+    /// has the correct firmware.
+    #[serde(default)]
+    pub esptool_write: Option<String>,
+    /// Generic probe: shell command receiving the full command as `$CMD`.
+    #[serde(default)]
+    pub generic: Option<String>,
+}
+
+impl PreflightConfig {
+    /// Find a matching probe for the given command. Returns the probe script
+    /// if a pattern matches, or `None` if no probe is configured.
+    pub fn probe_for(&self, command: &str) -> Option<&str> {
+        if command.contains("esptool.py") && command.contains("write_flash") {
+            return self.esptool_write.as_deref();
+        }
+        self.generic.as_deref()
+    }
+}
+
+/// Outcome of a pre-flight probe (ADR-026).
+pub enum ProbeOutcome {
+    /// Probe confirms the hardware is already in the desired state — skip
+    /// the command entirely (physical idempotency bypass).
+    Bypass,
+    /// Probe could not confirm the state — escalate to HITL for human approval.
+    RequireApproval,
+    /// No probe configured for this command — proceed with normal Tool Guard.
+    NoProbe,
+}
+
+/// Run the pre-flight probe for `command` if the agent has one configured.
+/// Returns the probe outcome (Bypass / RequireApproval / NoProbe).
+pub fn run_preflight(provision: Option<&AgentProvision>, command: &str) -> ProbeOutcome {
+    let cfg = match provision.and_then(|p| p.preflight.as_ref()) {
+        Some(c) => c,
+        None => return ProbeOutcome::NoProbe,
+    };
+    let probe_cmd = match cfg.probe_for(command) {
+        Some(c) => c,
+        None => return ProbeOutcome::NoProbe,
+    };
+    // Expand $CMD in the probe script.
+    let expanded = probe_cmd.replace("$CMD", &shell_quote_for_probe(command));
+    let result = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&expanded)
+        .output();
+    match result {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            if stdout.contains("BYPASS") {
+                ProbeOutcome::Bypass
+            } else {
+                ProbeOutcome::RequireApproval
+            }
+        }
+        _ => ProbeOutcome::RequireApproval,
+    }
+}
+
+fn shell_quote_for_probe(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('\'');
+    out
 }
 
 impl AgentStack {
@@ -303,5 +388,74 @@ bash_blacklist = ["rm -rf /"]
         // referenced but not defined — the parser should accept it and warn).
         let prov = stack.resolve("coder").expect("coder");
         assert_eq!(prov.quota.as_ref().unwrap().max_requests_per_hour, Some(50));
+    }
+
+    #[test]
+    fn preflight_probe_for_esptool() {
+        let cfg = PreflightConfig {
+            esptool_write: Some("esptool.py verify_flash $CMD".into()),
+            generic: None,
+        };
+        assert!(
+            cfg.probe_for("esptool.py write_flash --port /dev/ttyUSB0")
+                .is_some()
+        );
+        assert!(cfg.probe_for("make compile").is_none());
+    }
+
+    #[test]
+    fn preflight_probe_for_generic() {
+        let cfg = PreflightConfig {
+            esptool_write: None,
+            generic: Some("verify $CMD".into()),
+        };
+        assert!(cfg.probe_for("make flash").is_some());
+    }
+
+    #[test]
+    fn run_preflight_no_probe_returns_no_probe() {
+        let prov = AgentProvision {
+            adapter: "claude-code".into(),
+            command: None,
+            system_prompt: None,
+            quota: None,
+            preflight: None,
+        };
+        let outcome = run_preflight(Some(&prov), "esptool.py write_flash");
+        assert!(matches!(outcome, ProbeOutcome::NoProbe));
+    }
+
+    #[test]
+    fn run_preflight_bypass_when_probe_exits_zero_with_bypass() {
+        let cfg = PreflightConfig {
+            esptool_write: Some("echo BYPASS".into()),
+            generic: None,
+        };
+        let prov = AgentProvision {
+            adapter: "deployer".into(),
+            command: None,
+            system_prompt: None,
+            quota: None,
+            preflight: Some(cfg),
+        };
+        let outcome = run_preflight(Some(&prov), "esptool.py write_flash");
+        assert!(matches!(outcome, ProbeOutcome::Bypass));
+    }
+
+    #[test]
+    fn run_preflight_require_approval_when_probe_fails() {
+        let cfg = PreflightConfig {
+            esptool_write: Some("exit 1".into()),
+            generic: None,
+        };
+        let prov = AgentProvision {
+            adapter: "deployer".into(),
+            command: None,
+            system_prompt: None,
+            quota: None,
+            preflight: Some(cfg),
+        };
+        let outcome = run_preflight(Some(&prov), "esptool.py write_flash");
+        assert!(matches!(outcome, ProbeOutcome::RequireApproval));
     }
 }

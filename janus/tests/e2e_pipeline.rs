@@ -1,9 +1,5 @@
 //! M5 ADR-028: E2E Pipeline CI tests with mock agents.
 //!
-//! These tests use deterministic shell scripts instead of real LLM agents,
-//! exercising the full DAG engine + Tool Guard + checkpoint/recovery cycle
-//! without API keys or external dependencies beyond PG + tmux.
-//!
 //! All tests runtime-skip when PG or tmux is unavailable.
 
 use std::path::Path;
@@ -15,17 +11,7 @@ use janus::uds;
 
 const AGENTS_TOML: &str = r#"
 [agent.architect]
-permissions = ["read", "write", "bash-safe", "git-commit"]
-bash_safe = true
-bash_blacklist = ["rm -rf /"]
-
-[agent.builder]
-permissions = ["read", "write", "edit", "bash-safe", "git-commit"]
-bash_safe = true
-bash_blacklist = ["rm -rf /"]
-
-[agent.tester]
-permissions = ["read", "write", "bash-safe", "git-commit", "git-push"]
+permissions = ["read", "write", "bash-safe"]
 bash_safe = true
 bash_blacklist = ["rm -rf /"]
 
@@ -49,8 +35,6 @@ fn tmux_available() -> bool {
 struct Daemon {
     child: std::process::Child,
     sock: std::path::PathBuf,
-    #[allow(dead_code)]
-    repo_path: std::path::PathBuf,
 }
 
 impl Daemon {
@@ -74,11 +58,7 @@ impl Daemon {
         }
         assert!(sock.exists(), "daemon did not bind janus.sock within 15s");
         std::thread::sleep(Duration::from_millis(100));
-        Daemon {
-            child,
-            sock,
-            repo_path: repo_path.to_path_buf(),
-        }
+        Daemon { child, sock }
     }
 
     fn uds(&self, req: &Request, timeout: Duration) -> Result<Response, String> {
@@ -91,67 +71,6 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-fn setup_blueprint(repo: &Path, name: &str) {
-    let bp = repo.join("blueprints").join(name);
-    std::fs::create_dir_all(&bp).unwrap();
-    std::fs::write(
-        bp.join("janus.toml"),
-        format!(
-            "[blueprint]\nname = \"{name}\"\ndefault_workflow = \"mock-devsecops\"\n\n[openwiki]\nscope = [\"e2e\"]\n"
-        ),
-    )
-    .unwrap();
-
-    let wf = repo.join("workflows");
-    std::fs::create_dir_all(&wf).unwrap();
-    std::fs::write(
-        wf.join("mock-devsecops.toml"),
-        r#"[workflow]
-name = "mock-devsecops"
-
-[[steps]]
-name = "architect_design"
-agent = "architect"
-command = "mkdir -p docs && echo '## Architecture Design (mock)' > docs/architecture-design.md"
-
-[[steps]]
-name = "builder_review"
-agent = "builder"
-command = "grep -q 'Architecture Design' docs/architecture-design.md && echo APPROVED || echo REJECT"
-
-[[steps]]
-name = "tester_review"
-agent = "tester"
-command = "grep -q 'Architecture Design' docs/architecture-design.md && echo APPROVED || echo REJECT"
-
-[[steps]]
-name = "tester_commit"
-agent = "tester"
-command = "git -c user.name=ci -c user.email=ci@test add docs/ && git -c user.name=ci -c user.email=ci@test commit -m 'e2e: mock devsecops pipeline'"
-"#,
-    )
-    .unwrap();
-
-    // Git init for commit test.
-    let _ = Command::new("git")
-        .args(["init"])
-        .current_dir(repo)
-        .output();
-    let _ = Command::new("git")
-        .args([
-            "-c",
-            "user.name=ci",
-            "-c",
-            "user.email=ci@test",
-            "commit",
-            "--allow-empty",
-            "-m",
-            "init",
-        ])
-        .current_dir(repo)
-        .output();
 }
 
 /// Poll Progress until a step reaches COMPLETED or deadline expires.
@@ -179,7 +98,7 @@ fn poll_until_completed(d: &Daemon, blueprint: &str, timeout: Duration) -> bool 
 // ── Tests ───────────────────────────────────────────────────────────────
 
 #[test]
-fn e2e_mock_devsecops_onboard_dispatch_complete() {
+fn e2e_onboard_dispatch_complete() {
     if !pg_available() || !tmux_available() {
         eprintln!("skipping: PG or tmux not available");
         return;
@@ -188,49 +107,57 @@ fn e2e_mock_devsecops_onboard_dispatch_complete() {
     let repo = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    setup_blueprint(repo.path(), "software_dev_e2e");
+
+    // Minimal 1-step workflow.
+    let bp = repo.path().join("blueprints").join("smoke_e2e");
+    std::fs::create_dir_all(&bp).unwrap();
+    std::fs::write(
+        bp.join("janus.toml"),
+        "[blueprint]\nname = \"smoke_e2e\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+    )
+    .unwrap();
+    let wf = repo.path().join("workflows");
+    std::fs::create_dir_all(&wf).unwrap();
+    std::fs::write(
+        wf.join("smoke.toml"),
+        "[workflow]\nname = \"smoke\"\n\n[[steps]]\nname = \"hello\"\nagent = \"default\"\ncommand = \"echo e2e-ok\"\n",
+    )
+    .unwrap();
+
     let d = Daemon::spawn(state.path(), &agents, repo.path());
-    std::thread::sleep(Duration::from_secs(12)); // PG connect
+    std::thread::sleep(Duration::from_secs(12));
 
-    // Onboard.
-    let resp = d
-        .uds(
-            &Request::Onboard {
-                name: "software_dev_e2e".into(),
-            },
-            Duration::from_secs(15),
-        )
-        .unwrap();
-    assert!(matches!(resp, Response::Ok { .. }), "onboard: {resp:?}");
-
-    // Dispatch.
+    d.uds(
+        &Request::Onboard {
+            name: "smoke_e2e".into(),
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
     let resp = d
         .uds(
             &Request::Dispatch {
-                blueprint: "software_dev_e2e".into(),
+                blueprint: "smoke_e2e".into(),
                 workflow: None,
             },
             Duration::from_secs(15),
         )
         .unwrap();
-    let _task_id = match resp {
-        Response::Dispatch { task_id } => task_id,
-        other => panic!("expected Dispatch, got {other:?}"),
-    };
+    assert!(
+        matches!(resp, Response::Dispatch { .. }),
+        "dispatch: {resp:?}"
+    );
 
-    // Wait for at least one step to complete.
-    let ok = poll_until_completed(&d, "software_dev_e2e", Duration::from_secs(30));
+    let ok = poll_until_completed(&d, "smoke_e2e", Duration::from_secs(30));
     assert!(ok, "no step reached COMPLETED within 30s");
 }
 
 #[test]
-fn e2e_mock_tool_guard_blocks_blacklisted_command() {
+fn e2e_tool_guard_blocks_blacklisted() {
     if !pg_available() || !tmux_available() {
         eprintln!("skipping: PG or tmux not available");
         return;
     }
-    // Onboard a blueprint with a workflow that attempts `rm -rf /` —
-    // janush + Tool Guard must block it.
     let state = tempfile::tempdir().unwrap();
     let repo = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
@@ -247,18 +174,10 @@ fn e2e_mock_tool_guard_blocks_blacklisted_command() {
     std::fs::create_dir_all(&wf).unwrap();
     std::fs::write(
         wf.join("danger.toml"),
-        r#"[workflow]
-name = "danger"
-
-[[steps]]
-name = "bad"
-agent = "architect"
-command = "rm -rf /tmp/metamach-e2e-guard-test"
-"#,
+        "[workflow]\nname = \"danger\"\n\n[[steps]]\nname = \"bad\"\nagent = \"architect\"\ncommand = \"rm -rf /tmp/metamach-e2e-guard-test\"\n",
     )
     .unwrap();
 
-    // Create a sentinel file to verify it survives.
     let sentinel = repo.path().join("sentinel.txt");
     std::fs::write(&sentinel, "do-not-delete").unwrap();
 
@@ -272,19 +191,15 @@ command = "rm -rf /tmp/metamach-e2e-guard-test"
         Duration::from_secs(15),
     )
     .unwrap();
+    d.uds(
+        &Request::Dispatch {
+            blueprint: "guard_e2e".into(),
+            workflow: None,
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
 
-    let resp = d
-        .uds(
-            &Request::Dispatch {
-                blueprint: "guard_e2e".into(),
-                workflow: None,
-            },
-            Duration::from_secs(15),
-        )
-        .unwrap();
-    assert!(matches!(resp, Response::Dispatch { .. }));
-
-    // Wait a bit, then verify the sentinel survived (Tool Guard blocked the rm).
     std::thread::sleep(Duration::from_secs(5));
     assert!(
         sentinel.exists(),

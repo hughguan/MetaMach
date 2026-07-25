@@ -129,7 +129,7 @@ command = "grep -q 'Architecture Design' docs/architecture-design.md && echo APP
 [[steps]]
 name = "tester_commit"
 agent = "tester"
-command = "git add docs/ && git commit -m 'e2e: mock devsecops pipeline'"
+command = "git -c user.name=ci -c user.email=ci@test add docs/ && git -c user.name=ci -c user.email=ci@test commit -m 'e2e: mock devsecops pipeline'"
 "#,
     )
     .unwrap();

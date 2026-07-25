@@ -402,6 +402,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-027: Extensible Physical Safety Gateway — Probe SPI + Policy DSL (0.6.0)
+
+| Field | Value |
+|---|---|
+| **Context** | ADR-026 (`[agent.X.preflight]` shell hooks) covers the immediate ESP32 flash idempotency use case, but as MetaMach expands to more hardware targets (STM32, 3D printers, PLCs, robotics), a shell-command-based config becomes limiting. Different targets need different probe logic, environmental safety interlocks (temperature, cover sensors), and policy composition. |
+| **Options Considered** | (1) Keep shell-command preflight hooks only (no further abstraction), (2) Evolve janush into an extensible physical safety gateway with Rust-level probe/interlock traits + a policy TOML, (3) External hardware safety daemon (separate process). |
+| **Decision** | **Pending Review** — Option (2): `janush` gains a 4-stage pipeline (Parse → Probe → Policy → Execute) with three extension points: `PhysicalProbe` trait (hardware state querying, e.g., ESP32 flash hash verification), `SafetyInterlock` trait (environmental condition checking, e.g., ambient temperature < 65C), and a `janush-policy.toml` that maps command patterns to probes/interlocks and actions (ALLOW/BLOCK/BYPASS/SUSPEND_30S/REJECT). |
+| **Rationale** | The trait-based SPI decouples janush from specific hardware knowledge — probes are loaded declaratively via config. The policy TOML lets the Factory Director add hardware safety rules without touching Rust. Three operation modes: (A) physical idempotency bypass (probe confirms already done → skip), (B) HITL suspension (high-risk → 30s human approval), (C) hard circuit break (interlock tripped → immediate reject). This is a natural evolution of ADR-026's shell hooks into a typed, testable, composable plugin architecture. |
+| **Status** | 📋 Pending Review — 0.6.0 candidate. Depends on ADR-026 (shell hooks) being battle-tested in 0.5.0 before generalizing. |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

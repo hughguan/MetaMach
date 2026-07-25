@@ -73,8 +73,6 @@ impl Drop for Daemon {
     }
 }
 
-/// Poll Progress until a step reaches COMPLETED or deadline expires.
-/// Returns the final Progress response for diagnostics.
 fn poll_until_completed(d: &Daemon, _blueprint: &str, timeout: Duration) -> (bool, String) {
     let deadline = Instant::now() + timeout;
     let mut last_state = String::new();
@@ -84,18 +82,17 @@ fn poll_until_completed(d: &Daemon, _blueprint: &str, timeout: Duration) -> (boo
             Duration::from_secs(5),
         );
         if let Ok(Response::Progress { active_tasks }) = &resp {
-            for t in active_tasks {
-                if t.steps.iter().any(|s| s.status == "COMPLETED") {
-                    return (true, format!("COMPLETED: {active_tasks:?}"));
+            if !active_tasks.is_empty() {
+                for t in active_tasks {
+                    if t.steps.iter().any(|s| s.status == "COMPLETED") {
+                        return (true, format!("COMPLETED: {active_tasks:?}"));
+                    }
+                    if t.status == "FAILED" || t.status == "SUSPENDED" {
+                        return (false, format!("task {0}: {active_tasks:?}", t.status));
+                    }
                 }
-                if t.status == "FAILED" || t.status == "SUSPENDED" {
-                    return (
-                        false,
-                        format!("task {status}: {active_tasks:?}", status = t.status),
-                    );
-                }
+                last_state = format!("{active_tasks:?}");
             }
-            last_state = format!("{active_tasks:?}");
         } else {
             last_state = format!("Progress error: {resp:?}");
         }
@@ -106,8 +103,6 @@ fn poll_until_completed(d: &Daemon, _blueprint: &str, timeout: Duration) -> (boo
         format!("timeout after {timeout:?}, last: {last_state}"),
     )
 }
-
-// ── Tests ───────────────────────────────────────────────────────────────
 
 #[test]
 fn e2e_onboard_dispatch_complete() {
@@ -120,26 +115,18 @@ fn e2e_onboard_dispatch_complete() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
-    // Use the same pattern as step_workflow tests (proven in CI).
     let bp = repo.path().join("blueprints").join("smoke_e2e");
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
         bp.join("janus.toml"),
-        "[blueprint]\nname = \"smoke_e2e\"\nscope = \"embedded\"\ndescription = \"e2e smoke test\"\nworkflow = \"smoke\"\n",
+        "[blueprint]\nname = \"smoke_e2e\"\nscope = \"embedded\"\ndescription = \"e2e smoke test\"\ndefault_workflow = \"smoke\"\n",
     )
     .unwrap();
     let wf = repo.path().join("workflows");
     std::fs::create_dir_all(&wf).unwrap();
     std::fs::write(
         wf.join("smoke.toml"),
-        r#"[workflow]
-name = "smoke"
-
-[[steps]]
-name = "hello"
-agent = "default"
-command = "true"
-"#,
+        "[workflow]\nname = \"smoke\"\n\n[[steps]]\nname = \"hello\"\nagent = \"default\"\ncommand = \"true\"\n",
     )
     .unwrap();
 

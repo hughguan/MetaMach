@@ -414,6 +414,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-028: E2E Pipeline Test Suite — CI Mock + Manual LLM Validation (0.5.4)
+
+| Field | Value |
+|---|---|
+| **Context** | Test-Spec Suite 2.11 defines three end-to-end multi-agent pipelines (`req2spec`, `spec2software`, `adr-process`) that validate the full DevSecOps lifecycle across ARCHITECT, BUILDER, and TESTER agents. These require real LLM agents, API keys, PG, and tmux — they cannot run in CI. But the pipeline mechanics (DAG engine, parallel execution, Tool Guard, checkpoint/recovery, git commit) need CI coverage. |
+| **Options Considered** | (1) E2E tests only (manual, no CI coverage of pipeline mechanics), (2) Mock-agent CI tests + manual LLM validation (dual-path), (3) No E2E tests — rely on unit + integration tests. |
+| **Decision** | **Adopted** — Option (2): dual-path approach. **CI path:** `tests/e2e_pipeline.rs` with mock agents (deterministic shell scripts: `echo APPROVED`, `echo 'spec content' > docs/...`) that exercise the full DAG engine, Tool Guard interception, checkpoint/recovery, cold-start resume, and git commit — zero LLM dependency. **Manual path:** pre-release validation following the Suite 2.11 procedures with real LLM agents, run from a macOS/Linux host with PG + tmux + API keys. **Blueprint:** `blueprints/software-dev/` with `requirements/product.md`, `agents.toml` with architect/builder/tester roles, `pipelines/req2spec.toml`, `pipelines/spec2software.toml`, `pipelines/adr-process.toml`. |
+| **Rationale** | Mock-agent tests give CI confidence that the pipeline mechanics work end-to-end (DAG → Dispatch → Progress → COMPLETED → git commit) without the cost, flakiness, and API key dependency of real LLMs. Manual validation with real agents catches integration issues that mocks can't (LLM prompt quality, real output format, actual API behavior). The `software-dev` blueprint serves as both the CI test fixture and the manual validation target. |
+| **Status** | 📋 Spec'd Only — 0.5.4 implementation. |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

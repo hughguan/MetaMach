@@ -188,7 +188,7 @@ fn e2e_mock_devsecops_onboard_dispatch_complete() {
     let repo = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
-    setup_blueprint(repo.path(), "software-dev-e2e");
+    setup_blueprint(repo.path(), "software_dev_e2e");
     let d = Daemon::spawn(state.path(), &agents, repo.path());
     std::thread::sleep(Duration::from_secs(12)); // PG connect
 
@@ -196,7 +196,7 @@ fn e2e_mock_devsecops_onboard_dispatch_complete() {
     let resp = d
         .uds(
             &Request::Onboard {
-                name: "software-dev-e2e".into(),
+                name: "software_dev_e2e".into(),
             },
             Duration::from_secs(15),
         )
@@ -207,7 +207,7 @@ fn e2e_mock_devsecops_onboard_dispatch_complete() {
     let resp = d
         .uds(
             &Request::Dispatch {
-                blueprint: "software-dev-e2e".into(),
+                blueprint: "software_dev_e2e".into(),
                 workflow: None,
             },
             Duration::from_secs(15),
@@ -219,7 +219,7 @@ fn e2e_mock_devsecops_onboard_dispatch_complete() {
     };
 
     // Wait for at least one step to complete.
-    let ok = poll_until_completed(&d, "software-dev-e2e", Duration::from_secs(30));
+    let ok = poll_until_completed(&d, "software_dev_e2e", Duration::from_secs(30));
     assert!(ok, "no step reached COMPLETED within 30s");
 }
 
@@ -236,11 +236,11 @@ fn e2e_mock_tool_guard_blocks_blacklisted_command() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
-    let bp = repo.path().join("blueprints").join("guard-e2e");
+    let bp = repo.path().join("blueprints").join("guard_e2e");
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
         bp.join("janus.toml"),
-        "[blueprint]\nname = \"guard-e2e\"\ndefault_workflow = \"danger\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+        "[blueprint]\nname = \"guard_e2e\"\ndefault_workflow = \"danger\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
     )
     .unwrap();
     let wf = repo.path().join("workflows");
@@ -267,7 +267,7 @@ command = "rm -rf /tmp/metamach-e2e-guard-test"
 
     d.uds(
         &Request::Onboard {
-            name: "guard-e2e".into(),
+            name: "guard_e2e".into(),
         },
         Duration::from_secs(15),
     )
@@ -276,7 +276,7 @@ command = "rm -rf /tmp/metamach-e2e-guard-test"
     let resp = d
         .uds(
             &Request::Dispatch {
-                blueprint: "guard-e2e".into(),
+                blueprint: "guard_e2e".into(),
                 workflow: None,
             },
             Duration::from_secs(15),

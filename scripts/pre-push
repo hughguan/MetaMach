@@ -1,0 +1,18 @@
+#!/bin/bash
+# MetaMach pre-push hook — runs CI gates before every push.
+# Install: ln -sf ../../scripts/pre-push .git/hooks/pre-push
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)/janus"
+
+echo "=== M0: cargo fmt --check ==="
+cargo fmt --all -- --check
+
+echo "=== M1: cargo clippy -D warnings ==="
+cargo clippy --all-targets -- -D warnings
+
+echo "=== M2–M5: cargo test --workspace ==="
+cargo test --workspace
+
+echo ""
+echo "✅ All CI gates green — safe to push"

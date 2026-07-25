@@ -362,7 +362,43 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Keep `max_attempts: 3` retry only (status quo — treats quota exhaustion as transient failure), (2) Add time-driven sleep via absurd's `sleep()` stored procedure: detect quota exhaustion in the engine → call `engine.sleep(seconds)` → absurd auto-wakes the task → re-claim → resume, (3) Handle quota exhaustion entirely in the Agent Adapter layer (outside the engine). |
 | **Decision** | **Adopted** — Option (2): add `sleep` to the `DurableEngine` trait and integrate it into the engine's retry loop. On step exit ≠ 0, the engine inspects `stdout_tail` for quota-exhaustion patterns (429, quota exceeded, rate limit) and the Configurable Agent's quota config (ADR-019). If quota exhaustion is detected, the engine calls `engine.sleep(queue, task_id, run_id, seconds)` instead of `fail_run` — absurd suspends the task for the specified duration, then auto-wakes it. The engine re-claims and resumes from the same step. |
 | **Rationale** | absurd already supports `sleep()` — this is a one-method addition to the `DurableEngine` trait. The pattern detection in `stdout_tail` is heuristic but low-risk: if the detection is wrong, the engine falls back to `fail_run`. The sleep duration is configurable via `JANUS_QUOTA_SLEEP_SECONDS` (default: until next UTC hour boundary, or a fixed 300s). Time-driven sleep fills the gap between "retry immediately" and "fail permanently" — it's the correct response for quota-bound resources. |
-| **Status** | 📋 Spec'd Only — 0.5.0 implementation pending. |
+| **Status** | ✅ Implemented in 0.5.0 (`3bb4aad`). |
+
+---
+
+## ADR-024: Environmental Snapshot Injection (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | On replay/crash-recovery, a re-executed step may encounter different physical conditions than its original run (different system time, different USB devices plugged in, different network state). Absurd's checkpoint determinism assumes identical conditions — a gap between pure-digital replay and physical-world state. |
+| **Options Considered** | (1) Do nothing — steps are expected to be self-determining, (2) Capture an environmental snapshot (`JANUS_ENV_TIMESTAMP`, `JANUS_ENV_TTY_DEVICES`) at step dispatch time and store it in `metamach_step_meta` so the agent can compare on replay, (3) Full environment dump (overkill). |
+| **Decision** | **Adopted** — Option (2): `step_command()` injects `JANUS_ENV_TIMESTAMP` (UTC ISO 8601) and `JANUS_ENV_TTY_DEVICES` (comma-separated serial ports found under `/dev/tty*`). These are stored in a new `env_snapshot` JSONB column on `metamach_step_meta` (004 migration). The agent can read them on replay to detect changed conditions. |
+| **Rationale** | ~30 lines in `step_command()` + 1 new DB column. The snapshot is a diagnostic aid, not enforcement — the agent decides how to use it. Low implementation cost, high value for debugging replay failures in hardware pipelines. |
+| **Status** | 📋 Spec'd Only — 0.5.0 implementation. |
+
+---
+
+## ADR-025: Dual-Path Log Pipeline — Raw Disk Cache + PG Metadata (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | The current log pipeline captures PTY output → `clean_pty_output` → `truncate_16k` → `metamach_step_meta.stdout_tail` (PG). The full raw output (potentially megabytes of ESP-IDF compilation logs) is discarded after 16KB truncation — the Director cannot access the full build log when debugging a failure. |
+| **Options Considered** | (1) Store full output in PG (WAL bloat), (2) Store 16KB in PG + full raw log on disk at `/tmp/metamach/logs/{task_id}_{step}.raw`, (3) Keep only 16KB truncation (status quo). |
+| **Decision** | **Adopted** — Option (2): dual-path pipeline. `capture_pane` output is written in full to `/tmp/metamach/logs/{task_id}_{step_name}.raw` (disk, pruned by Janus GC at 7-day retention). The truncated 16KB continues to be stored in `metamach_step_meta.stdout_tail` for dashboard/Progress display. |
+| **Rationale** | ~40 lines in `run_steps`: `std::fs::write(log_path, raw)` after `capture_pane`. Zero PG schema changes. The `/tmp/metamach/` path is local, disposable (RAM disk on some hosts), and auto-pruned. Full logs available for debugging without WAL pressure. |
+| **Status** | 📋 Spec'd Only — 0.5.0 implementation. |
+
+---
+
+## ADR-026: Hardware Pre-flight Probe Hooks (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | `janush` intercepts high-risk commands (e.g., `esptool.py write_flash`) and either blocks (blacklist) or suspends (require_approval). But once the Director approves, janush blindly allows re-execution — there is no check for whether the hardware operation was already completed. On crash replay, a previously-successful flash operation would re-flash the chip, wasting write cycles and risking corruption. |
+| **Options Considered** | (1) Leave as-is — Director approval is the gate (status quo), (2) Add optional pre-flight probe hooks in janush that check hardware state before allowing physical commands, (3) Move all hardware probing to the agent level. |
+| **Decision** | **Adopted** — Option (2): janush gains a `[agent.X.preflight]` section in `agents.toml` mapping commands to probe scripts. Before allowing a command, janush runs the probe, inspects exit code + stdout, and can `BypassExecution` (probe confirms already done) or `RequireApproval` (probe fails, escalate to HITL). The probe is a simple shell command: `esptool.py verify_flash --port {port} {bin}`. |
+| **Rationale** | ~50 lines in janush + config. Leverages janush's existing pre-execution path. Probes are optional per-agent — no overhead for agents without physical commands. The probe outcome is logged in `metamach_step_meta.hitl_verdict` as `BYPASSED` for audit trail. |
+| **Status** | 📋 Spec'd Only — 0.5.0 implementation. |
 
 ---
 

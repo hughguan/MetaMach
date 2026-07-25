@@ -402,10 +402,14 @@ where
                 backend.create_session(&session, &cmd, Some(repo_root))?;
 
                 let exit = poll_exit_with_lease(engine, &*backend, queue, run_id, &session).await;
-                let stdout_tail = backend
-                    .capture_pane(&session)
-                    .ok()
-                    .map(|s| truncate_16k(&filter::clean_pty_output(&s)));
+                let raw_output = backend.capture_pane(&session).ok();
+                // ADR-025: dual-path log — full raw output to disk, 16KB to PG.
+                if let Some(ref raw) = raw_output {
+                    let _ = write_raw_log(task_id, &step.name, raw);
+                }
+                let stdout_tail = raw_output
+                    .as_deref()
+                    .map(|s| truncate_16k(&filter::clean_pty_output(s)));
                 let _ = backend.kill_session(&session);
 
                 let exit_code = match exit {
@@ -914,6 +918,33 @@ fn quota_sleep_seconds() -> u64 {
         .unwrap_or(300)
 }
 
+/// ADR-025: write full raw PTY output to disk for debugging (retained 7 days).
+fn write_raw_log(task_id: Uuid, step_name: &str, raw: &str) -> std::io::Result<()> {
+    let dir = std::path::PathBuf::from("/tmp/metamach/logs");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}_{}.raw", task_id.simple(), step_name));
+    std::fs::write(&path, raw)?;
+    Ok(())
+}
+
+/// ADR-025: prune raw logs older than `retention_days`. Called by Janus GC.
+pub fn prune_raw_logs(retention_days: u64) {
+    let dir = match std::fs::read_dir("/tmp/metamach/logs") {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let cutoff =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(retention_days * 86400);
+    for entry in dir.flatten() {
+        if let Ok(meta) = entry.metadata()
+            && let Ok(modified) = meta.modified()
+            && modified < cutoff
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1387,6 +1418,27 @@ mod tests {
         let devs = env_tty_devices();
         // May be empty on CI, but must be a valid string (no crash).
         assert!(!devs.contains(' '), "no spaces in device list: {devs}");
+    }
+
+    #[test]
+    fn write_raw_log_creates_file() {
+        let tid = Uuid::new_v4();
+        write_raw_log(tid, "scout", "build output here").expect("write");
+        let path = std::path::PathBuf::from("/tmp/metamach/logs").join(format!(
+            "{}_{}.raw",
+            tid.simple(),
+            "scout"
+        ));
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "build output here");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn prune_raw_logs_does_not_crash() {
+        // Ensure pruning an empty or non-existent directory doesn't panic.
+        prune_raw_logs(7);
     }
 
     #[test]

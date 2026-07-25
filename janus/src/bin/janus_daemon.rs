@@ -87,6 +87,8 @@ async fn run() -> Result<()> {
                     Ok(_) => {}
                     Err(e) => warn!("janus GC failed: {e}"),
                 }
+                // ADR-025: prune raw PTY logs older than 7 days.
+                janus::workflow::prune_raw_logs(7);
             }
         });
     }

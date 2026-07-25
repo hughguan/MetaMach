@@ -74,8 +74,10 @@ impl Drop for Daemon {
 }
 
 /// Poll Progress until a step reaches COMPLETED or deadline expires.
-fn poll_until_completed(d: &Daemon, blueprint: &str, timeout: Duration) -> bool {
+/// Returns the final Progress response for diagnostics.
+fn poll_until_completed(d: &Daemon, blueprint: &str, timeout: Duration) -> (bool, String) {
     let deadline = Instant::now() + timeout;
+    let mut last_state = String::new();
     while Instant::now() < deadline {
         let resp = d.uds(
             &Request::Progress {
@@ -83,16 +85,28 @@ fn poll_until_completed(d: &Daemon, blueprint: &str, timeout: Duration) -> bool 
             },
             Duration::from_secs(5),
         );
-        if let Ok(Response::Progress { active_tasks }) = resp {
-            for t in &active_tasks {
+        if let Ok(Response::Progress { active_tasks }) = &resp {
+            for t in active_tasks {
                 if t.steps.iter().any(|s| s.status == "COMPLETED") {
-                    return true;
+                    return (true, format!("COMPLETED: {active_tasks:?}"));
+                }
+                if t.status == "FAILED" || t.status == "SUSPENDED" {
+                    return (
+                        false,
+                        format!("task {status}: {active_tasks:?}", status = t.status),
+                    );
                 }
             }
+            last_state = format!("{active_tasks:?}");
+        } else {
+            last_state = format!("Progress error: {resp:?}");
         }
         std::thread::sleep(Duration::from_millis(500));
     }
-    false
+    (
+        false,
+        format!("timeout after {timeout:?}, last: {last_state}"),
+    )
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -148,8 +162,8 @@ fn e2e_onboard_dispatch_complete() {
         "dispatch: {resp:?}"
     );
 
-    let ok = poll_until_completed(&d, "smoke_e2e", Duration::from_secs(30));
-    assert!(ok, "no step reached COMPLETED within 30s");
+    let (ok, diag) = poll_until_completed(&d, "smoke_e2e", Duration::from_secs(30));
+    assert!(ok, "no step reached COMPLETED within 30s: {diag}");
 }
 
 #[test]

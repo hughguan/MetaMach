@@ -6,30 +6,116 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.0] - Unreleased
 
+29 ADRs committed (001-029), 23 implemented, 168 tests.
+
+### Added
+- **ADR-022 Time-Driven Sleep**: quota exhaustion detection (`is_quota_exhausted`),
+  `StepOutcome::QuotaExhausted`, `JANUS_QUOTA_SLEEP_SECONDS`. Fills the gap
+  between retry and permanent failure.
+- **ADR-023 Agent Planner**: `janus pipeline plan` (LLM → TOML → validate →
+  write), `janus pipeline validate`. LLM is advisory; validation is the final
+  gate.
+- **ADR-024 Environmental Snapshot (0.4.9.1)**: `JANUS_ENV_TIMESTAMP` +
+  `JANUS_ENV_TTY_DEVICES` injected at step start, stored in
+  `metamach_step_meta.env_snapshot`. Migration `004_env_snapshot.sql`.
+- **ADR-025 Dual-Path Log Pipeline (0.4.9.2)**: full raw PTY →
+  `/tmp/metamach/logs/`, 16KB → PG, 7-day GC.
+- **ADR-026 Hardware Pre-flight Probe (0.4.9.3)**: `PreflightConfig` in
+  `agents.toml`, `run_preflight()`, `ProbeOutcome{Bypass,RequireApproval,NoProbe}`.
+- **ADR-028 E2E Pipeline Tests (0.4.9.4)**: `tests/e2e_pipeline.rs` with mock
+  agents (onboard→dispatch + Tool Guard), CI green.
+- **`janus init`**: scaffolds `.janus/` from `templates/` (blueprint, agents,
+  workflows, pipelines). Auto-generates `.janus/blueprint.toml` from the
+  project directory name.
+- **Project-level agent config override**: `paths::agents_toml_paths()` returns
+  `[.janus/agents/..., configs/agents.toml]`, `AgentRules::load_merged()`.
+- **3 E2E pipeline templates**: `req2spec.toml` (11 nodes), `spec2software.toml`
+  (5 nodes), `adr-process.toml` (9 nodes).
+- **12 workflow templates** + 3 agent role templates (architect/builder/tester).
+- **Pre-push git hook**: `scripts/pre-push` runs fmt + clippy + test +
+  auto-provisions PG for E2E tests when `pg_ctl`/`initdb` available.
+
 ### Changed
-- **Project-based templates (ADR-029)**: All per-project config consolidated under `.janus/`.
-  Blueprint recipe moved from `blueprints/<name>/janus.toml` → `.janus/blueprint.toml`.
-  `janus init` scaffolds `.janus/` with blueprint, agents, workflows, and pipelines.
-  Daemon reads `.janus/blueprint.toml` and searches `.janus/workflows/` in lookup path.
-- `clippy::uninlined-format-args` fix for Rust 1.83+ compatibility.
+- **ADR-029 Project-based templates**: all per-project config consolidated under
+  `.janus/`. Blueprint recipe moved from `blueprints/<name>/janus.toml` →
+  `.janus/blueprint.toml`. `janus init` scaffolds `.janus/` from `templates/`.
+  Daemon reads `.janus/blueprint.toml` and searches `.janus/workflows/` in
+  lookup path (after `templates/workflows/`, before `workflows/`).
+- `load_workflow` search order: `templates/workflows/` → `.janus/workflows/` →
+  `workflows/`.
+- `load_previous_incidents` reads from `.janus/openwiki/production_report.md`.
+- Blueprint examples (`blueprints/gatemetric/`, `blueprints/joyrobots/`)
+  removed — superseded by `templates/`.
+- Templates restructured: `workflows/` → `templates/workflows/`,
+  `pipelines/` → `templates/pipelines/`, new `templates/agents/` +
+  `templates/blueprint.toml`.
+
+### Fixed
+- `clippy::uninlined-format-args` in `agent.rs` + `tool_guard/rules.rs` for
+  Rust 1.83+ CI compatibility.
+- CI: blueprint `scope` must be in `[openwiki]`, not `[blueprint]` (serde
+  silently ignores unknown fields → empty `OpenwikiSection.scope` → validation
+  failure).
+- E2E pipeline tests: blueprint written to `.janus/blueprint.toml`, not
+  `blueprints/<name>/janus.toml`.
+
+## [0.4.9] - 2026-07-25
+
+### Added
+- **ADR-021 Pipeline DAG**: `pipelines/<name>.toml` with `[nodes]` +
+  `[edges]`, Kahn's algorithm topological sort, parallel level execution.
+- **ADR-024 Environmental Snapshot (0.4.9.1)**: `JANUS_ENV_TIMESTAMP` +
+  `JANUS_ENV_TTY_DEVICES`, migration `004_env_snapshot.sql`.
+- **ADR-025 Dual-Path Log Pipeline (0.4.9.2)**: raw PTY → disk, truncated → PG.
+- **ADR-026 Hardware Pre-flight Probe (0.4.9.3)**: `PreflightConfig`,
+  `run_preflight()`, three probe outcomes.
+- **ADR-028 E2E Pipeline Tests (0.4.9.4)**: CI mock-agent path + manual LLM
+  validation path.
+- `janus pipeline plan` + `janus pipeline validate` (ADR-023 scaffolding).
+- Template restructuring: `workflows/` → `templates/workflows/`,
+  `pipelines/` → `templates/pipelines/`, `templates/agents/`.
+- 3 pipeline templates + 12 workflow templates + 3 agent role templates.
+
+## [0.4.8] - 2026-07-25
+
+### Added
+- **ADR-020 Observer Panel**: TUI HITL `y`/`n` approve/reject, `Enter` log
+  detail, SUSPENDED countdown display.
+
+## [0.4.7] - 2026-07-25
+
+### Added
+- **ADR-019 Configurable Agents**: `[agent.X.provision]` in `agents.toml`,
+  `AgentStack` parser, fallback chains. Supports agent provisioning with
+  quota limits and fallback ordering.
+
+## [0.4.6] - 2026-07-25
+
+### Added
+- **ADR-018 Stream Filter**: ANSI escape code stripping + progress bar
+  collapse (`\r` lines) + duplicate line dedup. ~100 lines in
+  `workflow/filter.rs`. Applied to all PTY output before PG storage.
+
+## [0.4.5] - 2026-07-24
+
+### Added
+- **ADR-017 Cross-host SSH transport**: `TmuxFactory` produces local or
+  remote `TmuxBackend` per step host. SSH `-R` reverse tunnel maps the
+  local `janus.sock` to `/tmp/mm-<host>.sock` on the remote host so
+  `janush` reaches the local daemon. Same `TmuxBackend` with `ssh <host>`
+  prefix — no separate backend type.
 
 ## [0.4.3] - 2026-07-24
 
-M4 Task 4.1 complete — Pipeline DAG — all 0.4.x features shipped.
+Herdr contract tests + test count milestone.
 
 ### Added
-- **Phase 0b workflow engine**: absurd pull-mode, tmux under janush, lease extension
-- **Phase 1 cold-start resume**: actual re-exec from last checkpoint
-- **HITL resume loop**: await_event — emit_event — re-run on approval
-- **Phase 2 SSH transport**: TmuxFactory + reverse tunnel (ADR-017)
-- **Task 4.4 target_sha enforcement**: stale HEAD detection + auto-reschedule
-- **0.4.6 Stream Filter (ADR-018)**: ANSI strip + progress bar collapse
-- **0.4.7 Configurable Agents (ADR-019)**: [agent.X.provision] config
-- **0.4.8 Observer Panel (ADR-020)**: TUI HITL y/n + log detail Enter
-- **0.4.9 Pipeline DAG (ADR-021)**: pipelines/*.toml + topological sort
-- **0.5.0 Agent Planner (ADR-022)**: janus pipeline plan + validate
-- **Herdr contract tests**: 3 static + 2 manual + 1 e2e
-- **147 tests** (144 default + 3 manual Herdr)
+- **Herdr contract tests** (`tests/config_contract.rs`): 3 static (manifest
+  parse, binary match, env override) + 2 manual (version check, link parse)
+  + 1 E2E smoke (onboard→dispatch→progress).
+
+### Changed
+- Test count: 147 (144 default + 3 manual Herdr).
 
 ## [0.4.2] - 2026-07-23
 

@@ -33,9 +33,6 @@ jobs:
   test:
     name: Test (Linux)
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        rust: ["1.88"]
     services:
       postgres:
         image: postgres:16
@@ -90,7 +87,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: "1.88"
           components: rustfmt, clippy
 
       - name: Ensure rustfmt & clippy
@@ -106,8 +103,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             janus/target
-          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('janus/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-${{ matrix.rust }}-
+          key: ${{ runner.os }}-cargo-1.88-${{ hashFiles('janus/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-1.88-
 
       - name: Check formatting
         run: cargo fmt --all --manifest-path janus/Cargo.toml -- --check

@@ -1,0 +1,21 @@
+# MetaMach — cargo audit configuration
+# Run: cd janus && cargo audit
+
+[advisories]
+ignore = [
+    # rsa 0.9.10 — RUSTSEC-2023-0071 (Marvin Attack timing sidechannel).
+    # Present in Cargo.lock from a past resolution but UNREACHABLE in the
+    # current dependency tree. Re-run `cargo update` periodically.
+    "RUSTSEC-2023-0071",
+
+    # paste 1.0.15 — RUSTSEC-2024-0436 (unmaintained).
+    # Transitive via ratatui 0.29. Stable proc-macro, no replacement yet.
+    # Track: https://rustsec.org/advisories/RUSTSEC-2024-0436
+    "RUSTSEC-2024-0436",
+
+    # lru 0.12.5 — RUSTSEC-2026-0002 (unsound IterMut).
+    # Transitive via ratatui 0.29. TUI usage is read-only widget render,
+    # not iterating mutable caches. Plan: upgrade ratatui to 0.30+.
+    # Track: https://rustsec.org/advisories/RUSTSEC-2026-0002
+    "RUSTSEC-2026-0002",
+]

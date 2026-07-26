@@ -83,10 +83,10 @@ fn e2e_onboard_dispatch_returns_task_id() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
-    let bp = repo.path().join("blueprints").join("smoke_e2e");
-    std::fs::create_dir_all(&bp).unwrap();
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
     std::fs::write(
-        bp.join("janus.toml"),
+        bp_dir.join("blueprint.toml"),
         "[blueprint]\nname = \"smoke_e2e\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
     )
     .unwrap();
@@ -133,10 +133,10 @@ fn e2e_tool_guard_blocks_blacklisted() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
-    let bp = repo.path().join("blueprints").join("guard_e2e");
-    std::fs::create_dir_all(&bp).unwrap();
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
     std::fs::write(
-        bp.join("janus.toml"),
+        bp_dir.join("blueprint.toml"),
         "[blueprint]\nname = \"guard_e2e\"\ndefault_workflow = \"danger\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
     )
     .unwrap();

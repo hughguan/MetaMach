@@ -360,3 +360,55 @@ server {
 
 - **Pass:** First POST returns `200`; the daemon log records the resolved verdict (`HITL verdict resolved`) and the suspended step's `hitl_verdict` column is set. Second POST returns `409`. An unsigned POST returns `401`. A POST for an unknown or expired `run_id` returns `410`.
 
+## 8. Continuous Integration & Git Pre-Push Hook
+
+### 8.1 CI Pipeline (GitHub Actions)
+
+`.github/workflows/ci.yml` defines a two-job matrix:
+
+| Job | Runner | Scope |
+|---|---|---|
+| `Test (Linux)` | `ubuntu-24.04` | Full: fmt + clippy + `cargo audit` + build + catalog migration + all 171 tests (PG, tmux, Herdr) |
+| `Test (macOS)` | `macos-latest` | Fast: fmt + clippy + build + unit tests only (no PG, no integration) |
+
+Linux provisions all three external dependencies:
+- **PostgreSQL 16** — Docker service container with catalog migration applied
+- **tmux 3.3+** — `apt-get install tmux`
+- **Herdr 0.7.5** — pre-built binary download + `herdr server &` (headless daemon)
+
+macOS validates cross-compilation on the target developer OS. PG-gated tests runtime-skip when `DATABASE_URL` is absent.
+
+### 8.2 Pre-Push Git Hook
+
+`scripts/pre-push` is installed as `.git/hooks/pre-push` via symlink:
+
+```bash
+ln -sf ../../scripts/pre-push .git/hooks/pre-push
+```
+
+**Behavior:**
+
+1. **Always runs:** `cargo fmt --check` and `cargo clippy -D warnings`. These gates are sub-second and catch issues even in doc-only changes.
+
+2. **Docs-only skip:** If the push contains only files matching `docs/**` or `**.md`, the hook skips test phases (`cargo test`) and exits successfully. This matches the CI `paths-ignore` filter.
+
+3. **Full test suite:** For code changes (`.rs`, `.toml`, `.sql`, etc.), the hook auto-provisions PostgreSQL via `make db-init` if `pg_ctl`/`initdb` are available, sets `DATABASE_URL`, `METAMACH_PG_SOCKET_DIR`, and `PGHOST`, then runs `cargo test --workspace` sequentially (`RUST_TEST_THREADS=1`) to avoid local PG connection pool exhaustion.
+
+**Enforcement:** The hook uses `set -euo pipefail`. Any gate failure (fmt, clippy, test) blocks the push with a non-zero exit code. The only bypass is `git push --no-verify`, which should be reserved for emergency hotfixes.
+
+### 8.3 Local Parity with CI
+
+To run the exact CI gates locally before pushing:
+
+```bash
+make ci          # fmt + clippy + test (no PG provisioning)
+make lint        # fmt + clippy only
+make test        # cargo test --workspace only
+```
+
+For the full pre-push experience including PG:
+
+```bash
+make db-init     # start PG + apply catalog migration
+cargo test --workspace --manifest-path janus/Cargo.toml
+```

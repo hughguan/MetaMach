@@ -1,7 +1,7 @@
 //! Parse `configs/agents.toml` (Feature-Spec Contract 3.5) into rule structs.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -37,5 +37,24 @@ impl AgentRules {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("read agents.toml at {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("parse agents.toml at {}", path.display()))
+    }
+
+    /// Load from multiple paths in priority order (first wins for duplicate keys).
+    /// Paths that don't exist are skipped silently. At least one must succeed.
+    pub fn load_merged(paths: &[PathBuf]) -> Result<Self> {
+        let mut merged = AgentRules::default();
+        let mut loaded = false;
+        for path in paths.iter().rev() {
+            // Reverse: lower priority loads first, higher priority overwrites.
+            if path.exists() {
+                let rules = Self::load(path)?;
+                merged.agent.extend(rules.agent);
+                loaded = true;
+            }
+        }
+        if !loaded {
+            anyhow::bail!("no agents.toml found in {:?}", paths);
+        }
+        Ok(merged)
     }
 }

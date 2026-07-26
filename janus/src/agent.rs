@@ -8,7 +8,7 @@
 //! LLM backing (Tool-Guard-only, suitable for manual/shell agents like `default`).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -155,6 +155,24 @@ impl AgentStack {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("read agents.toml at {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("parse agents.toml at {}", path.display()))
+    }
+
+    /// Load from multiple paths in priority order. Project config (first in list)
+    /// overrides global config (last in list) for the same agent key.
+    pub fn load_merged(paths: &[PathBuf]) -> Result<Self> {
+        let mut merged = AgentStack::default();
+        let mut loaded = false;
+        for path in paths.iter().rev() {
+            if path.exists() {
+                let stack = Self::load(path)?;
+                merged.agent.extend(stack.agent);
+                loaded = true;
+            }
+        }
+        if !loaded {
+            anyhow::bail!("no agents.toml found in {:?}", paths);
+        }
+        Ok(merged)
     }
 
     /// Resolve the effective `AgentProvision` for `agent_id`, following the

@@ -93,9 +93,16 @@ async fn run() -> Result<()> {
         });
     }
 
-    let agents_path = paths::agents_toml_path();
-    let engine = Arc::new(Engine::load(&agents_path));
-    info!("tool guard rules: {}", agents_path.display());
+    let agents_paths = paths::agents_toml_paths();
+    let engine = Arc::new(Engine::load_merged(&agents_paths));
+    info!(
+        "tool guard rules: {} ({} source(s))",
+        agents_paths
+            .first()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+        agents_paths.len()
+    );
 
     // 0.4.0: construct the HITL gateway + spawn its loopback HTTP callback
     // listener (§5.1b). Channels: Logging (always fires, audit) + Telegram +

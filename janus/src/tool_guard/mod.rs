@@ -86,6 +86,31 @@ impl Engine {
         }
     }
 
+    /// Load from multiple paths in priority order. Project config (first)
+    /// overrides global config (last). Only the primary path (index 0) is
+    /// hot-reloaded on mtime change.
+    pub fn load_merged(paths: &[PathBuf]) -> Self {
+        let primary = paths.first().cloned().unwrap_or_default();
+        let rules = AgentRules::load_merged(paths).unwrap_or_else(|e| {
+            tracing::warn!("agents.toml load_merged failed ({e}); Tool Guard running empty");
+            AgentRules::default()
+        });
+        let (blacklist, approval, financial) = compile_rules_map(&rules);
+        let mtime = std::fs::metadata(&primary)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        Self {
+            path: primary,
+            state: Mutex::new(State {
+                rules,
+                mtime,
+                blacklist,
+                approval,
+                financial,
+            }),
+        }
+    }
+
     /// Engine with no rules (used when `agents.toml` is unreadable).
     pub fn empty() -> Self {
         Self {
@@ -114,14 +139,11 @@ impl Engine {
                 AgentRules::default()
             })
         };
-        let mut blacklist = HashMap::new();
-        let mut approval = HashMap::new();
-        let mut financial = HashMap::new();
-        for (name, p) in &rules.agent {
-            blacklist.insert(name.clone(), compile_patterns(&p.bash_blacklist));
-            approval.insert(name.clone(), compile_patterns(&p.require_approval));
-            financial.insert(name.clone(), compile_patterns(&p.financial));
-        }
+        Self::build_state(rules, mtime)
+    }
+
+    fn build_state(rules: AgentRules, mtime: Option<std::time::SystemTime>) -> State {
+        let (blacklist, approval, financial) = compile_rules_map(&rules);
         State {
             rules,
             mtime,
@@ -250,6 +272,21 @@ fn compile_patterns(patterns: &[String]) -> Vec<(String, Regex)> {
             (p.clone(), re)
         })
         .collect()
+}
+
+/// Build the compiled lookup maps from agent rules (shared by load_fresh and load_merged).
+type RuleMap = HashMap<String, Vec<(String, Regex)>>;
+
+fn compile_rules_map(rules: &AgentRules) -> (RuleMap, RuleMap, RuleMap) {
+    let mut blacklist = HashMap::new();
+    let mut approval = HashMap::new();
+    let mut financial = HashMap::new();
+    for (name, p) in &rules.agent {
+        blacklist.insert(name.clone(), compile_patterns(&p.bash_blacklist));
+        approval.insert(name.clone(), compile_patterns(&p.require_approval));
+        financial.insert(name.clone(), compile_patterns(&p.financial));
+    }
+    (blacklist, approval, financial)
 }
 
 /// Compile a glob (`*` -> `.*`) into an unanchored regex. A pattern ending in

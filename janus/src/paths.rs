@@ -75,6 +75,28 @@ pub fn agents_toml_path() -> PathBuf {
     config_dir().join("agents.toml")
 }
 
+/// Resolve the per-project agent config if it exists (`.janus/agents/agents.toml`
+/// under the repo root). Returns `None` if the project hasn't run `janus init`.
+pub fn project_agents_toml() -> Option<PathBuf> {
+    let p = repo_root().join(".janus/agents/agents.toml");
+    if p.exists() { Some(p) } else { None }
+}
+
+/// All agents.toml paths in priority order (project override → global fallback).
+pub fn agents_toml_paths() -> Vec<PathBuf> {
+    if let Ok(p) = std::env::var("JANUS_AGENTS_TOML")
+        && !p.is_empty()
+    {
+        return vec![PathBuf::from(p)];
+    }
+    let mut paths = Vec::new();
+    if let Some(p) = project_agents_toml() {
+        paths.push(p);
+    }
+    paths.push(config_dir().join("agents.toml"));
+    paths
+}
+
 /// Immutable ROOT: the plugin source checkout (`HERDR_PLUGIN_ROOT`, injected by
 /// Herdr 0.7.3; the repo dir when standalone). Hosts `blueprints/`, `workflows/`,
 /// `configs/`, and `target/release/`. Onboard/Offboard resolve recipes + the

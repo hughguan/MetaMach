@@ -249,6 +249,26 @@ fn init_project(path: &Path) -> Result<()> {
         );
     }
 
+    // Copy blueprint template.
+    let bp_src = templates_root.join("blueprint.toml");
+    if bp_src.exists() {
+        std::fs::copy(&bp_src, janus_dir.join("blueprint.toml"))?;
+        println!("   blueprint.toml → .janus/blueprint.toml");
+    } else {
+        // Create a minimal blueprint if no template exists.
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "my-project".to_string());
+        std::fs::write(
+            janus_dir.join("blueprint.toml"),
+            format!(
+                "[blueprint]\nname = \"{name}\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"{name}\"]\n"
+            ),
+        )?;
+        println!("   blueprint.toml → .janus/blueprint.toml (auto-generated)");
+    }
+
     // Copy agent templates.
     let agents_src = templates_root.join("agents");
     if agents_src.is_dir() {

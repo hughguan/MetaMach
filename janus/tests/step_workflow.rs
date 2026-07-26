@@ -139,7 +139,7 @@ fn copy_configs(repo_path: &Path) {
 }
 
 fn make_blueprint(base: &Path, name: &str) {
-    let bp = base.join("blueprints").join(name);
+    let bp = base.join(".janus");
     std::fs::create_dir_all(&bp).unwrap();
     let recipe = format!(
         r#"[blueprint]
@@ -187,7 +187,7 @@ fn guard_check(agent: &str, cmd: &str) -> Request {
 /// observable mid-run), `build` echoes. Both are bash-safe (ALLOW) under the
 /// test `agents.toml`'s `[agent.default]`.
 fn make_2step_blueprint(base: &Path, name: &str) {
-    let bp = base.join("blueprints").join(name);
+    let bp = base.join(".janus");
     std::fs::create_dir_all(&bp).unwrap();
     let recipe = format!(
         r#"[blueprint]

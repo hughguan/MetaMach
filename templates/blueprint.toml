@@ -1,0 +1,14 @@
+# Blueprint recipe (Contract 3.6).
+# Customize per project: name, default_workflow, openwiki scope, remote host.
+
+[blueprint]
+name = "my-project"
+default_workflow = "smoke"
+
+[openwiki]
+scope = ["my-project"]
+
+# Uncomment for remote compile target:
+# [remote]
+# host = "192.168.1.100"
+# user = "builder"

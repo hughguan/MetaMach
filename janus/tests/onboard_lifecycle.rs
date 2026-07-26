@@ -102,7 +102,7 @@ impl Drop for Daemon {
 /// and `default_workflow`, `[openwiki]` scope) and the workflow matches
 /// Contract 3.7 (steps keyed by `name`). Returns the blueprint directory path.
 fn make_blueprint(base: &Path, name: &str) -> std::path::PathBuf {
-    let bp = base.join("blueprints").join(name);
+    let bp = base.join(".janus");
     std::fs::create_dir_all(&bp).unwrap();
     let recipe = format!(
         r#"[blueprint]

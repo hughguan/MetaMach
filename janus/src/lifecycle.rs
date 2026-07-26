@@ -241,7 +241,7 @@ pub async fn offboard(
     // no provider configured -> report unchanged.
     let report = cognitive_supplement(&report, name, repo_root).await;
 
-    let openwiki_dir = repo_root.join("blueprints").join(name).join("openwiki");
+    let openwiki_dir = repo_root.join(".janus").join("openwiki");
     std::fs::create_dir_all(&openwiki_dir).context("create openwiki dir")?;
     let report_path = openwiki_dir.join("production_report.md");
     std::fs::write(&report_path, &report).context("write production_report.md")?;
@@ -464,9 +464,9 @@ mod tests {
         // is returned unchanged (the supplement is never a replacement).
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("blueprints").join("x")).unwrap();
+        std::fs::create_dir_all(root.join(".janus")).unwrap();
         std::fs::write(
-            root.join("blueprints").join("x").join("janus.toml"),
+            root.join(".janus").join("janus.toml"),
             "[blueprint]\nname = \"x\"\ndefault_workflow = \"y\"\n[openwiki]\nscope = [\"s\"]\n",
         )
         .unwrap();

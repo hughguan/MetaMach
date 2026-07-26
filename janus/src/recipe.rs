@@ -1,6 +1,6 @@
 //! Blueprint recipe + workflow validation (Feature-Spec Contracts 3.6 / 3.7).
 //!
-//! `janus onboard` reads `blueprints/<name>/janus.toml`, validates it against
+//! `janus onboard` reads `.janus/blueprint.toml`, validates it against
 //! Contract 3.6, then reads + validates `workflows/<default_workflow>.toml`
 //! (Contract 3.7). Validation failure returns a clear error with NO database
 //! write (Feature-Spec §2.5 Onboard step 1).
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-/// Parsed `blueprints/<name>/janus.toml` (Contract 3.6).
+/// Parsed `.janus/blueprint.toml` (Contract 3.6).
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlueprintRecipe {
     pub blueprint: BlueprintSection,
@@ -109,7 +109,7 @@ pub struct ValidatedRecipe {
     pub workflow: Workflow,
 }
 
-/// Read + validate `blueprints/<name>/janus.toml` and its bound workflow.
+/// Read + validate `.janus/blueprint.toml` and its bound workflow.
 /// `repo_root` is the Immutable ROOT where `blueprints/` and `workflows/` live
 /// (`HERDR_PLUGIN_ROOT` in production; CWD when standalone).
 /// Validate a blueprint name per Contract 3.6 / Feature-Spec §2.5: 1-60 chars
@@ -165,9 +165,13 @@ pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
 pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     // Name check runs BEFORE any DB write or file read.
     validate_name(name)?;
-    let recipe_path: PathBuf = repo_root.join("blueprints").join(name).join("janus.toml");
-    let config_text = std::fs::read_to_string(&recipe_path)
-        .with_context(|| format!("read blueprint recipe {}", recipe_path.display()))?;
+    let recipe_path: PathBuf = repo_root.join(".janus/blueprint.toml");
+    let config_text = std::fs::read_to_string(&recipe_path).with_context(|| {
+        format!(
+            "read blueprint recipe {} (run 'janus init' first?)",
+            recipe_path.display()
+        )
+    })?;
     let recipe: BlueprintRecipe =
         toml::from_str(&config_text).with_context(|| format!("parse {}", recipe_path.display()))?;
 
@@ -186,7 +190,7 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     }
     if recipe.blueprint.name != name {
         bail!(
-            "blueprint.name {:?} != directory name {name:?}",
+            "blueprint.name {:?} does not match requested name {name:?}",
             recipe.blueprint.name
         );
     }
@@ -207,7 +211,7 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     })
 }
 
-/// Read + parse `blueprints/<name>/janus.toml` into a [`BlueprintRecipe`] (no
+/// Read + parse `.janus/blueprint.toml` into a [`BlueprintRecipe`] (no
 /// workflow validation). Used by the 0.4.0 cognitive check + offboard to load
 /// the `[cognitive]` config without re-validating the bound workflow on every
 /// command. Cheaper than [`validate`] for the per-command advisory path.
@@ -216,7 +220,7 @@ pub fn load_recipe(name: &str, repo_root: &Path) -> Result<BlueprintRecipe> {
     // from a GuardCheck can't path-traverse via `..`/`/`. Callers treat the
     // error as warn-and-pass-through (cognitive supplement skipped).
     validate_name(name)?;
-    let recipe_path = repo_root.join("blueprints").join(name).join("janus.toml");
+    let recipe_path = repo_root.join(".janus/blueprint.toml");
     let config_text = std::fs::read_to_string(&recipe_path)
         .with_context(|| format!("read blueprint recipe {}", recipe_path.display()))?;
     toml::from_str(&config_text).with_context(|| format!("parse {}", recipe_path.display()))
@@ -229,9 +233,9 @@ mod tests {
     use tempfile::tempdir;
 
     fn write_valid(root: &Path) {
-        fs::create_dir_all(root.join("blueprints/joyrobots/openwiki")).unwrap();
+        fs::create_dir_all(root.join(".janus")).unwrap();
         fs::write(
-            root.join("blueprints/joyrobots/janus.toml"),
+            root.join(".janus/blueprint.toml"),
             r#"
 [blueprint]
 name = "joyrobots"
@@ -281,7 +285,7 @@ agent = "scout"
         let d = tempdir().unwrap();
         write_valid(d.path());
         fs::write(
-            d.path().join("blueprints/joyrobots/janus.toml"),
+            d.path().join(".janus/blueprint.toml"),
             r#"
 [blueprint]
 name = "joyrobots"
@@ -299,7 +303,7 @@ scope = []
         let d = tempdir().unwrap();
         write_valid(d.path());
         fs::write(
-            d.path().join("blueprints/joyrobots/janus.toml"),
+            d.path().join(".janus/blueprint.toml"),
             r#"
 [blueprint]
 name = "other"
@@ -316,9 +320,9 @@ scope = ["x"]
     #[test]
     fn parses_cross_host_recipe() {
         let d = tempdir().unwrap();
-        fs::create_dir_all(d.path().join("blueprints/gatemetric/openwiki")).unwrap();
+        fs::create_dir_all(d.path().join(".janus")).unwrap();
         fs::write(
-            d.path().join("blueprints/gatemetric/janus.toml"),
+            d.path().join(".janus/blueprint.toml"),
             r#"
 [blueprint]
 name = "gatemetric"

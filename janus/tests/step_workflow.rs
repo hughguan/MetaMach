@@ -528,7 +528,7 @@ command = "sleep 6"
 
     // d1: onboard + dispatch.
     let d1 = Daemon::spawn_with_repo(state.path(), &agents, repo.path());
-    std::thread::sleep(Duration::from_secs(12)); // PG connect
+    d1.wait_ready();
     let onboard = d1
         .uds(
             &Request::Onboard { name: name.clone() },
@@ -702,7 +702,7 @@ command = "echo hi"
 "#,
     )
     .unwrap();
-    std::thread::sleep(Duration::from_secs(12)); // PG connect
+    d.wait_ready();
 
     d.uds(
         &Request::Onboard { name: name.clone() },

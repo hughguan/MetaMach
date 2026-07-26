@@ -113,7 +113,7 @@ default_workflow = "test-flow"
 scope = ["test"]
 "#
     );
-    std::fs::write(bp.join("janus.toml"), recipe).unwrap();
+    std::fs::write(bp.join("blueprint.toml"), recipe).unwrap();
 
     // Minimal workflow file (Contract 3.7: step `name`, not `id`).
     let wf_dir = base.join("workflows");

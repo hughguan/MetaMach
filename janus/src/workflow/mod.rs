@@ -793,13 +793,7 @@ where
         match backend.poll_exit(session) {
             Ok(Some(code)) => return Ok(code),
             Ok(None) => {}
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("can't find pane") || msg.contains("can't find session") {
-                    return Err(e);
-                }
-                warn!("poll_exit transient error for session {session:?}: {e}");
-            }
+            Err(e) => return Err(e),
         }
         tokio::time::sleep(POLL_INTERVAL).await;
         since_extend += POLL_INTERVAL;

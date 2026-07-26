@@ -147,10 +147,12 @@ impl TmuxBackend {
     /// Build a `tmux -L metamach-tmux ...` command (local) or
     /// `ssh <flags> [-l user] <host> tmux -L metamach-tmux ...` (remote).
     fn tmux_cmd(&self, args: &[&str]) -> Command {
+        let socket_name =
+            std::env::var("JANUS_TMUX_SOCKET").unwrap_or_else(|_| TMUX_SOCKET.to_string());
         match &self.ssh {
             None => {
                 let mut cmd = Command::new(&self.tmux);
-                cmd.args(["-L", TMUX_SOCKET]);
+                cmd.args(["-L", &socket_name]);
                 cmd.args(args.iter().copied());
                 cmd
             }
@@ -170,7 +172,7 @@ impl TmuxBackend {
                 }
                 cmd.arg(&ssh.host);
                 cmd.arg("tmux");
-                cmd.args(["-L", TMUX_SOCKET]);
+                cmd.args(["-L", &socket_name]);
                 cmd.args(args.iter().copied());
                 cmd
             }

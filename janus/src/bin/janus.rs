@@ -68,6 +68,12 @@ enum CliCommand {
         #[command(subcommand)]
         cmd: PipelineCmd,
     },
+    /// Initialize a project with .janus/ directory from templates.
+    Init {
+        /// Project directory (defaults to current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 /// `janus tmux` subcommands.
@@ -121,6 +127,7 @@ fn main() -> Result<()> {
         CliCommand::Offboard { blueprint } => lifecycle_cmd(Request::Offboard { name: blueprint }),
         CliCommand::Tmux { cmd } => tmux(cmd),
         CliCommand::Pipeline { cmd } => pipeline(cmd),
+        CliCommand::Init { path } => init_project(&path),
     }
 }
 
@@ -222,6 +229,74 @@ fn tmux(cmd: TmuxCmd) -> Result<()> {
             Ok(())
         }
     }
+}
+
+// ── Project init (janus init) ──────────────────────────────────────────
+
+fn init_project(path: &Path) -> Result<()> {
+    let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let janus_dir = root.join(".janus");
+    if janus_dir.exists() {
+        eprintln!(".janus/ already exists at {}", janus_dir.display());
+        eprintln!("Run 'janus init' in a fresh project, or delete .janus/ to re-initialize.");
+        return Ok(());
+    }
+    let templates_root = janus::paths::repo_root().join("templates");
+    if !templates_root.exists() {
+        anyhow::bail!(
+            "templates/ not found at {}. Is MetaMach installed?",
+            templates_root.display()
+        );
+    }
+
+    // Copy agent templates.
+    let agents_src = templates_root.join("agents");
+    if agents_src.is_dir() {
+        let agents_dst = janus_dir.join("agents");
+        copy_dir(&agents_src, &agents_dst)?;
+        println!("   agents/ → .janus/agents/");
+    }
+
+    // Copy workflow templates.
+    let wf_src = templates_root.join("workflows");
+    if wf_src.is_dir() {
+        let wf_dst = janus_dir.join("workflows");
+        copy_dir(&wf_src, &wf_dst)?;
+        println!("   workflows/ → .janus/workflows/");
+    }
+
+    // Copy pipeline templates.
+    let pl_src = templates_root.join("pipelines");
+    if pl_src.is_dir() {
+        let pl_dst = janus_dir.join("pipelines");
+        copy_dir(&pl_src, &pl_dst)?;
+        println!("   pipelines/ → .janus/pipelines/");
+    }
+
+    println!();
+    println!("✅ Project initialized at {}", root.display());
+    println!();
+    println!("Next steps:");
+    println!("  1. Edit .janus/agents/ to configure your LLM providers");
+    println!("  2. Edit .janus/pipelines/ to define your DAG workflow");
+    println!("  3. Add .janus/ to git:  git add .janus/ && git commit");
+    println!("  4. Run:  janus onboard --blueprint <name>");
+    Ok(())
+}
+
+fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 // ── Pipeline commands (ADR-021/ADR-022) ─────────────────────────────────

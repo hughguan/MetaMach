@@ -19,3 +19,4 @@ metamach_backup_*.sql
 
 # 0.3.0: SQLite fallback ring buffer (degraded mode)
 fallback.db
+.janus/

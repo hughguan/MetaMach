@@ -7,16 +7,15 @@ cd "$(git rev-parse --show-toplevel)/janus"
 
 # Determine what files changed in this push (matching CI paths-ignore).
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.
-# Uses git to detect unpushed commits rather than reading stdin.
+# Uses git diff-tree on the latest commit, which works reliably from any
+# hook context without needing remote ref access.
 skip_tests=false
-if git rev-parse origin/main >/dev/null 2>&1; then
-    changed_files=$(git diff --name-only origin/main..HEAD 2>/dev/null || true)
-    if [ -n "$changed_files" ]; then
-        non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
-        if [ "$non_doc" -eq 0 ]; then
-            skip_tests=true
-            echo "=== Docs/md only — skipping test phases (matching CI paths-ignore) ==="
-        fi
+changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null || true)
+if [ -n "$changed_files" ]; then
+    non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
+    if [ "$non_doc" -eq 0 ]; then
+        skip_tests=true
+        echo "=== Docs/md only — skipping test phases (matching CI paths-ignore) ==="
     fi
 fi
 

@@ -1,4 +1,4 @@
-# MetaMach 0.3.0 — Review & Audit Standards
+# MetaMach 0.5.0 — Review & Audit Standards
 
 > Architecture walkthrough and audit criteria centered on design philosophy, ultimate security, system stability, and multi-dimensional disaster recovery.
 

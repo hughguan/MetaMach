@@ -1,5 +1,7 @@
 # MetaMach 0.1.0 - Project Plan
 
+> **📋 Archival Document:** This plan covers the original 0.1.0–0.3.0 planning horizon (M0–M4 milestones). Active versioning is in `Cargo.toml`, `README.md`, and `CHANGELOG.md`.
+
 > Milestone roadmap (M0–M4) of independently check-in-able, physically network-able factory units.
 >
 > **Governing architecture baseline:** This plan is aligned to the **0.3.0 consensus** (`docs/ARCH-0.3.0.md`): de-containerized host-native Postgres at `~/.metamach/db/`, One-PG-Multi-DB topology, internalized `janus::tmux`, `DELETE` + global `absurd_audit_log` Offboard, retained SQLite fallback, Fail-Closed 30s interception, 16KB dual defense. Earlier 0.1.0/0.2.0 proposals (Docker, external `herdr-tether`, `DROP DATABASE`, `melt`/`VACUUM`-only Offboard) are **superseded**.

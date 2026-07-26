@@ -1,4 +1,4 @@
-# Absurd Integration — MetaMach 0.4.0
+# Absurd Integration — MetaMach 0.5.0
 
 > **Status: Implemented.** `absurd.sql` is vendored at `janus/sql/absurd.sql` (v0.4.0, upstream commit `9b77b35`), tracked in `janus/sql/ABSURD_VERSION`. The Rust adapter layer (§7.3), CI upstream watcher (§7.2), and replay logic (§3) are spec'd but not yet built. This document describes both the completed vendoring and the planned integration architecture.
 

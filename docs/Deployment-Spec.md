@@ -1,8 +1,8 @@
-# MetaMach 0.3.0 — Deployment Specification
+# MetaMach 0.5.0 — Deployment Specification
 
 > Immutable/Mutable separation architecture, physical sandbox mounting, and unified database grid-connection guide.
 
-This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 0.3.0** production base on a local physical compute node (e.g., the Richmond Hill workshop server).
+This Deploy Spec guides the system administrator or Factory Director in safely, idempotently, and seamlessly completing the grid-connection and power-on of the **MetaMach 0.5.0** production base on a local physical compute node.
 
 This specification strictly follows Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** separation and security red lines, providing system-level definition of physical directories, RAM disk mounting, database initialization, and the one-click bootstrap process.
 
@@ -118,7 +118,7 @@ fi
 
 ## 5. One-Command Bootstrap (Makefile)
 
-MetaMach 0.3.0 provides a highly simplified "one-command grid-connection" instruction. The Factory Director only needs to execute `make bootstrap` in the root directory; the system auto-completes environment validation, code compilation, directory creation, symlink mounting, and native PG initialization.
+MetaMach 0.5.0 provides a highly simplified "one-command grid-connection" instruction. The Factory Director only needs to execute `make bootstrap` in the root directory; the system auto-completes environment validation, code compilation, directory creation, symlink mounting, and native PG initialization.
 
 ### 5.1 Automation Master Switch: `Makefile`
 
@@ -135,7 +135,7 @@ all: bootstrap
 # 2. Supreme one-command bootstrap primitive
 bootstrap: symlinks compile db-up
 	@echo "================================================================="
-	@echo "🪐 MetaMach 0.3.0 successfully bootstrapped!"
+	@echo "🪐 MetaMach 0.5.0 successfully bootstrapped!"
 	@echo "🔌 Run 'prefix+j' inside Herdr to open Dispatcher Console."
 	@echo "================================================================="
 

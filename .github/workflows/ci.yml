@@ -47,6 +47,35 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y tmux postgresql-client
 
+      - name: Install Herdr (plugin host)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Download latest Herdr Linux binary from GitHub releases
+          HERDR_VERSION="0.7.5"
+          curl -sSL "https://github.com/ogulcancelik/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" -o /usr/local/bin/herdr
+          chmod +x /usr/local/bin/herdr
+          herdr --version
+          # Start headless server (Homebrew-style service mode)
+          mkdir -p /tmp/herdr-home/config /tmp/herdr-home/state
+          export HOME=/tmp/herdr-home
+          export XDG_CONFIG_HOME=/tmp/herdr-home/config
+          export XDG_STATE_HOME=/tmp/herdr-home/state
+          export HERDR_CONFIG_PATH=/tmp/herdr-home/config.toml
+          export HERDR_SOCKET_PATH=/tmp/herdr-home/herdr.sock
+          touch "$HERDR_CONFIG_PATH"
+          herdr server &
+          # Wait for socket to appear
+          for i in $(seq 1 10); do
+            [ -S "$HERDR_SOCKET_PATH" ] && break
+            sleep 0.5
+          done
+          echo "HERDR_SOCKET_PATH=$HERDR_SOCKET_PATH" >> "$GITHUB_ENV"
+          echo "HOME=/tmp/herdr-home" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=/tmp/herdr-home/config" >> "$GITHUB_ENV"
+          echo "XDG_STATE_HOME=/tmp/herdr-home/state" >> "$GITHUB_ENV"
+          echo "HERDR_CONFIG_PATH=/tmp/herdr-home/config.toml" >> "$GITHUB_ENV"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -91,6 +120,16 @@ jobs:
         # `#[ignore]` — they run automatically when PG is available (CI) and
         # skip gracefully when it's not (local dev without `make db-init`).
         run: cargo test --workspace --manifest-path janus/Cargo.toml
+        env:
+          DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
+          TMUX_TMPDIR: /tmp
+
+      - name: Run Herdr contract tests (ignored)
+        # Add herdr-janus to PATH so the manifest's `command = ["herdr-janus"]` resolves.
+        # The e2e_smoke test also needs PG + tmux (already available).
+        run: |
+          export PATH="$PWD/janus/target/release:$PATH"
+          cargo test --manifest-path janus/Cargo.toml -- --ignored
         env:
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
           TMUX_TMPDIR: /tmp

@@ -263,10 +263,10 @@ fn e2e_smoke_onboard_dispatch_progress() {
     .unwrap();
 
     let bp_name = format!("e2e_{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let bp_dir = repo.path().join("blueprints").join(&bp_name);
+    let bp_dir = repo.path().join(".janus");
     std::fs::create_dir_all(&bp_dir).unwrap();
     std::fs::write(
-        bp_dir.join("janus.toml"),
+        bp_dir.join("blueprint.toml"),
         format!("[blueprint]\nname = \"{bp_name}\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"e2e\"]\n"),
     )
     .unwrap();

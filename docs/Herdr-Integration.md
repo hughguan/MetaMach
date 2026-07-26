@@ -169,10 +169,10 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher
 - [ ] Test `make symlinks` → `herdr plugin link` → `prefix+j` end-to-end
 
 ### CI considerations
-- Herdr is not installed on GitHub Actions Ubuntu runners
-- Current CI tests binaries standalone (via UDS directly) — this is intentional
-- A Herdr smoke test would require installing the Herdr binary on the CI runner (brew not available, no apt package)
-- **Decision:** manual smoke test on macOS development host; CI covers binary correctness only
+- Herdr publishes pre-built Linux x86_64 binaries at `github.com/ogulcancelik/herdr/releases`
+- CI downloads the binary, starts `herdr server` (headless daemon mode), and runs contract tests
+- `e2e_smoke_onboard_dispatch_progress` runs the full stack (PG + tmux + Herdr + janus-daemon) in CI
+- **Decision:** CI-gated — Herdr contract tests (`--ignored`) run as a separate CI step after the main test suite
 
 ---
 

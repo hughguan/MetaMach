@@ -311,3 +311,142 @@ fn e2e_tool_guard_blocks_blacklisted() {
         "sentinel should survive — Tool Guard must block rm -rf"
     );
 }
+
+#[test]
+fn e2e_pipeline_dag_dispatch() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        "[blueprint]\nname = \"dag_e2e\"\ndefault_workflow = \"step1\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+    )
+    .unwrap();
+
+    let wf_dir = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    std::fs::write(
+        wf_dir.join("step1.toml"),
+        "[workflow]\nname = \"step1\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"true\"\n",
+    )
+    .unwrap();
+
+    let pl_dir = repo.path().join(".janus/pipelines");
+    std::fs::create_dir_all(&pl_dir).unwrap();
+    std::fs::write(
+        pl_dir.join("build_dag.toml"),
+        "[pipeline]\nname = \"build_dag\"\n\n[[nodes]]\nid = \"n1\"\nworkflow = \"step1\"\n",
+    )
+    .unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents, repo.path());
+    d.wait_ready();
+    d.uds(
+        &Request::Onboard {
+            name: "dag_e2e".into(),
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: "dag_e2e".into(),
+                workflow: None,
+                pipeline: Some("build_dag".into()),
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(
+        matches!(resp, Response::Dispatch { .. }),
+        "pipeline dag dispatch: {resp:?}"
+    );
+}
+
+#[test]
+fn e2e_stop_and_continue() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        "[blueprint]\nname = \"ctrl_e2e\"\ndefault_workflow = \"long\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+    )
+    .unwrap();
+    let wf = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf).unwrap();
+    std::fs::write(
+        wf.join("long.toml"),
+        "[workflow]\nname = \"long\"\n\n[[steps]]\nname = \"sleep_step\"\nagent = \"default\"\ncommand = \"sleep 10\"\n",
+    )
+    .unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents, repo.path());
+    d.wait_ready();
+    d.uds(
+        &Request::Onboard {
+            name: "ctrl_e2e".into(),
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
+
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: "ctrl_e2e".into(),
+                workflow: None,
+                pipeline: None,
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    let Response::Dispatch { task_id } = resp else {
+        panic!("dispatch: {resp:?}");
+    };
+
+    let stop_resp = d
+        .uds(
+            &Request::Stop {
+                blueprint: Some("ctrl_e2e".into()),
+                task_id: Some(task_id),
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(
+        matches!(stop_resp, Response::Ok { .. }),
+        "stop: {stop_resp:?}"
+    );
+
+    let cont_resp = d
+        .uds(
+            &Request::Continue {
+                blueprint: Some("ctrl_e2e".into()),
+                task_id: Some(task_id),
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(
+        matches!(cont_resp, Response::Ok { .. }),
+        "continue: {cont_resp:?}"
+    );
+}

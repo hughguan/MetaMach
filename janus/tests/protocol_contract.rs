@@ -52,6 +52,31 @@ fn request_tags_are_snake_case() {
             .unwrap()
             .contains(r#""type":"guard_check""#)
     );
+    assert!(
+        serde_json::to_string(&Request::Dispatch {
+            blueprint: "demo".into(),
+            workflow: None,
+            pipeline: Some("req2spec".into()),
+        })
+        .unwrap()
+        .contains(r#""type":"dispatch""#)
+    );
+    assert!(
+        serde_json::to_string(&Request::Stop {
+            blueprint: Some("demo".into()),
+            task_id: None,
+        })
+        .unwrap()
+        .contains(r#""type":"stop""#)
+    );
+    assert!(
+        serde_json::to_string(&Request::Continue {
+            blueprint: Some("demo".into()),
+            task_id: None,
+        })
+        .unwrap()
+        .contains(r#""type":"continue""#)
+    );
 }
 
 #[test]

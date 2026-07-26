@@ -110,7 +110,7 @@ CREATE TABLE blueprints (
     name VARCHAR(100) UNIQUE NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE | OFFBOARDED
     default_workflow VARCHAR(100) NOT NULL,
-    config JSONB,                                   -- janus.toml verbatim
+    config JSONB,                                   -- blueprint.toml verbatim
     openwiki_scope JSONB,                           -- [openwiki].scope index range
     remote_host VARCHAR(100),                       -- [remote].host (NULL = local-only)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -193,7 +193,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
   "blueprint_id": "gatemetric",
   "task_id": 1042,
   "step_name": "cross_compile",
-  "cwd": "/workspaces/metamach/blueprints/gatemetric/firmware",
+  "cwd": "/workspaces/gatemetric/firmware",
   "argv": ["esptool.py", "--chip", "esp32", "write_flash", "0x1000", "firmware.bin"],
   "env_snapshot": {
     "USER": "factory_agent",
@@ -270,7 +270,7 @@ CREATE INDEX idx_step_meta_blueprint ON metamach_step_meta(blueprint_name);
   "step_name": "cross_compile",
   "blueprint_name": "gatemetric",
   "command": "make cross-compile",
-  "cwd": "/workspaces/metamach/blueprints/gatemetric/firmware",
+  "cwd": "/workspaces/gatemetric/firmware",
   "env": {
     "SHELL": "/path/to/bin/janush",
     "METAMACH_TASK_ID": "1042"
@@ -331,7 +331,7 @@ scope = ["mpu6050", "esp32-timers", "i2c-conflicts"]
 
 > On Onboard, the Daemon strictly validates `blueprint.name`, `blueprint.default_workflow` (corresponding file must exist), and `openwiki.scope`; `[remote]` absent = local-only blueprint. Validation failure prevents Onboard.
 
-### Contract 3.8: Workflow Pipeline Schema (`workflows/<name>.toml`)
+### Contract 3.8: Workflow Pipeline Schema (`.janus/workflows/<name>.toml`)
 
 ```toml
 [workflow]
@@ -352,7 +352,7 @@ toolset = ["read", "write", "edit", "bash-safe"]
 name = "cross-compile"
 agent = "deployer"
 command = "make cross-compile"
-host = "remote"                    # References janus.toml [remote]; default = local
+host = "remote"                    # References blueprint.toml [remote]; default = local
 toolset = ["bash-full", "ssh"]
 ```
 

@@ -131,7 +131,7 @@ sequenceDiagram
     tmux-->>Daemon: Compile passes, QA success!
     Daemon->>Daemon: janus offboard --blueprint gatemetric
     Daemon->>Absurd: Execute DELETE + archive: purge operational data, write absurd_audit_log, DB footprint shrinks
-    Daemon->>OW: Write pin conflict fix into blueprints/gatemetric/openwiki/production_report.md
+    Daemon->>OW: Write pin conflict fix into .janus/openwiki/production_report.md
     Daemon-->>Human: Evolution archived. Next Agent onboards with this immune antibody!
 ```
 
@@ -204,26 +204,21 @@ metamach/ (Single monorepo — silicon factory headquarters)
 ├── openwiki/                     # External: langchain-ai/openwiki — RAG knowledge federation engine
 │   └── configs/                  # OpenWiki engine config (binary built from external repo)
 │
-├── workflows/                    # Unified pipeline SOPs
-│   ├── dev-flow.toml             # Standard R&D pipeline
-│   ├── debug-flow.toml           # Diagnostic & debugging pipeline
-│   └── firmware-deploy.toml      # Physical cross-compile & flash pipeline
+├── templates/                    # `janus init` scaffolds from here
+│   ├── blueprint.toml            # Default project recipe template
+│   ├── agents/                   # Agent role templates (Architect, Builder, Tester)
+│   ├── workflows/                # Workflow templates (dev-flow, firmware-deploy, etc.)
+│   └── pipelines/                # Pipeline DAG templates (req2spec, spec2software)
 │
 │   # ====================================================================
-│   # 3. BLUEPRINTS (product lines / target development projects)
+│   # 3. PER-PROJECT LAYOUT (after `janus init` in a target project)
 │   # ====================================================================
-├── blueprints/
-│   │
-│   ├── joyrobots/                # JoyRobots (modular education robot platform)
-│   │   ├── janus.toml            # Custom recipe (bound to dev-flow)
-│   │   ├── src/                  # Pure project source
-│   │   └── openwiki/             # Local knowledge graph (Spike Prime API)
-│   │
-│   └── gatemetric/               # GateMetric (BMX attitude evaluation system)
-│       ├── janus.toml            # Custom recipe (bound to firmware-deploy, SSH compile target)
-│       ├── firmware/             # ESP32 filter C++/Arduino source
-│       ├── 3d-enclosure/         # Bambu Lab X1C sensor enclosure CAD/STL
-│       └── openwiki/             # Local knowledge graph (MPU6050 timing & production_report immunity)
+│   # my-project/.janus/          # All MetaMach config for this project (ADR-029)
+│   #   ├── blueprint.toml        # [blueprint] name, default_workflow, [remote], [openwiki]
+│   #   ├── agents/               # Project-specific agent role overrides
+│   #   ├── workflows/            # Workflow definitions (step sequences)
+│   #   ├── pipelines/            # DAG pipeline definitions (nodes + needs edges)
+│   #   └── openwiki/             # RAG knowledge scope; production_report.md on offboard
 │
 │   # ====================================================================
 │   # 4. PROVISIONING (maintenance & sandbox mounting)

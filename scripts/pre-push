@@ -5,11 +5,36 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)/janus"
 
+# Determine what files changed in this push (matching CI paths-ignore).
+# Skip the heavy test phases for docs-only changes; still run fmt + clippy.
+skip_tests=false
+changed_files=$(while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        range="$local_sha"
+    else
+        range="$remote_sha..$local_sha"
+    fi
+    git diff --name-only "$range" 2>/dev/null || true
+done)
+if [ -n "$changed_files" ]; then
+    non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
+    if [ "$non_doc" -eq 0 ]; then
+        skip_tests=true
+        echo "=== Docs/md only — skipping test phases (matching CI paths-ignore) ==="
+    fi
+fi
+
 echo "=== M0: cargo fmt --check ==="
 cargo fmt --all -- --check
 
 echo "=== M1: cargo clippy -D warnings ==="
 cargo clippy --all-targets -- -D warnings
+
+if $skip_tests; then
+    echo ""
+    echo "✅ All CI gates green — safe to push"
+    exit 0
+fi
 
 # Auto-provision PG if pg_ctl/initdb are available (local dev).
 # In CI this is a no-op — DATABASE_URL is already set globally.

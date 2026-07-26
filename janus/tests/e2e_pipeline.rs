@@ -75,6 +75,17 @@ impl Daemon {
     fn uds(&self, req: &Request, timeout: Duration) -> Result<Response, String> {
         uds::request_to(&self.sock, req, timeout).map_err(|e| e.to_string())
     }
+
+    fn wait_ready(&self) {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(10) {
+            if let Ok(Response::Pong) = self.uds(&Request::Ping, Duration::from_millis(200)) {
+                std::thread::sleep(Duration::from_millis(150));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 impl Drop for Daemon {
@@ -111,7 +122,7 @@ fn e2e_onboard_dispatch_returns_task_id() {
     .unwrap();
 
     let d = Daemon::spawn(state.path(), &agents, repo.path());
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
     d.uds(
         &Request::Onboard {
             name: "smoke_e2e".into(),
@@ -186,7 +197,7 @@ command = "echo step3-done"
     .unwrap();
 
     let d = Daemon::spawn(state.path(), &agents, repo.path());
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     d.uds(
         &Request::Onboard {
@@ -274,7 +285,7 @@ fn e2e_tool_guard_blocks_blacklisted() {
     std::fs::write(&sentinel, "do-not-delete").unwrap();
 
     let d = Daemon::spawn(state.path(), &agents, repo.path());
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
     d.uds(
         &Request::Onboard {
             name: "guard_e2e".into(),

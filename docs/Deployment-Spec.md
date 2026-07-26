@@ -267,7 +267,7 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
 
 `make bootstrap` only powers on the base (database, binaries, symlinks); at this point the workshop is in a **zero product line** state. The Factory Director must explicitly onboard a blueprint before dispatching production:
 
-1. Confirm the target blueprint directory is in place, e.g., `blueprints/gatemetric/` contains `janus.toml` (declaring `default_workflow`, `[remote]` target, `[openwiki].scope`).
+1. Confirm project configuration is in place, e.g., `.janus/blueprint.toml` contains `[blueprint]` name, `default_workflow`, optional `[remote]` target, and `[openwiki].scope`.
 2. Execute the onboard command:
     ```bash
     janus onboard --blueprint gatemetric

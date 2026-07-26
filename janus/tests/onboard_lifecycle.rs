@@ -81,6 +81,17 @@ impl Daemon {
     fn uds(&self, req: &Request, timeout: Duration) -> Result<Response, String> {
         uds::request_to(&self.sock, req, timeout).map_err(|e| e.to_string())
     }
+
+    fn wait_ready(&self) {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(10) {
+            if let Ok(Response::Pong) = self.uds(&Request::Ping, Duration::from_millis(200)) {
+                std::thread::sleep(Duration::from_millis(150));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 impl Drop for Daemon {
@@ -146,7 +157,7 @@ fn utc_05_04_onboard_registers_tenant() {
     make_blueprint(d.repo.path(), NAME);
 
     // Wait for PG to come online (daemon retries 5× @2s = 10s max).
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     // Onboard the blueprint.
     let resp = d
@@ -211,7 +222,7 @@ fn utc_05_04b_multidb_onboard_isolation() {
 
     // Onboard joy, then rewrite .janus/blueprint.toml and onboard gate.
     make_blueprint(d.repo.path(), JOY);
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
     let resp = d
         .uds(
             &Request::Onboard { name: JOY.into() },
@@ -284,7 +295,7 @@ fn utc_05_02_offboard_smelts_and_archives() {
 
     let d = Daemon::spawn(state.path(), &agents);
     make_blueprint(d.repo.path(), NAME);
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     // Onboard.
     d.uds(
@@ -434,7 +445,7 @@ fn utc_05_03_offboard_commits_production_report_to_git() {
         String::from_utf8_lossy(&git(&["commit", "-q", "-m", "seed"]).stderr)
     );
 
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     // Onboard + Offboard. Offboard writes production_report.md and commits it.
     d.uds(
@@ -499,7 +510,7 @@ fn utc_05_05_re_onboard_inherits_previous_incidents() {
     )
     .unwrap();
 
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     let resp = d
         .uds(
@@ -534,7 +545,7 @@ fn utc_0a_absurd_schema_loads_on_onboard() {
     std::fs::write(&agents, AGENTS_TOML).unwrap();
     let d = Daemon::spawn(state.path(), &agents);
     make_blueprint(d.repo.path(), NAME);
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     // Onboard triggers ensure_blueprint_db -> init_absurd_schema + 002 + 003.
     // If absurd.sql fails to load, onboard errors here.

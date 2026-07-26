@@ -65,12 +65,12 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 
 - **Technical Spec:**
     - **Onboard Registration Mechanism:** When the Factory Director executes `janus onboard --blueprint <name>`, the Daemon takes over with the following sequence:
-        1. **Recipe Validation:** Read `blueprints/<name>/janus.toml`, validate required fields. Confirm `workflows/<default_workflow>.toml` exists. Validation failure returns a clear error without writing to the database.
+        1. **Recipe Validation:** Read `.janus/blueprint.toml`, validate required fields. Confirm workflow exists in `.janus/workflows/` or `templates/workflows/`. Validation failure returns a clear error without writing to the database.
         2. **Pre-Ignition Self-Check:** Probe Absurd Postgres connectivity and tmux engine readiness. If `[remote]` is declared, perform a best-effort `BatchMode` connectivity probe (`-o ConnectTimeout=5`); unreachable only logs `WARN`, does not block Onboard.
         3. **Per-Blueprint Database Creation:** Execute `CREATE DATABASE metamach_blueprint_<name>` to allocate an independent logical database for the new blueprint (One PG, Multi-DB topology). Blueprint name is validated (max 60 chars, alphanumeric + underscore). On `42P04` (duplicate database), treat as idempotent — the database already exists from a prior Onboard. Since `CREATE DATABASE` cannot run inside a transaction block, the Daemon orchestrates compensation: if a later step fails, it executes `DROP DATABASE metamach_blueprint_<name>` as cleanup.
         4. **Tenant Registration (Idempotent):** `INSERT INTO blueprints … ON CONFLICT (name) DO UPDATE SET status='ACTIVE' …` in the global catalog DB. Repeated Onboard has no side effects; re-onboarding an already `OFFBOARDED` blueprint reactivates it.
         5. **Workflow Binding:** Persist `default_workflow` and precompile-validate the Step sequence.
-        6. **Knowledge Graph Loading & Experience Inheritance:** Index `blueprints/<name>/openwiki/` into OpenWiki. If `production_report.md` exists, parse its structured blocks and append critical failure patterns as `## Previous Incidents` into the Agent System Prompt template.
+        6. **Knowledge Graph Loading & Experience Inheritance:** Index `.janus/openwiki/` into OpenWiki. If `production_report.md` exists, parse its structured blocks and append critical failure patterns as `## Previous Incidents` into the Agent System Prompt template.
 
     - **Offboard Trace Purge & Audit Archive:** When the Factory Director executes `janus offboard --blueprint <name>`:
         1. **Trace Extraction:** Daemon scans the blueprint's dedicated database, extracting all historical Task and Step execution traces and Tool Guard interception logs.
@@ -314,7 +314,7 @@ require_approval = ["esptool.py write_flash", "make flash", "*production*"]
 
 > **Decision Priority:** Tool Guard evaluates each `janush`-reported argv in order — (1) `bash_blacklist` hit → `BLOCK`; (2) `require_approval` hit → `BLOCK` and set `SUSPENDED` awaiting HITL; (3) command capability not in current role `permissions` allowlist → `BLOCK`; (4) financial-class high-risk command → `REWRITE` to Dry-Run; (5) remainder → `ALLOW`. Rules are configurable (not hardcoded Rust); Daemon loads via `configs/agents.toml` symlink (Mutable Config zone).
 
-### Contract 3.7: Blueprint Recipe Schema (`blueprints/<name>/janus.toml`)
+### Contract 3.7: Blueprint Recipe Schema (`.janus/blueprint.toml`)
 
 ```toml
 [blueprint]
@@ -449,11 +449,11 @@ pub enum CognitiveError {
 }
 ```
 
-> **Design invariants:** (1) Cannot block the tmux session — `validate_command` timeout is 2s. (2) Cannot read database state — receives only `argv` + `cwd` + `blueprint` name. (3) Opt-in per blueprint — configured in `blueprints/<name>/janus.toml` under a `[cognitive]` section.
+> **Design invariants:** (1) Cannot block the tmux session — `validate_command` timeout is 2s. (2) Cannot read database state — receives only `argv` + `cwd` + `blueprint` name. (3) Opt-in per blueprint — configured in `.janus/blueprint.toml` under a `[cognitive]` section.
 
 ### Contract 4.2: MCP Symbol Indexing (codebase-memory-mcp)
 
-The daemon spawns the `codebase-memory-mcp` MCP server as a child process on first use per blueprint. Communication is via stdin/stdout JSON-RPC (MCP transport protocol). The server indexes only the blueprint's own source tree (`blueprints/<name>/`). It has no access to the daemon's source, other blueprints, or the host filesystem outside the blueprint root.
+The daemon spawns the `codebase-memory-mcp` MCP server as a child process on first use per blueprint. Communication is via stdin/stdout JSON-RPC (MCP transport protocol). The server indexes only the blueprint's own source tree. It has no access to the daemon's source, other blueprints, or the host filesystem outside the blueprint root.
 
 ### Contract 4.3a: HITL Gateway — Hermes Run API Envelope
 

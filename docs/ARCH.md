@@ -42,17 +42,17 @@ Declarative configuration files define high-cohesion, high-reusability assembly 
 
 #### C. Blueprints
 
-Product lines reside under `blueprints/`, maintaining absolute physical cleanliness:
+Product lines maintain configuration under `.janus/`, maintaining absolute physical cleanliness:
 
-- **Custom Recipe (janus.toml):** Binds a default workflow, declares OpenWiki federated knowledge graph index scope, and configures remote SSH target IP.
+- **Custom Recipe (.janus/blueprint.toml):** Binds a default workflow, declares OpenWiki federated knowledge graph index scope, and configures remote SSH target IP.
 - **On/Offboarding:**
 
     - _Onboard:_ The Factory Director executes `janus onboard --blueprint <name>`. The Daemon takes over with the standard onboarding process:
-        1. **Recipe Validation:** Read and validate `blueprints/<name>/janus.toml`, confirm `workflows/<default_workflow>.toml` exists;
+        1. **Recipe Validation:** Read and validate `.janus/blueprint.toml`, confirm workflow exists in `.janus/workflows/` or `templates/workflows/`;
         2. **Pre-Ignition Checks:** Probe Absurd Postgres reachability, tmux readiness; for cross-host blueprints, best-effort probe remote SSH target (unreachable = warn only);
         3. **Tenant Registration:** Using `blueprint_id` as the partition key, `INSERT … ON CONFLICT DO UPDATE` one row of `ACTIVE` blueprint metadata (**idempotent**; can reactivate previously `OFFBOARDED` blueprints);
         4. **Workflow Binding:** Persist the default SOP workflow binding;
-        5. **Knowledge Graph Loading & Experience Inheritance:** Index `blueprints/<name>/openwiki/`; if a prior `production_report.md` exists, prioritize indexing it and inject key avoidance patterns as `## Previous Incidents` few-shot examples into the next-generation Agent's System Prompt;
+        5. **Knowledge Graph Loading & Experience Inheritance:** Index `.janus/openwiki/`; if a prior `production_report.md` exists, prioritize indexing it and inject key avoidance patterns as `## Previous Incidents` few-shot examples into the next-generation Agent's System Prompt;
         6. **Onboarding Ready:** Status set to `ACTIVE`; the product line immediately appears in the Popup dispatch menu.
 
     - _Offboard:_ Extract all Step execution traces and Tool Guard interception records from the project's development period. Auto-smelt them via the configured LLM into a latest **"Quality Inspection Report & Production Whitepaper (production_report.md)"** in the local OpenWiki, while simultaneously wiping expired JSON cache large fields from the database for lossless anti-bloat compaction. This whitepaper is recycled as immune antibodies on the next Onboard, closing the "Onboard → Produce → Offboard → Re-Onboard" evolutionary loop.
@@ -245,14 +245,13 @@ metamach/ (Single monorepo — silicon factory headquarters)
 # herdr-tether (DEPRECATED in 0.3.0): the tmux session engine has been internalized
 # into janus::tmux; the external herdr-tether binary is no longer required.
 ```
-```
 
 > **External Dependencies & Mutable Configuration:**
 > - `absurd.sql` is **vendored** (compiled into the `janus-daemon` binary at `janus/sql/absurd.sql`, locked to upstream v0.4.0 commit `9b77b35`). The `absurdctl` CLI and `habitat` UI are separate tools fetched externally; only the SQL schema engine is compiled-in. The upstream version is tracked in `janus/sql/ABSURD_VERSION`.
 > - `openwiki` is an independent external repository, not compiled within this monorepo. `make bootstrap` handles fetching/building/linking this dependency.
 > - `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tmux`.
 > - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/config/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). **Database persistence** uses `~/.metamach/db/` — an independent global directory decoupled from the Herdr plugin lifecycle, ensuring PG data survives plugin upgrades and power-cycle restarts.
-> - **0.4.0 addition:** `codebase-memory-mcp` (AST/symbol MCP server) is an external process spawned by `janus-daemon` on first use; its blueprint is configured in `blueprints/<name>/janus.toml` under `[cognitive.mcp]`. The MCP server is terminated on blueprint Offboard.
+> - **0.4.0 addition:** `codebase-memory-mcp` (AST/symbol MCP server) is an external process spawned by `janus-daemon` on first use; its blueprint is configured in `.janus/blueprint.toml` under `[cognitive.mcp]`. The MCP server is terminated on blueprint Offboard.
 > - **0.4.0 addition:** `janus::gateway` is an in-module HTTP listener (loopback only) — no external proxy is bundled. A tunnel (cloudflared) or reverse proxy (nginx/Caddy) is required for external Teams callback reachability (see `docs/Deployment-Spec.md` §7).
 
 ## 6. Resilience Invariants

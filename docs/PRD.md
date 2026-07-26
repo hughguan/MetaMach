@@ -1,10 +1,10 @@
-# MetaMach 0.3.0 — Product Requirements
+# MetaMach 0.5.0 — Product Requirements
 
 > A business guide for the Factory Director: blueprint onboarding, workflow dispatch, HITL gates, and production reports.
 
 ## Director's Note
 
-This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.3.0 feature landscape from a business perspective.
+This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.5.0 feature landscape from a business perspective.
 
 ## 1. Business Vision & Core Pain Points
 
@@ -16,7 +16,22 @@ In traditional AI-assisted R&D and automated assembly, the Factory Director freq
 
 3. **Non-Accumulating Knowledge (Evolution Line):** Every error, pin conflict, and fix the AI encounters vanishes when the session ends, never converted into permanent factory assets — leading to repeated mistakes in subsequent development.
 
-**MetaMach 0.3.0** delivers a digital silicon pipeline as deterministic, safe, controllable, and self-evolving as a physical factory, through its design of "resident guardian brain + durable physical sessions + shared knowledge graph."
+**MetaMach 0.5.0** delivers a digital silicon pipeline as deterministic, safe, controllable, and self-evolving as a physical factory, through its design of "resident guardian brain + durable physical sessions + shared knowledge graph."
+
+### 1.3 Competitive Positioning & Bare-Metal Hardware Control
+
+While cloud-native AI coding assistants (e.g., Devin, OpenHands) and IDE integrations (e.g., Cursor, Windsurf, Claude Code) focus on standard software development in virtual sandboxes or ephemeral terminal sessions, **MetaMach occupies a distinct physical-first niche**:
+
+| Dimension | MetaMach 0.5.0 | Cloud AI Agents (Devin / OpenHands) | IDE / Ephemeral CLIs (Cursor / Claude Code) |
+|---|---|---|---|
+| **Execution Environment** | Host-native bare-metal (de-containerized) | Cloud Docker container / VM | Local ephemeral terminal subprocess |
+| **Physical Hardware Access** | Direct access to USB devices, serial ports (`/dev/tty*`), hardware debuggers, flashers (`esptool`), and lab instrumentation | No physical device access | Ephemeral access; process terminates on terminal close |
+| **Session Durability** | Resident daemon + `janus::tmux` (`remain-on-exit` PTYs); survives SSH drops and laptop sleep | Cloud-session dependent | Session dies when terminal window closes |
+| **Command Governance** | `janush` proxy shell + Tool Guard (ALLOW / BLOCK / REWRITE) with fail-closed 30s timeout | System prompt / container isolation | Optional permission prompt (ask mode) |
+| **Cross-Host Control** | SSH `-R` reverse tunnel mapping for target hardware nodes (ADR-017) | Cloud target only | Manual SSH wrapper |
+
+**The Bare-Metal Hardware Moat:**  
+MetaMach is specifically built for embedded engineering, firmware flashing (e.g., ESP32, STM32, ARM microcontrollers), hardware-in-the-loop (HITL) test rigs, and automated manufacturing pipelines where AI agents must directly interact with physical hardware devices over local serial/USB interfaces. Cloud sandboxes cannot plug into physical circuit boards; MetaMach provides the durable, governed control plane that bridges autonomous AI software factories with real-world physical hardware.
 
 ## 2. Core Business Feature Modules
 

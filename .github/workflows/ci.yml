@@ -142,3 +142,33 @@ jobs:
         env:
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
           TMUX_TMPDIR: /tmp
+
+  test-macos:
+    name: Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: brew install tmux
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: rustfmt, clippy
+
+      - name: Ensure rustfmt & clippy
+        run: rustup component add rustfmt clippy 2>/dev/null || true
+
+      - name: Check formatting
+        run: cargo fmt --all --manifest-path janus/Cargo.toml -- --check
+
+      - name: Clippy (lint)
+        run: cargo clippy --manifest-path janus/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build release
+        run: cargo build --release --locked --manifest-path janus/Cargo.toml
+
+      - name: Run unit & doc tests
+        run: cargo test --lib --manifest-path janus/Cargo.toml

@@ -108,6 +108,17 @@ impl Daemon {
         uds::request_to(&self.sock, req, timeout).map_err(|e| e.to_string())
     }
 
+    fn wait_ready(&self) {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(10) {
+            if let Ok(Response::Pong) = self.uds(&Request::Ping, Duration::from_millis(200)) {
+                std::thread::sleep(Duration::from_millis(150));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     /// The repo path this daemon was spawned against.
     fn repo_path(&self) -> &Path {
         &self.repo_path
@@ -242,7 +253,7 @@ fn utc_03_01_step_state_transitions() {
 
     let d = Daemon::spawn(state.path(), &agents);
     make_blueprint(d.repo_path(), &name);
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     d.uds(
         &Request::Onboard { name: name.clone() },
@@ -303,7 +314,7 @@ fn utc_03_01b_dispatch_step_transitions() {
 
     let d = Daemon::spawn(state.path(), &agents);
     make_2step_blueprint(d.repo_path(), &name);
-    std::thread::sleep(Duration::from_secs(12)); // wait for PG connect
+    d.wait_ready();
 
     let onboard_resp = d
         .uds(
@@ -832,7 +843,7 @@ fn utc_03_05_concurrent_workflow_isolation() {
     let d = Daemon::spawn(state.path(), &agents);
     make_blueprint(d.repo_path(), JOY);
     make_blueprint(d.repo_path(), GATE);
-    std::thread::sleep(Duration::from_secs(12));
+    d.wait_ready();
 
     // Onboard both.
     for name in [JOY, GATE] {

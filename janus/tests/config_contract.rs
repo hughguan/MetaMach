@@ -292,8 +292,18 @@ fn e2e_smoke_onboard_dispatch_progress() {
     while !sock.exists() && start.elapsed() < std::time::Duration::from_secs(15) {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    assert!(sock.exists(), "daemon did not bind janus.sock");
-    std::thread::sleep(std::time::Duration::from_secs(12));
+    let ready_start = std::time::Instant::now();
+    while ready_start.elapsed() < std::time::Duration::from_secs(10) {
+        if let Ok(janus::protocol::Response::Pong) = janus::uds::request_to(
+            &sock,
+            &janus::protocol::Request::Ping,
+            std::time::Duration::from_millis(200),
+        ) {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 
     let req = janus::protocol::Request::Onboard {
         name: bp_name.clone(),

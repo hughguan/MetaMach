@@ -170,7 +170,7 @@ impl AgentStack {
             }
         }
         if !loaded {
-            anyhow::bail!("no agents.toml found in {:?}", paths);
+            anyhow::bail!("no agents.toml found in {paths:?}");
         }
         Ok(merged)
     }

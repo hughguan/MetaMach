@@ -410,16 +410,11 @@ fn utc_03_01b_dispatch_step_transitions() {
             let meta = psql(format!(
                 "SELECT step_name, status, exit_code, stdout_tail FROM metamach_step_meta WHERE task_id = '{task_id}'"
             ));
-            panic!(
-                "absurd task failed mid-execution: {}",
-                String::from_utf8_lossy(&meta.stdout)
-            );
+            let stdout_meta = String::from_utf8_lossy(&meta.stdout);
+            panic!("absurd task failed mid-execution: {stdout_meta}");
         }
         if Instant::now() > final_deadline {
-            panic!(
-                "absurd task did not reach completed within 30s: {}",
-                state_str
-            );
+            panic!("absurd task did not reach completed within 30s: {state_str}");
         }
         std::thread::sleep(Duration::from_millis(300));
     }

@@ -241,7 +241,10 @@ fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> 
     // Discover available workflows.
     let catalog = discover_workflows(repo_root)?;
     if catalog.is_empty() {
-        bail!("no workflows found in {}/workflows/", repo_root.display());
+        bail!(
+            "no workflows found in {}/templates/workflows/",
+            repo_root.display()
+        );
     }
 
     let catalog_text: String = catalog
@@ -313,31 +316,31 @@ fn validate_pipeline(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Discover available workflows in `workflows/`. Returns (name, description) pairs.
+/// Discover available workflows in `templates/workflows/` and legacy `workflows/`.
 fn discover_workflows(repo_root: &Path) -> Result<Vec<(String, String)>> {
-    let wf_dir = repo_root.join("workflows");
     let mut workflows = Vec::new();
-    let entries = match std::fs::read_dir(&wf_dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(workflows),
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().map(|e| e == "toml").unwrap_or(false)
-            && let Ok(text) = std::fs::read_to_string(&path)
-            && let Ok(val) = toml::from_str::<toml::Table>(&text)
-        {
-            let name = val
-                .get("workflow")
-                .and_then(|w| w.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
-            let desc = val
-                .get("workflow")
-                .and_then(|w| w.get("description"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("(no description)");
-            workflows.push((name.to_string(), desc.to_string()));
+    for dir in &["templates/workflows", "workflows"] {
+        let wf_dir = repo_root.join(dir);
+        if let Ok(entries) = std::fs::read_dir(&wf_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e == "toml").unwrap_or(false)
+                    && let Ok(text) = std::fs::read_to_string(&path)
+                    && let Ok(val) = toml::from_str::<toml::Table>(&text)
+                {
+                    let name = val
+                        .get("workflow")
+                        .and_then(|w| w.get("name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let desc = val
+                        .get("workflow")
+                        .and_then(|w| w.get("description"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("(no description)");
+                    workflows.push((name.to_string(), desc.to_string()));
+                }
+            }
         }
     }
     Ok(workflows)

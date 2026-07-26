@@ -127,11 +127,16 @@ fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Read + validate `workflows/<name>.toml` (Contract 3.7). Used by [`validate`]
-/// for the blueprint's default workflow and by `Dispatch` for an explicit
-/// workflow override. Asserts the workflow's declared name matches `name`.
+/// Read + validate a workflow file (Contract 3.7). Tries `templates/workflows/<name>.toml`
+/// first (0.5.0+ template layout), then `workflows/<name>.toml` (legacy).
 pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
-    let wf_path = repo_root.join("workflows").join(format!("{name}.toml"));
+    let wf_path = ["templates/workflows", "workflows"]
+        .iter()
+        .map(|d| repo_root.join(d).join(format!("{name}.toml")))
+        .find(|p| p.exists())
+        .with_context(|| {
+            format!("workflow '{name}' not found in templates/workflows/ or workflows/")
+        })?;
     let wf_text = std::fs::read_to_string(&wf_path)
         .with_context(|| format!("read workflow {}", wf_path.display()))?;
     let workflow: Workflow =

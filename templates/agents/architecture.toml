@@ -1,0 +1,17 @@
+# Agent role template: ARCHITECT
+# Copy to .janus/agents/ and customize per project.
+# See ADR-019 for provisioning (adapter, quota, fallback).
+
+[agent.architect]
+permissions   = ["read", "write", "bash-safe", "git-commit"]
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*"]
+
+# Uncomment and customize for your LLM provider:
+# [agent.architect.provision]
+# adapter = "claude-code"
+# command = "claude --print --dangerously-skip-permissions"
+# system_prompt = "You are the Lead Architect. Review requirements and produce design specs."
+# [agent.architect.provision.quota]
+# max_tokens_per_day = 1_000_000
+# fallback_agent = "architect_backup"

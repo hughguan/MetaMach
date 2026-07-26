@@ -30,7 +30,9 @@ fn main() {
     // Interactive invocation (no args) is blocked — every shell invocation
     // must pass through the Tool Guard. Agents use `janush -c "<cmd>"`.
     if args.is_empty() {
-        eprintln!("janush: interactive shell disabled by Tool Guard policy. Use 'janush -c <command>'.");
+        eprintln!(
+            "janush: interactive shell disabled by Tool Guard policy. Use 'janush -c <command>'."
+        );
         exit(EXIT_BLOCKED);
     }
 

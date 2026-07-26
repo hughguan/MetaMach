@@ -5,15 +5,24 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)/janus"
 
-# Ensure origin/main is up to date for the diff below.
-git fetch origin main --quiet 2>/dev/null || true
-
 # Determine what files changed in this push (matching CI paths-ignore).
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.
-# Use origin/main..HEAD instead of stdin-based ref parsing — the while-read
-# loop with set -euo pipefail doesn't reliably capture git push stdin.
+# Read the git-push refs from stdin (the pre-push hook contract).
 skip_tests=false
-changed_files=$(git diff --name-only origin/main..HEAD 2>/dev/null || true)
+changed_files=""
+refs_data="$(cat)"  # consume all stdin at once — avoids while-read + set -e issues
+if [ -n "$refs_data" ]; then
+    while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+        [ -z "$local_sha" ] && continue
+        if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+            # New branch — diff against the initial commit
+            range="$local_sha"
+        else
+            range="$remote_sha..$local_sha"
+        fi
+        changed_files="$changed_files$(git diff --name-only "$range" 2>/dev/null || true)"$'\n'
+    done <<< "$refs_data"
+fi
 if [ -n "$changed_files" ]; then
     non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
     if [ "$non_doc" -eq 0 ]; then

@@ -11,24 +11,25 @@ cargo fmt --all -- --check
 echo "=== M1: cargo clippy -D warnings ==="
 cargo clippy --all-targets -- -D warnings
 
-echo "=== M2–M5: cargo test --workspace ==="
-cargo test --workspace
-
-if [ -n "${DATABASE_URL:-}" ] || [ -n "${METAMACH_PG_SOCKET_DIR:-}" ]; then
-    echo "=== PG available — running E2E pipeline tests ==="
-    cargo test e2e || echo "⚠️  E2E tests failed (check above)"
-elif command -v pg_ctl >/dev/null 2>&1 && command -v initdb >/dev/null 2>&1; then
-    echo "=== PG not running — attempting make db-init ==="
-    if make -s -C "$(git rev-parse --show-toplevel)" db-init 2>/dev/null; then
-        export DATABASE_URL="postgres://metamach_admin@localhost:5432/metamach_db"
-        echo "=== PG ready — running E2E pipeline tests ==="
-        cargo test e2e || echo "⚠️  E2E tests failed (check above)"
-    else
-        echo "=== PG init failed — skipping E2E pipeline tests ==="
+# Auto-provision PG if pg_ctl/initdb are available (local dev).
+# In CI this is a no-op — DATABASE_URL is already set globally.
+if [ -z "${DATABASE_URL:-}" ] && [ -z "${METAMACH_PG_SOCKET_DIR:-}" ]; then
+    if command -v pg_ctl >/dev/null 2>&1 && command -v initdb >/dev/null 2>&1; then
+        echo "=== PG not running — attempting make db-init ==="
+        if make -s -C "$(git rev-parse --show-toplevel)" db-init 2>/dev/null; then
+            export DATABASE_URL="postgres://metamach_admin@/metamach_db"
+            export METAMACH_PG_SOCKET_DIR="$HOME/.local/state/herdr/plugins/metamach.janus/pg_socket"
+            echo "=== PG ready ==="
+        else
+            echo "=== PG init failed — PG-gated tests will skip ==="
+        fi
     fi
 else
-    echo "=== PG not available — skipping E2E pipeline tests ==="
+    echo "=== PG already available ==="
 fi
+
+echo "=== M2–M5: cargo test --workspace ==="
+cargo test --workspace
 
 echo ""
 echo "✅ All CI gates green — safe to push"

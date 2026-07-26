@@ -32,3 +32,23 @@ financial       = ["hi5bot --action execute"]
 [agent.default]
 bash_safe     = true
 bash_blacklist = ["rm -rf /", "> /dev/sd*", "mkfs.*", "dd if=* of=/dev/*"]
+
+# ── Template pipeline roles (ADR-028, Test-Spec Suite 2.11) ──────────────
+
+[agent.architect]
+permissions   = ["read", "write", "bash-safe", "git-commit"]
+allow_network = false
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*"]
+
+[agent.builder]
+permissions   = ["read", "write", "edit", "bash-safe", "git-commit"]
+allow_network = false
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*"]
+
+[agent.tester]
+permissions   = ["read", "write", "bash-safe", "git-commit", "git-push"]
+allow_network = false
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*"]

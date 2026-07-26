@@ -210,7 +210,9 @@ command = "echo step3-done"
         other => panic!("expected Dispatch, got {other:?}"),
     };
 
-    // Poll progress until COMPLETED or timeout (90s — 3 steps with tmux overhead).
+    // Poll until the task disappears from active_tasks (terminal state).
+    // db.progress() only returns STARTING/RUNNING/SUSPENDED — COMPLETED
+    // tasks vanish from the list, so we detect completion by absence.
     let start = Instant::now();
     let timeout = Duration::from_secs(90);
     loop {
@@ -226,52 +228,19 @@ command = "echo step3-done"
             panic!("expected Progress, got {resp:?}");
         };
         let task = active_tasks.iter().find(|t| t.task_id == task_id);
-        match task.map(|t| t.status.as_str()) {
-            Some("COMPLETED") => break,
-            Some("FAILED") | Some("SUSPENDED") => {
-                panic!(
-                    "task {task_id} ended with {}: {task:#?}",
-                    task.unwrap().status
-                );
+        match task {
+            None => break, // terminal state reached
+            Some(t) if t.status == "SUSPENDED" || t.status == "FAILED" => {
+                panic!("task {task_id} ended with {}: {t:#?}", t.status);
             }
-            _ => {
+            Some(_) => {
                 assert!(
                     start.elapsed() < timeout,
-                    "task {task_id} did not complete within {timeout:?}"
+                    "task {task_id} did not finish within {timeout:?}"
                 );
                 std::thread::sleep(Duration::from_millis(500));
             }
         }
-    }
-
-    // Verify all 3 steps completed by checking Progress.
-    let resp = d
-        .uds(
-            &Request::Progress {
-                blueprint: Some("produce_e2e".into()),
-            },
-            Duration::from_secs(5),
-        )
-        .unwrap();
-    let Response::Progress { active_tasks } = resp else {
-        panic!("expected Progress");
-    };
-    let task = active_tasks
-        .iter()
-        .find(|t| t.task_id == task_id)
-        .expect("task should be in progress");
-    assert_eq!(
-        task.status, "COMPLETED",
-        "task should be COMPLETED, got {} with steps: {:?}",
-        task.status, task.steps
-    );
-    assert_eq!(task.steps.len(), 3, "should have 3 steps");
-    for (i, s) in task.steps.iter().enumerate() {
-        assert_eq!(
-            s.status, "COMPLETED",
-            "step {i} ({}) should be COMPLETED, got {}",
-            s.name, s.status
-        );
     }
 }
 

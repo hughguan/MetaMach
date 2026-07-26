@@ -333,6 +333,7 @@ fn utc_03_01b_dispatch_step_transitions() {
             &Request::Dispatch {
                 blueprint: name.clone(),
                 workflow: None,
+                pipeline: None,
             },
             Duration::from_secs(15),
         )
@@ -543,6 +544,7 @@ command = "sleep 6"
             &Request::Dispatch {
                 blueprint: name.clone(),
                 workflow: None,
+                pipeline: None,
             },
             Duration::from_secs(15),
         )
@@ -712,6 +714,7 @@ command = "echo hi"
             &Request::Dispatch {
                 blueprint: name.clone(),
                 workflow: None,
+                pipeline: None,
             },
             Duration::from_secs(15),
         )

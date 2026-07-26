@@ -135,6 +135,7 @@ fn e2e_onboard_dispatch_returns_task_id() {
             &Request::Dispatch {
                 blueprint: "smoke_e2e".into(),
                 workflow: None,
+                pipeline: None,
             },
             Duration::from_secs(15),
         )
@@ -212,6 +213,7 @@ command = "echo step3-done"
             &Request::Dispatch {
                 blueprint: "produce_e2e".into(),
                 workflow: None,
+                pipeline: None,
             },
             Duration::from_secs(15),
         )
@@ -297,6 +299,7 @@ fn e2e_tool_guard_blocks_blacklisted() {
         &Request::Dispatch {
             blueprint: "guard_e2e".into(),
             workflow: None,
+            pipeline: None,
         },
         Duration::from_secs(15),
     )

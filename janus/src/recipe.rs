@@ -25,7 +25,14 @@ pub struct BlueprintRecipe {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlueprintSection {
     pub name: String,
+    #[serde(default = "default_wf_name")]
     pub default_workflow: String,
+    #[serde(default)]
+    pub default_pipeline: Option<String>,
+}
+
+fn default_wf_name() -> String {
+    "dev-flow".into()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,6 +106,7 @@ pub struct WorkflowStep {
 pub struct ValidatedRecipe {
     pub name: String,
     pub default_workflow: String,
+    pub default_pipeline: Option<String>,
     pub remote_host: Option<String>,
     /// SSH login user for the remote host (M4 Phase 2, `[remote] user`); `None`
     /// -> SSH default. Separate from `remote_host` (which is the host only).
@@ -203,6 +211,7 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     Ok(ValidatedRecipe {
         name: recipe.blueprint.name,
         default_workflow: recipe.blueprint.default_workflow,
+        default_pipeline: recipe.blueprint.default_pipeline,
         remote_host,
         remote_user,
         openwiki_scope: recipe.openwiki.scope,

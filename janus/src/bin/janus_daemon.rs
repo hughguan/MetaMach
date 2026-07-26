@@ -26,8 +26,9 @@ use janus::absurd::adapter::{AbsurdPgAdapter, DurableEngine};
 use janus::cognitive;
 use janus::gateway::{self, CallbackStatus, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
+use janus::pipeline::PipelineConfig;
 use janus::protocol::{GatewayVerdict, Request, Response};
-use janus::tmux::{DurableBackend, SessionId, TmuxBackend, TmuxFactory};
+use janus::tmux::{BackendFactory, DurableBackend, SessionId, TmuxBackend, TmuxFactory};
 use janus::tool_guard::webhook::{LoggingSender, TelegramSender};
 use janus::tool_guard::{Engine, Verdict, VerdictKind};
 use janus::{coldstart, lifecycle, recipe, workflow};
@@ -376,13 +377,41 @@ async fn handle_request(
         Request::Dispatch {
             blueprint,
             workflow,
+            pipeline,
         } => {
-            match handle_dispatch(db.clone(), repo_root.to_path_buf(), blueprint, workflow).await {
-                Ok(task_id) => Response::Dispatch { task_id },
-                Err(e) => Response::Error {
-                    message: e.to_string(),
-                },
+            let p_target = pipeline.or_else(|| {
+                recipe::validate(&blueprint, repo_root)
+                    .ok()
+                    .and_then(|r| r.default_pipeline)
+            });
+            if let Some(p_name) = p_target {
+                match handle_dispatch_pipeline(
+                    db.clone(),
+                    repo_root.to_path_buf(),
+                    blueprint,
+                    p_name,
+                )
+                .await
+                {
+                    Ok(task_id) => Response::Dispatch { task_id },
+                    Err(e) => Response::Error {
+                        message: e.to_string(),
+                    },
+                }
+            } else {
+                match handle_dispatch(db.clone(), repo_root.to_path_buf(), blueprint, workflow)
+                    .await
+                {
+                    Ok(task_id) => Response::Dispatch { task_id },
+                    Err(e) => Response::Error {
+                        message: e.to_string(),
+                    },
+                }
             }
+        }
+        Request::Stop { blueprint, task_id } => handle_stop(db.clone(), blueprint, task_id).await,
+        Request::Continue { blueprint, task_id } => {
+            handle_continue(db.clone(), repo_root.to_path_buf(), blueprint, task_id).await
         }
     }
 }
@@ -684,5 +713,92 @@ fn install_subscriber<S: tracing::Subscriber + Send + Sync + 'static>(subscriber
              subscriber is already set - logs may not reach {}",
             paths::log_path().display()
         );
+    }
+}
+
+async fn handle_dispatch_pipeline(
+    db: Arc<AbsurdDb>,
+    repo_root: PathBuf,
+    blueprint: String,
+    pipeline_name: String,
+) -> Result<Uuid> {
+    if !db.pg_online().await {
+        bail!("Absurd Postgres not reachable - cannot dispatch pipeline");
+    }
+    let config = PipelineConfig::load(&pipeline_name, &repo_root)?;
+    let plan = config.plan()?;
+
+    let mut first_task_id = None;
+    for level in plan.levels {
+        for node in level {
+            let tid = handle_dispatch(
+                db.clone(),
+                repo_root.clone(),
+                blueprint.clone(),
+                Some(node.workflow.clone()),
+            )
+            .await?;
+            if first_task_id.is_none() {
+                first_task_id = Some(tid);
+            }
+        }
+    }
+    Ok(first_task_id.unwrap_or_else(Uuid::new_v4))
+}
+
+async fn handle_stop(
+    db: Arc<AbsurdDb>,
+    blueprint: Option<String>,
+    task_id: Option<Uuid>,
+) -> Response {
+    match db.progress(blueprint.as_deref()).await {
+        Ok(tasks) => {
+            let factory = TmuxFactory::new(None);
+            let mut stopped_count = 0;
+            for t in tasks {
+                if let Some(tid) = task_id
+                    && t.task_id != tid
+                {
+                    continue;
+                }
+                let session = SessionId::new_for_task(&format!("{}-0", t.task_id));
+                let backend = factory.get(None);
+                let _ = backend.kill_session(&session);
+
+                if let Ok(Some(pool)) = db.blueprint_pool(&t.blueprint_id).await {
+                    let step_name = t.current_step.as_deref().unwrap_or("");
+                    let _ = sqlx::query(
+                        "UPDATE metamach_step_meta SET status = 'STOPPED' WHERE task_id = $1 AND step_name = $2",
+                    )
+                    .bind(t.task_id)
+                    .bind(step_name)
+                    .execute(&pool)
+                    .await;
+                }
+                stopped_count += 1;
+            }
+            Response::Ok {
+                message: format!("Stopped {stopped_count} active step task(s)"),
+            }
+        }
+        Err(e) => Response::Error {
+            message: format!("stop failed: {e}"),
+        },
+    }
+}
+
+async fn handle_continue(
+    db: Arc<AbsurdDb>,
+    repo_root: PathBuf,
+    _blueprint: Option<String>,
+    _task_id: Option<Uuid>,
+) -> Response {
+    match coldstart::reconcile(db, Arc::new(repo_root)).await {
+        Ok(resumed) => Response::Ok {
+            message: format!("Reconciled and resumed {resumed} task(s)"),
+        },
+        Err(e) => Response::Error {
+            message: format!("continue failed: {e}"),
+        },
     }
 }

@@ -1044,6 +1044,7 @@ mod tests {
         ValidatedRecipe {
             name: "testbp".to_string(),
             default_workflow: "test-flow".to_string(),
+            default_pipeline: None,
             remote_host: None,
             remote_user: None,
             openwiki_scope: vec!["test".to_string()],
@@ -1356,6 +1357,7 @@ mod tests {
         let recipe = ValidatedRecipe {
             name: "gate".to_string(),
             default_workflow: "test-flow".to_string(),
+            default_pipeline: None,
             remote_host: None,
             remote_user: None,
             openwiki_scope: vec![],
@@ -1468,6 +1470,7 @@ mod tests {
         let recipe = ValidatedRecipe {
             name: "gatemetric".to_string(),
             default_workflow: "fw".to_string(),
+            default_pipeline: None,
             remote_host: None,
             remote_user: None,
             openwiki_scope: vec![],

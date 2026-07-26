@@ -36,13 +36,31 @@ pub enum Request {
     Onboard { name: String },
     /// `janus offboard --blueprint <name>` (Task 4.2).
     Offboard { name: String },
-    /// Dispatch a blueprint's workflow onto the absurd engine (M4 Task 4.1
-    /// Phase 0b, Contract 3.11). `workflow` overrides the blueprint's
-    /// `default_workflow`; `None` uses the default. Returns the absurd-minted
-    /// `task_id` immediately - the step loop runs detached on the daemon.
+    /// Dispatch a blueprint's execution onto the absurd engine.
+    /// Supports 3 tiers:
+    /// 1. Blueprint default (uses default_pipeline if present, else default_workflow)
+    /// 2. Workflow override (`workflow: Some(...)`)
+    /// 3. Pipeline DAG override (`pipeline: Some(...)`)
     Dispatch {
         blueprint: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         workflow: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pipeline: Option<String>,
+    },
+    /// Halt active workflow/step execution for a blueprint or task_id.
+    Stop {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        blueprint: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task_id: Option<Uuid>,
+    },
+    /// Resume non-terminal/stopped tasks from last COMPLETED step checkpoint.
+    Continue {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        blueprint: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task_id: Option<Uuid>,
     },
     /// HITL gate action from the Observer TUI (ADR-020): approve or reject a
     /// SUSPENDED step. Uses `task_id` so the daemon can resolve the correlation_id

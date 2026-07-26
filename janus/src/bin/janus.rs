@@ -21,6 +21,7 @@ use janus::pipeline::PipelineConfig;
 use janus::protocol::{ActiveTask, ProgressPayload, Request, Response};
 use janus::tmux::DurableBackend;
 use janus::{spawn, tmux, uds};
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(
@@ -48,15 +49,45 @@ enum CliCommand {
     Daemon,
     /// Register / reactivate a blueprint (Feature-Spec §2.5, Task 4.3).
     Onboard {
-        /// Blueprint name (validated against .janus/blueprint.toml).
-        #[arg(long)]
-        blueprint: String,
+        /// Blueprint name (defaults to current directory name).
+        #[arg(short, long)]
+        blueprint: Option<String>,
     },
     /// Smelt execution traces + prune DB cache (Feature-Spec §2.5, Task 4.2).
     Offboard {
-        /// Blueprint name to offboard.
+        /// Blueprint name to offboard (defaults to current directory name).
+        #[arg(short, long)]
+        blueprint: Option<String>,
+    },
+    /// Dispatch blueprint execution (blueprint default, workflow, or pipeline DAG).
+    Dispatch {
+        /// Blueprint name to dispatch (defaults to current directory name).
+        #[arg(short, long)]
+        blueprint: Option<String>,
+        /// Optional workflow name override.
+        #[arg(short, long, group = "target")]
+        workflow: Option<String>,
+        /// Optional pipeline DAG name override.
+        #[arg(short, long, group = "target")]
+        pipeline: Option<String>,
+    },
+    /// Stop active step session(s) for a blueprint or task.
+    Stop {
+        /// Blueprint name.
+        #[arg(short, long)]
+        blueprint: Option<String>,
+        /// Task ID.
         #[arg(long)]
-        blueprint: String,
+        task_id: Option<Uuid>,
+    },
+    /// Resume stopped/non-terminal tasks from last COMPLETED step checkpoint.
+    Continue {
+        /// Blueprint name.
+        #[arg(short, long)]
+        blueprint: Option<String>,
+        /// Task ID.
+        #[arg(long)]
+        task_id: Option<Uuid>,
     },
     /// Manage tmux physical sessions (Task 2.4, `janus::tmux`).
     Tmux {
@@ -73,6 +104,15 @@ enum CliCommand {
         /// Project directory (defaults to current directory).
         #[arg(default_value = ".")]
         path: PathBuf,
+    },
+    /// Generate a Pipeline TOML from a natural-language description (ADR-022).
+    Plan {
+        /// Blueprint name (defaults to current directory name).
+        #[arg(short, long)]
+        blueprint: Option<String>,
+        /// Natural-language description of the desired pipeline.
+        #[arg(long)]
+        description: String,
     },
 }
 
@@ -105,9 +145,9 @@ enum TmuxCmd {
 enum PipelineCmd {
     /// Generate a Pipeline TOML from a natural-language description (ADR-022).
     Plan {
-        /// Blueprint name (for context — the pipeline will be named after it).
-        #[arg(long)]
-        blueprint: String,
+        /// Blueprint name (defaults to current directory name).
+        #[arg(short, long)]
+        blueprint: Option<String>,
         /// Natural-language description of the desired pipeline.
         #[arg(long)]
         description: String,
@@ -119,15 +159,67 @@ enum PipelineCmd {
     },
 }
 
+fn resolve_blueprint_name(bp_opt: Option<String>) -> Result<String> {
+    if let Some(name) = bp_opt
+        && !name.trim().is_empty()
+    {
+        return Ok(name);
+    }
+    let cwd = std::env::current_dir().context("get current working directory")?;
+    let folder_name = cwd
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| anyhow::anyhow!("cannot derive blueprint name from current directory"))?;
+    Ok(folder_name.to_string())
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         CliCommand::Status { blueprint, json } => status(blueprint, json),
         CliCommand::Daemon => daemon(),
-        CliCommand::Onboard { blueprint } => lifecycle_cmd(Request::Onboard { name: blueprint }),
-        CliCommand::Offboard { blueprint } => lifecycle_cmd(Request::Offboard { name: blueprint }),
+        CliCommand::Onboard { blueprint } => {
+            let bp = resolve_blueprint_name(blueprint)?;
+            lifecycle_cmd(Request::Onboard { name: bp })
+        }
+        CliCommand::Offboard { blueprint } => {
+            let bp = resolve_blueprint_name(blueprint)?;
+            lifecycle_cmd(Request::Offboard { name: bp })
+        }
+        CliCommand::Dispatch {
+            blueprint,
+            workflow,
+            pipeline,
+        } => {
+            let bp = resolve_blueprint_name(blueprint)?;
+            dispatch(bp, workflow, pipeline)
+        }
+        CliCommand::Stop { blueprint, task_id } => {
+            let bp = if blueprint.is_some() || task_id.is_none() {
+                Some(resolve_blueprint_name(blueprint)?)
+            } else {
+                None
+            };
+            stop(bp, task_id)
+        }
+        CliCommand::Continue { blueprint, task_id } => {
+            let bp = if blueprint.is_some() || task_id.is_none() {
+                Some(resolve_blueprint_name(blueprint)?)
+            } else {
+                None
+            };
+            continue_cmd(bp, task_id)
+        }
         CliCommand::Tmux { cmd } => tmux(cmd),
         CliCommand::Pipeline { cmd } => pipeline(cmd),
         CliCommand::Init { path } => init_project(&path),
+        CliCommand::Plan {
+            blueprint,
+            description,
+        } => {
+            let bp = resolve_blueprint_name(blueprint)?;
+            let repo_root = janus::paths::repo_root();
+            plan_pipeline(&bp, &description, &repo_root)
+        }
     }
 }
 
@@ -179,6 +271,55 @@ fn lifecycle_cmd(req: Request) -> Result<()> {
     match resp {
         Response::Ok { message } => {
             println!("{message}");
+            Ok(())
+        }
+        Response::Error { message } => bail!(message),
+        other => bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+fn dispatch(blueprint: String, workflow: Option<String>, pipeline: Option<String>) -> Result<()> {
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
+    }
+    let resp = uds::request(&Request::Dispatch {
+        blueprint: blueprint.clone(),
+        workflow,
+        pipeline,
+    })?;
+    match resp {
+        Response::Dispatch { task_id } => {
+            println!("🚀 Dispatched blueprint '{blueprint}' (task_id: {task_id})");
+            Ok(())
+        }
+        Response::Error { message } => bail!(message),
+        other => bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+fn stop(blueprint: Option<String>, task_id: Option<uuid::Uuid>) -> Result<()> {
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
+    }
+    let resp = uds::request(&Request::Stop { blueprint, task_id })?;
+    match resp {
+        Response::Ok { message } => {
+            println!("🛑 {message}");
+            Ok(())
+        }
+        Response::Error { message } => bail!(message),
+        other => bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+fn continue_cmd(blueprint: Option<String>, task_id: Option<uuid::Uuid>) -> Result<()> {
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
+    }
+    let resp = uds::request(&Request::Continue { blueprint, task_id })?;
+    match resp {
+        Response::Ok { message } => {
+            println!("🔄 {message}");
             Ok(())
         }
         Response::Error { message } => bail!(message),
@@ -327,7 +468,10 @@ fn pipeline(cmd: PipelineCmd) -> Result<()> {
         PipelineCmd::Plan {
             blueprint,
             description,
-        } => plan_pipeline(&blueprint, &description, &repo_root),
+        } => {
+            let bp = resolve_blueprint_name(blueprint)?;
+            plan_pipeline(&bp, &description, &repo_root)
+        }
         PipelineCmd::Validate { path } => validate_pipeline(&path),
     }
 }
@@ -520,5 +664,22 @@ mod tests {
         let path = dir.path().join("ok.toml");
         std::fs::write(&path, toml).unwrap();
         validate_pipeline(&path).expect("valid pipeline");
+    }
+
+    #[test]
+    fn test_resolve_blueprint_name() {
+        assert_eq!(
+            resolve_blueprint_name(Some("explicit_bp".to_string())).unwrap(),
+            "explicit_bp"
+        );
+        let cwd_bp = resolve_blueprint_name(None).unwrap();
+        let expected_cwd = std::env::current_dir()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(cwd_bp, expected_cwd);
     }
 }

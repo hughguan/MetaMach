@@ -30,7 +30,13 @@ else
 fi
 
 echo "=== M2–M5: cargo test --workspace ==="
-cargo test --workspace
+# Run tests sequentially when PG is available — parallel daemon spawning
+# can exhaust local PG connections (CI's Docker PG handles parallelism fine).
+if [ -n "${DATABASE_URL:-}" ] || [ -n "${METAMACH_PG_SOCKET_DIR:-}" ]; then
+    RUST_TEST_THREADS=1 cargo test --workspace
+else
+    cargo test --workspace
+fi
 
 echo ""
 echo "✅ All CI gates green — safe to push"

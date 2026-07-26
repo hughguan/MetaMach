@@ -427,6 +427,14 @@ where
                 let exit_code = match exit {
                     Ok(c) => c,
                     Err(e) => {
+                        let status = db.step_status(&recipe.name, task_id, &step.name).await?;
+                        if matches!(status.as_deref(), Some("STOPPED")) {
+                            tracing::info!(step = %step.name, %task_id, "step stopped by user");
+                            return Ok(StepOutcome::Suspended {
+                                step_idx: idx,
+                                step_name: step.name.clone(),
+                            });
+                        }
                         // Lease-lost (absurd auto-failed the run) or poll error.
                         warn!(step = %step.name, %task_id, error = %e, "step poll failed");
                         db.finalize_step(
@@ -449,22 +457,17 @@ where
                 // ambiguous: it's also daemon-unreachable fail-closed).
                 let status = db.step_status(&recipe.name, task_id, &step.name).await?;
                 match status.as_deref() {
-                    Some("SUSPENDED") => {
+                    Some("SUSPENDED") | Some("STOPPED") => {
+                        let target_status = status.as_deref().unwrap_or("SUSPENDED");
                         db.finalize_step(
                             &recipe.name,
                             task_id,
                             &step.name,
-                            "SUSPENDED",
+                            target_status,
                             None,
                             stdout_tail.as_deref(),
                         )
                         .await?;
-                        // NOTE: no absurd `set_checkpoint` here - a SUSPENDED checkpoint
-                        // would make `await_event` return Resolved (its first check sees
-                        // any checkpoint) instead of Suspended, so the run would never
-                        // sleep + the engine would misread it as a verdict. The overlay
-                        // `finalize_step` above (status=SUSPENDED) is enough for the
-                        // dashboard; the verdict checkpoint is written by `emit_event`.
                         return Ok(StepOutcome::Suspended {
                             step_idx: idx,
                             step_name: step.name.clone(),

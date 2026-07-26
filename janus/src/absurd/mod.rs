@@ -129,10 +129,23 @@ impl AbsurdDb {
             return Ok(None);
         };
         let db_name = format!("metamach_blueprint_{}", sanitize_ident(name));
+        if let Some(catalog) = self.catalog_pool().await {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
+                    .bind(&db_name)
+                    .fetch_one(&catalog)
+                    .await
+                    .unwrap_or(false);
+            if !exists {
+                return Ok(None);
+            }
+        }
         let opts = base.database(&db_name);
         match PgPoolOptions::new()
+            .min_connections(0)
             .max_connections(2)
-            .idle_timeout(Duration::from_secs(5))
+            .acquire_timeout(Duration::from_millis(500))
+            .idle_timeout(Duration::from_secs(2))
             .connect_with(opts)
             .await
         {
@@ -271,10 +284,11 @@ impl AbsurdDb {
         };
         let mut all = Vec::new();
         for name in names {
-            let Some(pool) = self.blueprint_pool(&name).await? else {
-                continue;
+            let pool = match self.blueprint_pool(&name).await {
+                Ok(Some(p)) => p,
+                _ => continue,
             };
-            let rows: Vec<MetaRow> = sqlx::query_as(
+            let rows: Vec<MetaRow> = match sqlx::query_as(
                 "SELECT task_id, step_name, status, exit_code, stdout_tail, started_at, \
                         blueprint_name, workflow_name, session_name \
                  FROM metamach_step_meta \
@@ -282,7 +296,11 @@ impl AbsurdDb {
                  ORDER BY task_id, step_name",
             )
             .fetch_all(&pool)
-            .await?;
+            .await
+            {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
             if rows.is_empty() {
                 continue;
             }
@@ -754,11 +772,22 @@ impl AbsurdDb {
     /// Task 4.1: non-terminal tasks at cold start, each with its last `COMPLETED`
     /// step (the resume breakpoint). Fans out across ACTIVE blueprint DBs. Empty
     /// in degraded mode.
-    pub async fn cold_start_running_tasks(&self) -> Result<Vec<ColdStartTask>> {
-        let blueprints = self.active_blueprints().await?;
+    pub async fn cold_start_running_tasks(
+        &self,
+        blueprint: Option<&str>,
+    ) -> Result<Vec<ColdStartTask>> {
+        let names: Vec<String> = match blueprint {
+            Some(n) => vec![n.to_string()],
+            None => self
+                .active_blueprints()
+                .await?
+                .into_iter()
+                .map(|b| b.name)
+                .collect(),
+        };
         let mut all = Vec::new();
-        for b in blueprints {
-            let Some(pool) = self.blueprint_pool(&b.name).await? else {
+        for name in names {
+            let Some(pool) = self.blueprint_pool(&name).await? else {
                 continue;
             };
             let rows: Vec<ColdStartRow> = sqlx::query_as(
@@ -767,11 +796,12 @@ impl AbsurdDb {
                          WHERE s2.task_id = m.task_id AND s2.status = 'COMPLETED' \
                          ORDER BY s2.updated_at DESC LIMIT 1) AS last_completed_step \
                  FROM metamach_step_meta m \
-                 WHERE m.status IN ('STARTING','RUNNING','SUSPENDED') \
+                 WHERE m.status IN ('STARTING','RUNNING','SUSPENDED','STOPPED') \
                  ORDER BY task_id, CASE m.status WHEN 'SUSPENDED' THEN 0 \
                                                 WHEN 'RUNNING' THEN 1 \
                                                 WHEN 'STARTING' THEN 2 \
-                                                ELSE 3 END",
+                                                WHEN 'STOPPED' THEN 3 \
+                                                ELSE 4 END",
             )
             .fetch_all(&pool)
             .await?;

@@ -380,7 +380,12 @@ fn utc_03_01b_dispatch_step_transitions() {
             if out.status.success() {
                 return out;
             }
-            if attempt < 9 {
+            let err_msg = String::from_utf8_lossy(&out.stderr);
+            if err_msg.contains("too many clients") && attempt < 14 {
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+            if attempt < 14 {
                 std::thread::sleep(Duration::from_millis(150));
             } else {
                 return out;
@@ -408,7 +413,7 @@ fn utc_03_01b_dispatch_step_transitions() {
             saw_tmux_alive = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(100));
     }
     assert!(saw_tmux_alive, "never observed tmux_alive=true mid-run");
 
@@ -432,7 +437,21 @@ fn utc_03_01b_dispatch_step_transitions() {
             panic!("absurd task failed mid-execution: {stdout_meta}");
         }
         if Instant::now() > final_deadline {
-            panic!("absurd task did not reach completed within 60s: {state_str}");
+            let meta = psql(format!(
+                "SELECT step_name, status, exit_code, stdout_tail FROM metamach_step_meta WHERE task_id = '{task_id}'"
+            ));
+            let stdout_meta = String::from_utf8_lossy(&meta.stdout);
+            let active = d
+                .uds(
+                    &Request::Progress {
+                        blueprint: Some(name.clone()),
+                    },
+                    Duration::from_secs(5),
+                )
+                .unwrap();
+            panic!(
+                "absurd task did not reach completed within 60s: state={state_str}, meta={stdout_meta}, active={active:?}"
+            );
         }
         std::thread::sleep(Duration::from_millis(300));
     }

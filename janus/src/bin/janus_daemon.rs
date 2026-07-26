@@ -70,7 +70,7 @@ async fn run() -> Result<()> {
         let repo_root = repo_root.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(3)).await;
-            if let Err(e) = coldstart::reconcile(db, repo_root).await {
+            if let Err(e) = coldstart::reconcile(db, repo_root, None).await {
                 warn!("cold-start reconcile failed: {e}");
             }
         });
@@ -201,19 +201,20 @@ async fn handle_request(
             },
         },
         Request::Progress { blueprint } => match db.progress(blueprint.as_deref()).await {
-            Ok(mut tasks) => {
-                // tmux_alive second pass (design §0.5): the DB layer attaches each
-                // task's current-step `session_name`; the daemon (holding the
-                // DurableBackend) checks liveness and flips `tmux_alive`. Keeps
-                // AbsurdDb decoupled from tmux. A missing tmux binary / lost
-                // session -> `unwrap_or(false)` (fail-safe, not an error).
-                let backend = TmuxBackend::new();
-                for t in tasks.iter_mut() {
-                    if let Some(sn) = t.session_name.as_deref() {
-                        let id = SessionId::from_name(sn.to_string());
-                        t.tmux_alive = backend.has_session(&id).unwrap_or(false);
+            Ok(tasks) => {
+                let tasks = tokio::task::spawn_blocking(move || {
+                    let mut tasks = tasks;
+                    let backend = TmuxBackend::new();
+                    for t in tasks.iter_mut() {
+                        if let Some(sn) = t.session_name.as_deref() {
+                            let id = SessionId::from_name(sn.to_string());
+                            t.tmux_alive = backend.has_session(&id).unwrap_or(false);
+                        }
                     }
-                }
+                    tasks
+                })
+                .await
+                .unwrap_or_default();
                 Response::Progress {
                     active_tasks: tasks,
                 }
@@ -804,10 +805,10 @@ async fn handle_stop(
 async fn handle_continue(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
-    _blueprint: Option<String>,
+    blueprint: Option<String>,
     _task_id: Option<Uuid>,
 ) -> Response {
-    match coldstart::reconcile(db, Arc::new(repo_root)).await {
+    match coldstart::reconcile(db, Arc::new(repo_root), blueprint.as_deref()).await {
         Ok(resumed) => Response::Ok {
             message: format!("Reconciled and resumed {resumed} task(s)"),
         },

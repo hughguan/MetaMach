@@ -28,8 +28,12 @@ use crate::workflow;
 /// task, spawn [`workflow::run_workflow`] detached to resume it from the last
 /// `COMPLETED` checkpoint. `SUSPENDED` tasks are left for the HITL resume loop.
 /// Returns the number of tasks spawned for resume.
-pub async fn reconcile(db: Arc<AbsurdDb>, repo_root: Arc<PathBuf>) -> Result<usize> {
-    let tasks = db.cold_start_running_tasks().await?;
+pub async fn reconcile(
+    db: Arc<AbsurdDb>,
+    repo_root: Arc<PathBuf>,
+    blueprint: Option<&str>,
+) -> Result<usize> {
+    let tasks = db.cold_start_running_tasks(blueprint).await?;
     if tasks.is_empty() {
         info!("cold-start: no non-terminal tasks to resume");
         return Ok(0);
@@ -51,7 +55,7 @@ pub async fn reconcile(db: Arc<AbsurdDb>, repo_root: Arc<PathBuf>) -> Result<usi
     for t in &tasks {
         // Resume only STARTING/RUNNING (interrupted by a crash). SUSPENDED tasks
         // await HITL approval - the resume loop is a follow-on.
-        if !matches!(t.status.as_str(), "STARTING" | "RUNNING") {
+        if !matches!(t.status.as_str(), "STARTING" | "RUNNING" | "STOPPED") {
             warn!(
                 task_id = %t.task_id,
                 blueprint = %t.blueprint,

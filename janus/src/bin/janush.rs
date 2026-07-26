@@ -27,10 +27,11 @@ fn main() {
     let argv: Vec<String> = std::env::args().collect();
     let args = &argv[1..];
 
-    // An interactive invocation (no args) isn't intercepted - just run /bin/sh.
-    // (tmux-launched agent panes always use `-c "<cmd>"`.)
+    // Interactive invocation (no args) is blocked — every shell invocation
+    // must pass through the Tool Guard. Agents use `janush -c "<cmd>"`.
     if args.is_empty() {
-        exec_sh(args);
+        eprintln!("janush: interactive shell disabled by Tool Guard policy. Use 'janush -c <command>'.");
+        exit(EXIT_BLOCKED);
     }
 
     let req = build_guard_check(args);

@@ -4,6 +4,14 @@ All notable changes to MetaMach are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - Unreleased
+
+### Changed
+- **Project-based templates (ADR-029)**: All per-project config consolidated under `.janus/`.
+  Blueprint recipe moved from `blueprints/<name>/janus.toml` → `.janus/blueprint.toml`.
+  `janus init` scaffolds `.janus/` with blueprint, agents, workflows, and pipelines.
+  Daemon reads `.janus/blueprint.toml` and searches `.janus/workflows/` in lookup path.
+- `clippy::uninlined-format-args` fix for Rust 1.83+ compatibility.
 
 ## [0.4.3] - 2026-07-24
 

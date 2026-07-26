@@ -424,6 +424,16 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Rationale** | Mock-agent tests give CI confidence that the pipeline mechanics work end-to-end (DAG → Dispatch → Progress → COMPLETED → git commit) without the cost, flakiness, and API key dependency of real LLMs. Manual validation with real agents catches integration issues that mocks can't (LLM prompt quality, real output format, actual API behavior). The `software-dev` blueprint serves as both the CI test fixture and the manual validation target. |
 | **Status** | 📋 Spec'd Only — 0.4.9.4 implementation (0.5.0 prep). |
 
+## ADR-029: Project-Based Templates — `.janus/` as Sole Config Directory (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | Before 0.5.0, per-project configuration was scattered: blueprint recipe at `blueprints/<name>/janus.toml`, openwiki content at `blueprints/<name>/openwiki/`, workflow definitions at `workflows/` or `templates/workflows/`, pipeline definitions at `pipelines/` or `templates/pipelines/`, and agent overrides at `.janus/agents/`. This required the daemon to search multiple directory roots and made `janus init` scatter files into inconsistent locations. The `blueprints/` prefix was also redundant: the blueprint *name* is in the TOML, not the directory path. |
+| **Options Considered** | (1) Keep `blueprints/<name>/janus.toml` + scattered workflow/pipeline dirs, (2) Consolidate everything under `.janus/` — single source of truth per project, (3) Put everything in project root with individual dotfiles (no `.janus/` directory). |
+| **Decision** | **Adopted** — Option (2): all per-project MetaMach configuration lives under `.janus/`. The blueprint recipe moves from `blueprints/<name>/janus.toml` to `.janus/blueprint.toml`. `janus init` copies templates into `.janus/agents/`, `.janus/workflows/`, `.janus/pipelines/`, and creates `.janus/blueprint.toml`. The daemon searches `.janus/workflows/` first (before `templates/workflows/` and `workflows/`). `load_previous_incidents` reads from `.janus/openwiki/production_report.md`. Backward-compatible: `load_workflow` still checks `templates/workflows/` and `workflows/` as fallbacks. |
+| **Rationale** | Single `.janus/` root eliminates directory ambiguity. The daemon only needs one path: `repo_root.join(".janus")`. The `blueprints/` convention was a misfeature — the blueprint name is a TOML field, not a directory name, so path-traversal via `..`/`/` was already mitigated by `validate_name()`. Configuration that ships with MetaMach (`templates/`) remains separate from project-local overrides (`.janus/`). |
+| **Status** | ✅ Implemented — `janus init` scaffolds `.janus/` from `templates/`. `recipe::validate()` and `recipe::load_recipe()` read `.janus/blueprint.toml`. `load_workflow` checks `.janus/workflows/` in search path. All 168 tests pass, CI green. |
+
 ---
 
 ## Appendix: Decision Status Legend

@@ -94,7 +94,7 @@ pub async fn onboard(db: &AbsurdDb, name: &str, repo_root: &Path) -> Result<Onbo
             "Absurd Postgres not reachable - cannot register tenant (start it with `make db-up`)"
         );
     }
-    pre_ignition_checks(&recipe);
+    pre_ignition_checks(&recipe).await;
 
     // Step 3: idempotent tenant registration (INSERT ... ON CONFLICT DO UPDATE).
     let reactivated = db.register_blueprint(&recipe).await?;
@@ -140,29 +140,30 @@ pub async fn onboard(db: &AbsurdDb, name: &str, repo_root: &Path) -> Result<Onbo
 /// Best-effort pre-ignition checks (Feature-Spec §2.5.2). tmux + remote SSH are
 /// WARN-only (offline Onboard first, fill target later). PG is hard-required
 /// (checked by the caller).
-fn pre_ignition_checks(recipe: &recipe::ValidatedRecipe) {
-    if !tmux_ready() {
+async fn pre_ignition_checks(recipe: &recipe::ValidatedRecipe) {
+    if !tmux_ready().await {
         warn!("pre-ignition: tmux not ready (tmux sessions need it) - continuing");
     }
     if let Some(host) = recipe.remote_host.as_deref()
-        && !ssh_probe(host)
+        && !ssh_probe(host).await
     {
         warn!("pre-ignition: remote host {host} unreachable - continuing (WARN only)");
     }
 }
 
-fn tmux_ready() -> bool {
-    std::process::Command::new("tmux")
+async fn tmux_ready() -> bool {
+    tokio::process::Command::new("tmux")
         .arg("-V")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
+        .await
         .is_ok()
 }
 
 /// Best-effort SSH connectivity probe (`-o ConnectTimeout=5 -o BatchMode`).
-fn ssh_probe(host: &str) -> bool {
-    std::process::Command::new("ssh")
+async fn ssh_probe(host: &str) -> bool {
+    tokio::process::Command::new("ssh")
         .args([
             "-o",
             "ConnectTimeout=5",
@@ -176,6 +177,7 @@ fn ssh_probe(host: &str) -> bool {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
+        .await
         .map(|s| s.success())
         .unwrap_or(false)
 }
@@ -248,8 +250,16 @@ pub async fn offboard(
     // Step 4: mark the blueprint OFFBOARDED.
     db.set_blueprint_offboarded(name).await?;
 
-    // Step 5: best-effort git commit/push of the report.
-    let git = git_commit_report(repo_root, name, &report_path);
+    // Step 5: best-effort git commit/push of the report (blocking git ops
+    // off-loaded to a blocking thread to avoid stalling the Tokio runtime).
+    let repo_owned = repo_root.to_path_buf();
+    let name_owned = name.to_string();
+    let report_owned = report_path.clone();
+    let git = tokio::task::spawn_blocking(move || {
+        git_commit_report(&repo_owned, &name_owned, &report_owned)
+    })
+    .await
+    .unwrap_or(None);
 
     info!(%name, purged_rows, llm_used, "blueprint offboarded");
     Ok(OffboardResult {

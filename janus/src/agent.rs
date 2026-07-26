@@ -106,7 +106,7 @@ pub enum ProbeOutcome {
 
 /// Run the pre-flight probe for `command` if the agent has one configured.
 /// Returns the probe outcome (Bypass / RequireApproval / NoProbe).
-pub fn run_preflight(provision: Option<&AgentProvision>, command: &str) -> ProbeOutcome {
+pub async fn run_preflight(provision: Option<&AgentProvision>, command: &str) -> ProbeOutcome {
     let cfg = match provision.and_then(|p| p.preflight.as_ref()) {
         Some(c) => c,
         None => return ProbeOutcome::NoProbe,
@@ -117,10 +117,11 @@ pub fn run_preflight(provision: Option<&AgentProvision>, command: &str) -> Probe
     };
     // Expand $CMD in the probe script.
     let expanded = probe_cmd.replace("$CMD", &shell_quote_for_probe(command));
-    let result = std::process::Command::new("/bin/sh")
+    let result = tokio::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(&expanded)
-        .output();
+        .output()
+        .await;
     match result {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -430,8 +431,8 @@ bash_blacklist = ["rm -rf /"]
         assert!(cfg.probe_for("make flash").is_some());
     }
 
-    #[test]
-    fn run_preflight_no_probe_returns_no_probe() {
+    #[tokio::test]
+    async fn run_preflight_no_probe_returns_no_probe() {
         let prov = AgentProvision {
             adapter: "claude-code".into(),
             command: None,
@@ -439,12 +440,12 @@ bash_blacklist = ["rm -rf /"]
             quota: None,
             preflight: None,
         };
-        let outcome = run_preflight(Some(&prov), "esptool.py write_flash");
+        let outcome = run_preflight(Some(&prov), "esptool.py write_flash").await;
         assert!(matches!(outcome, ProbeOutcome::NoProbe));
     }
 
-    #[test]
-    fn run_preflight_bypass_when_probe_exits_zero_with_bypass() {
+    #[tokio::test]
+    async fn run_preflight_bypass_when_probe_exits_zero_with_bypass() {
         let cfg = PreflightConfig {
             esptool_write: Some("echo BYPASS".into()),
             generic: None,
@@ -456,12 +457,12 @@ bash_blacklist = ["rm -rf /"]
             quota: None,
             preflight: Some(cfg),
         };
-        let outcome = run_preflight(Some(&prov), "esptool.py write_flash");
+        let outcome = run_preflight(Some(&prov), "esptool.py write_flash").await;
         assert!(matches!(outcome, ProbeOutcome::Bypass));
     }
 
-    #[test]
-    fn run_preflight_require_approval_when_probe_fails() {
+    #[tokio::test]
+    async fn run_preflight_require_approval_when_probe_fails() {
         let cfg = PreflightConfig {
             esptool_write: Some("exit 1".into()),
             generic: None,
@@ -473,7 +474,7 @@ bash_blacklist = ["rm -rf /"]
             quota: None,
             preflight: Some(cfg),
         };
-        let outcome = run_preflight(Some(&prov), "esptool.py write_flash");
+        let outcome = run_preflight(Some(&prov), "esptool.py write_flash").await;
         assert!(matches!(outcome, ProbeOutcome::RequireApproval));
     }
 }

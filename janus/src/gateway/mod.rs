@@ -172,7 +172,9 @@ impl Gateway {
     pub async fn bind_listener(
         self: Arc<Self>,
     ) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-        let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.listen_port).parse().unwrap();
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{}", self.listen_port)
+            .parse()
+            .expect("127.0.0.1:<port> is always a valid SocketAddr");
         let listener = TcpListener::bind(addr).await?;
         let bound = listener.local_addr()?;
         info!(%bound, "HITL gateway callback listener bound");

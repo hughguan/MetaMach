@@ -2,30 +2,52 @@
 
 ## Project Structure
 
-MetaMach is a **specification-first repository with a working Rust implementation**. The 0.3.0 consensus (M0–M4 + de-containerization, native PG, F1 multi-DB, `janus::tmux` internalization) is built and CI-green. Current layout:
+MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.5.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates. 171 tests, CI-green. Current layout:
 
 ```
 metamach/
-├── docs/                # ✅ English specs (source of truth) + ARCH-0.2.0/0.3.0/0.4.0 deltas
+├── docs/                # ✅ English specs (source of truth) + ADR.md (29 decisions)
 ├── docs/CH/             # ❌ gitignored - Chinese translations & audit artifacts
-├── janus/               # ✅ Rust workspace (4 binaries + shared lib, ~2,800 LOC)
+├── janus/               # ✅ Rust workspace (4 binaries + shared lib, ~11,000 LOC)
 │   ├── src/bin/         #   janus, janus-daemon, herdr-janus, janush
-│   ├── src/{absurd,tmux,tool_guard,lifecycle,protocol,uds,recipe,coldstart,spawn,paths}.rs
-│   ├── migrations/      #   001_catalog.sql, 002_blueprint.sql
-│   └── tests/           #   integration tests (tmux.rs)
-├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml, tmux.conf
-├── workflows/           # ✅ Declarative .toml pipelines (dev-flow, firmware-deploy)
-├── blueprints/          # ✅ Product blueprints (gatemetric, joyrobots) + per-blueprint openwiki/
+│   ├── src/absurd/      #   Postgres adapter + SQLite fallback ring
+│   ├── src/tmux/        #   PTY session engine (remain-on-exit)
+│   ├── src/tool_guard/  #   Rule engine + webhook dispatch
+│   ├── src/gateway/     #   HITL Gateway (Teams Adaptive Cards, HMAC)
+│   ├── src/cognitive/   #   Cognitive Provider SPI (MCP)
+│   ├── src/workflow/    #   Workflow engine + stream filter
+│   ├── src/{agent,coldstart,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
+│   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
+│   └── tests/           #   8 integration test files (171 tests total)
+├── templates/           # ✅ `janus init` scaffolds from here
+│   ├── blueprint.toml   #   Default project recipe
+│   ├── agents/          #   Architect, Builder, Tester role templates
+│   ├── workflows/       #   12 workflow templates
+│   └── pipelines/       #   req2spec, spec2software, adr-process DAGs
+├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
+├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
-├── .github/workflows/   # ✅ ci.yml (native PG service, fmt + clippy -D warnings + test)
+├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 171 tests)
 ├── Makefile             # ✅ bootstrap/db-init/db-backup/health/uninstall/...
 ├── CLAUDE.md            # AI agent guidance for Claude Code
 └── AGENTS.md            # This file
 ```
 
+**Per-project layout** (after `janus init` in a target project):
+```
+my-project/
+├── .janus/              # All MetaMach config for this project (ADR-029)
+│   ├── blueprint.toml   #   [blueprint] name, default_workflow, [remote], [openwiki]
+│   ├── agents/          #   Project-specific agent role overrides
+│   ├── workflows/       #   Workflow definitions (step sequences)
+│   ├── pipelines/       #   DAG pipeline definitions (nodes + needs edges)
+│   └── openwiki/        #   RAG knowledge scope; production_report.md on offboard
+└── src/                 # Your project source
+```
+
 ## Spec Source of Truth
 
-- **`docs/` (English) is the sole version-controlled spec source.** The seven authoritative files: `ARCH.md`, `PRD.md`, `Feature-Spec.md`, `Project-Plan.md`, `Review-Spec.md`, `Test-Spec.md`, `Deployment-Spec.md`. Plus the incremental `ARCH-0.2.0/0.3.0/0.4.0.md` deltas.
+- **`docs/` (English) is the sole version-controlled spec source.** Authoritative files: `ARCH.md`, `PRD.md`, `Feature-Spec.md`, `Project-Plan.md`, `Review-Spec.md`, `Test-Spec.md`, `Deployment-Spec.md`, plus `ADR.md` (29 Architecture Decision Records).
 - `docs/CH/` is **gitignored** and not authoritative. When English and Chinese disagree, English wins. Sync direction is always **from `docs/` to `docs/CH/`**, never the reverse.
 
 ## Build, Test & Development Commands
@@ -38,7 +60,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 | `cargo fmt --all --manifest-path janus/Cargo.toml -- --check` | Enforce Rust 2024 Edition formatting |
 | `cargo clippy --manifest-path janus/Cargo.toml --all-targets -- -D warnings` | Lint (fail on warnings) |
 | `cargo test --workspace --manifest-path janus/Cargo.toml` | Run all tests (lib + integration) |
-| `make bootstrap` | Full bootstrap: prereq -> symlinks -> compile -> db-init |
+| `make bootstrap` | Full bootstrap: prereq → symlinks → compile → db-init |
 | `make db-init` | Initialize native Postgres + catalog migration |
 | `make health` | PG liveness + daemon socket check |
 
@@ -48,14 +70,15 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 - **Rust 2024 Edition** with `rustfmt` defaults. All code must pass `cargo fmt` and `cargo clippy -D warnings`.
 - Binaries use kebab-case: `janus-daemon`, `herdr-janus`, `janush`, `janus`.
-- Config files are TOML (`agents.toml`, `janus.toml`, `workflows/*.toml`).
+- Config files are TOML (`agents.toml`, `blueprint.toml`, `workflows/*.toml`, `pipelines/*.toml`).
 - The physical execution module is `janus::tmux` (internalized from the former external `herdr-tether`); its isolated tmux server is `tmux -L metamach-tmux`.
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` per crate.
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 171 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
-- SSH-gated tests are marked `#[ignore]` and run separately (`--ignored`), continue-on-error in CI.
+- PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
+- Test names are prefixed with UTC IDs mapped to `Test-Spec.md` (e.g., `utc_03_03_cold_start_reconcile`).
 
 ## Commit & Pull Request Guidelines
 
@@ -66,16 +89,20 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 ## Architecture Overview
 
-MetaMach 0.3.0 is a durable AI software factory OS. Core components:
+MetaMach 0.5.0 is a durable AI software factory OS. Core components:
 
-- **`janus-daemon`** - control-plane daemon (Rust), sole owner of state and DB connection pool.
-- **`herdr-janus`** - Herdr 0.7.3 plugin (shadow client), UI rendering only.
-- **`janush`** - UDS proxy shell that reconciles agent commands with the daemon before execution.
-- **`janus::tmux`** (internalized from the former external `herdr-tether`) - native module managing `remain-on-exit` tmux sessions on `tmux -L metamach-tmux`; cross-host SSH transport lands with M4.
-- **Absurd Postgres** - catalog DB (`metamach_db`) plus one DB per active blueprint (`metamach_blueprint_<name>`); the F1 multi-DB fan-out.
+- **`janus-daemon`** - control-plane daemon (Rust), sole owner of state and DB connection pool. Hosts UDS listener, workflow engine, HITL gateway, and cold-start reconciliation.
+- **`herdr-janus`** - Herdr 0.7.3 plugin (shadow client), TUI rendering only (ratatui). Crashes never lose state.
+- **`janush`** - UDS proxy shell that reconciles agent commands with the daemon's Tool Guard before execution. Fail-closed 30s timeout.
+- **`janus::tmux`** - native module managing `remain-on-exit` tmux sessions on `tmux -L metamach-tmux`. Cross-host SSH reverse tunnel transport (ADR-017).
+- **`janus::gateway`** - HITL Gateway with Teams Adaptive Card dispatch, HMAC-SHA256 webhook validation, loopback HTTP callback listener.
+- **`janus::cognitive`** - Cognitive Provider SPI: opt-in MCP plugins (`codebase-memory-mcp`), advisory command validation.
+- **`janus::workflow`** - Workflow engine driving blueprint steps via absurd pull-mode queue. Checkpointing, lease renewal, retry-claim loop.
+- **`janus::pipeline`** - Pipeline DAG engine with Kahn's algorithm topological sort, parallel level execution.
+- **Absurd Postgres** - catalog DB (`metamach_db`) plus one DB per active blueprint (`metamach_blueprint_<name>`); the F1 multi-DB fan-out. SQLite fallback ring buffer for PG outage survival.
 
-Three customization dimensions: **Agent Pool**, **Workflows**, **Blueprints**. Lifecycle: Onboard ↔ Offboard.
+Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: Onboard ↔ Offboard.
 
 ## External Dependencies
 
-`openwiki` (RAG knowledge engine) is a separate repo whose per-blueprint content is consumed under `blueprints/<name>/openwiki/`. The physical execution engine formerly known as `herdr-tether` has been **internalized as `janus::tmux`** and is no longer external. Herdr 0.7.3 is the external plugin host (M0-validated contract in `docs/herdr-v1-contract.md`).
+`openwiki` (RAG knowledge engine) is a separate repo whose per-blueprint content is consumed under `.janus/openwiki/`. The physical execution engine formerly known as `herdr-tether` has been **internalized as `janus::tmux`** and is no longer external. Herdr 0.7.3 is the external plugin host (M0-validated contract in `docs/herdr-v1-contract.md`).

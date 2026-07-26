@@ -1,10 +1,10 @@
-# MetaMach 0.4.0 - Factory master switch (Deployment-Spec §5.1)
+# MetaMach 0.5.0 - Factory master switch (Deployment-Spec §5.1)
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
-# janus-daemon (M2), janush (M3), and janus::tmux (0.3.0) are picked up
-# automatically by `compile` as their binaries land.
+# All four binaries (janus, janus-daemon, herdr-janus, janush) are built by
+# `compile`. 171 tests (CI-green).
 
-.PHONY: all bootstrap prereq symlinks compile db-init db-down db-backup db-restore db-migrate health logs uninstall clean ram-disk
+.PHONY: all bootstrap prereq symlinks compile db-init db-down db-backup db-restore db-migrate health logs uninstall clean ram-disk test lint ci
 
 # 1. Environment variables (NEVER hardcode a default password).
 #    HERDR_PLUGIN_ROOT defaults to the repo checkout (the plugin source dir per
@@ -42,7 +42,7 @@ prereq:
 # 3. Supreme one-command bootstrap primitive.
 bootstrap: prereq symlinks compile db-init
 	@echo "================================================================="
-	@echo "🪐 MetaMach 0.3.0 successfully bootstrapped in Richmond Hill!"
+	@echo "🪐 MetaMach 0.5.0 successfully bootstrapped!"
 	@echo "🔌 Run 'prefix+j' inside Herdr to open Dispatcher Console."
 	@echo "================================================================="
 
@@ -172,3 +172,17 @@ clean:
 		echo "⚠️  Unmounting macOS RAM disk at /tmp/metamach_ramdisk..."; \
 		umount /tmp/metamach_ramdisk 2>/dev/null || true; \
 	fi
+
+# 16. Developer convenience: local CI gates.
+test:
+	@echo "🧪 Running tests..."
+	@cargo test --workspace --manifest-path janus/Cargo.toml
+
+lint:
+	@echo "🔍 Checking formatting..."
+	@cargo fmt --all --manifest-path janus/Cargo.toml -- --check
+	@echo "📎 Running clippy..."
+	@cargo clippy --manifest-path janus/Cargo.toml --all-targets -- -D warnings
+
+ci: lint test
+	@echo "✅ All CI gates passed locally."

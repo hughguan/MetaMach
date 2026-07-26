@@ -185,16 +185,29 @@ registers the blueprint in the catalog.
 ### Dispatch a workflow
 
 ```bash
-janus dispatch --blueprint my-project                 # uses default_workflow
-janus dispatch --blueprint my-project --workflow ci   # override workflow
+# 3-tier dispatch: blueprint default, workflow override, or pipeline DAG
+janus dispatch                                         # uses .janus/blueprint.toml defaults
+janus dispatch --blueprint my-project                  # explicit blueprint, default dispatch
+janus dispatch --workflow ci                           # override workflow
+janus dispatch --pipeline spec2software                # execute pipeline DAG
 ```
 
-The daemon spawns a detached background task that:
-1. Claims the absurd task (pull-mode lease)
-2. For each step: creates a tmux session → runs `janush -c "<command>"` (Tool Guard gated)
-3. Captures stdout/stderr, records exit code
-4. Checkpoints after each step (cold-start resume on daemon restart)
-5. Reaches `COMPLETED` or `FAILED`
+The daemon resolves dispatch priority: `--pipeline` > `blueprint.default_pipeline` > `--workflow` > `blueprint.default_workflow`.
+Pipeline DAGs execute level-by-level via absurd worker leases.
+
+### Stop & Continue
+
+```bash
+janus stop --blueprint my-project                      # stop all active tasks for blueprint
+janus stop --task-id <uuid>                            # stop specific task
+janus continue --blueprint my-project                  # resume stopped/crashed tasks via cold-start
+```
+
+### Plan a pipeline
+
+```bash
+janus plan --blueprint my-project --description "..."   # generate pipeline from natural language
+```
 
 ### Check progress
 

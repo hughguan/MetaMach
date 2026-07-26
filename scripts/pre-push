@@ -7,15 +7,10 @@ cd "$(git rev-parse --show-toplevel)/janus"
 
 # Determine what files changed in this push (matching CI paths-ignore).
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.
+# Use origin/main..HEAD instead of stdin-based ref parsing — the while-read
+# loop with set -euo pipefail doesn't reliably capture git push stdin.
 skip_tests=false
-changed_files=$(while read -r local_ref local_sha remote_ref remote_sha; do
-    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
-        range="$local_sha"
-    else
-        range="$remote_sha..$local_sha"
-    fi
-    git diff --name-only "$range" 2>/dev/null || true
-done)
+changed_files=$(git diff --name-only origin/main..HEAD 2>/dev/null || true)
 if [ -n "$changed_files" ]; then
     non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
     if [ "$non_doc" -eq 0 ]; then

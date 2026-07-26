@@ -456,7 +456,7 @@ fn utc_03_03_cold_start_reconcile() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
     // step 1 quick (completes + checkpoints before the kill), step 2 slow.
-    let bp = repo.path().join("blueprints").join(&name);
+    let bp = repo.path().join(".janus");
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
         bp.join("blueprint.toml"),
@@ -631,7 +631,7 @@ require_approval = ["echo hi"]
 
     let d = Daemon::spawn(state.path(), &agents);
     // step 1 = true (default), step 2 = echo hi (deployer, require_approval).
-    let bp = d.repo_path().join("blueprints").join(&name);
+    let bp = d.repo_path().join(".janus");
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
         bp.join("blueprint.toml"),

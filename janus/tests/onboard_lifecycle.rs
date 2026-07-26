@@ -60,6 +60,7 @@ impl Daemon {
             .env("HERDR_PLUGIN_STATE_DIR", state_dir)
             .env("HERDR_PLUGIN_ROOT", repo.path())
             .env("JANUS_AGENTS_TOML", agents)
+            .env("JANUS_JANUSH_BIN", env!("CARGO_BIN_EXE_janush"))
             .env("JANUS_GATEWAY_LISTEN_PORT", "0")
             .env("RUST_LOG", "warn")
             .stdin(Stdio::null())

@@ -236,10 +236,10 @@ impl DurableEngine for AbsurdPgAdapter {
         extend_by_secs: i64,
     ) -> BoxFut<'a, Result<()>> {
         Box::pin(async move {
-            sqlx::query("SELECT absurd.extend_claim($1, $2, $3)")
+            sqlx::query("SELECT absurd.extend_claim($1, $2, $3::integer)")
                 .bind(queue)
                 .bind(run_id)
-                .bind(extend_by_secs)
+                .bind(extend_by_secs as i32)
                 .execute(&self.pool)
                 .await?;
             Ok(())

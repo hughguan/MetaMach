@@ -399,7 +399,19 @@ where
         match step.command.as_deref() {
             Some(_) => {
                 let cmd = step_command(step, recipe, task_id, workflow_name, janush, host);
-                backend.create_session(&session, &cmd, Some(repo_root))?;
+                if let Err(e) = backend.create_session(&session, &cmd, Some(repo_root)) {
+                    warn!(step = %step.name, %task_id, error = %e, "create_session failed");
+                    db.finalize_step(
+                        &recipe.name,
+                        task_id,
+                        &step.name,
+                        "FAILED",
+                        Some(-1),
+                        Some(&format!("create_session failed: {e}")),
+                    )
+                    .await?;
+                    return Ok(StepOutcome::Failed);
+                }
 
                 let exit = poll_exit_with_lease(engine, &*backend, queue, run_id, &session).await;
                 let raw_output = backend.capture_pane(&session).ok();
@@ -778,8 +790,16 @@ where
 {
     let mut since_extend = Duration::ZERO;
     loop {
-        if let Some(code) = backend.poll_exit(session)? {
-            return Ok(code);
+        match backend.poll_exit(session) {
+            Ok(Some(code)) => return Ok(code),
+            Ok(None) => {}
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("can't find pane") || msg.contains("can't find session") {
+                    return Err(e);
+                }
+                warn!("poll_exit transient error for session {session:?}: {e}");
+            }
         }
         tokio::time::sleep(POLL_INTERVAL).await;
         since_extend += POLL_INTERVAL;
@@ -809,11 +829,12 @@ fn step_command(
     host: Option<&str>,
 ) -> String {
     let command = step.command.as_deref().unwrap_or("true");
-    // Local: HERDR_PLUGIN_STATE_DIR (janush -> state_dir/janus.sock). Remote:
+    // Local: JANUS_SOCK_PATH & HERDR_PLUGIN_STATE_DIR (janush -> state_dir/janus.sock). Remote:
     // JANUS_SOCK_PATH=/tmp/mm-<host>.sock (the reverse tunnel).
     let sock_env = match host {
         None => format!(
-            "HERDR_PLUGIN_STATE_DIR={}",
+            "JANUS_SOCK_PATH={} HERDR_PLUGIN_STATE_DIR={}",
+            shell_quote(&paths::sock_path().to_string_lossy()),
             shell_quote(&paths::state_dir().to_string_lossy())
         ),
         Some(h) => format!("JANUS_SOCK_PATH=/tmp/mm-{h}.sock"),
@@ -1468,7 +1489,8 @@ mod tests {
         let janush = PathBuf::from("/bin/janush");
         let task_id = Uuid::nil();
         let cmd = step_command(&step, &recipe, task_id, "fw", &janush, None);
-        assert!(cmd.starts_with("env HERDR_PLUGIN_STATE_DIR="));
+        assert!(cmd.starts_with("env JANUS_SOCK_PATH="));
+        assert!(cmd.contains("HERDR_PLUGIN_STATE_DIR="));
         assert!(cmd.contains("JANUS_AGENT='deployer'"));
         assert!(cmd.contains("JANUS_BLUEPRINT='gatemetric'"));
         assert!(cmd.contains("JANUS_TASK_ID=00000000-0000-0000-0000-000000000000"));

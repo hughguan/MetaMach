@@ -217,6 +217,7 @@ impl DurableBackend for TmuxBackend {
             cwd_str = cwd.to_string_lossy().into_owned();
             args.extend(["-c", cwd_str.as_str()]);
         }
+        args.push("sleep 3600");
         let out = self.run(&args)?;
         if !out.status.success() {
             bail!(TmuxError::Command(lossy_stderr(&out)));

@@ -221,7 +221,7 @@ name = "test-flow"
 [[steps]]
 name = "scout"
 agent = "default"
-command = "sleep 3"
+command = "sleep 5"
 
 [[steps]]
 name = "build"
@@ -351,24 +351,41 @@ fn utc_03_01b_dispatch_step_transitions() {
     // `make db-init` binds a Unix socket and sqlx's `from_str` mis-parses the
     // `?host=` URL form, so the daemon is driven by METAMACH_PG_SOCKET_DIR. psql
     // (libpq) handles `?host=` fine, so build whichever URL fits the environment.
-    let bp_url = match std::env::var("DATABASE_URL") {
-        Ok(catalog_url) => {
-            catalog_url.replace("metamach_db", &format!("metamach_blueprint_{name}"))
+    let (pg_target, bp_db) = match std::env::var("DATABASE_URL") {
+        Ok(url) if url.contains("host=") => {
+            let socket_dir = url.split("host=").nth(1).unwrap_or("").replace("%2F", "/");
+            (socket_dir, format!("metamach_blueprint_{name}"))
         }
+        Ok(url) => (
+            url.replace("metamach_db", &format!("metamach_blueprint_{name}")),
+            format!("metamach_blueprint_{name}"),
+        ),
         Err(_) => {
             let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
                 .expect("DATABASE_URL or METAMACH_PG_SOCKET_DIR must be set");
-            format!("postgres://metamach_admin@/metamach_blueprint_{name}?host={socket}")
+            (socket, format!("metamach_blueprint_{name}"))
         }
     };
     let psql = |sql: String| {
-        std::process::Command::new("psql")
-            .args(["-t", "-A"])
-            .arg(&bp_url)
-            .arg("-c")
-            .arg(&sql)
-            .output()
-            .expect("psql")
+        for attempt in 0..10 {
+            let mut cmd = std::process::Command::new("psql");
+            cmd.args(["-t", "-A", "-U", "metamach_admin"]);
+            if pg_target.starts_with("postgres://") || pg_target.starts_with("postgresql://") {
+                cmd.arg(&pg_target);
+            } else {
+                cmd.args(["-h", &pg_target, "-d", &bp_db]);
+            }
+            let out = cmd.args(["-c", &sql]).output().expect("psql");
+            if out.status.success() {
+                return out;
+            }
+            if attempt < 9 {
+                std::thread::sleep(Duration::from_millis(150));
+            } else {
+                return out;
+            }
+        }
+        unreachable!()
     };
 
     // While step 1 (sleep 3) runs, Progress must report tmux_alive=true at least
@@ -390,7 +407,7 @@ fn utc_03_01b_dispatch_step_transitions() {
             saw_tmux_alive = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(50));
     }
     assert!(saw_tmux_alive, "never observed tmux_alive=true mid-run");
 

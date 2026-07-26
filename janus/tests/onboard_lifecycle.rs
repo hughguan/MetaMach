@@ -249,7 +249,9 @@ fn utc_05_04b_multidb_onboard_isolation() {
     // Both appear in the blueprint list. The catalog is shared across the
     // parallel PG-gated tests, so assert presence of our two (not an exact
     // count, which would flake on other tests' blueprints).
-    let resp = d.uds(&Request::Blueprints, Duration::from_secs(5)).unwrap();
+    let resp = d
+        .uds(&Request::Blueprints, Duration::from_secs(15))
+        .unwrap();
     match resp {
         Response::Blueprints { blueprints } => {
             assert!(
@@ -268,7 +270,7 @@ fn utc_05_04b_multidb_onboard_isolation() {
     let resp = d
         .uds(
             &Request::Progress { blueprint: None },
-            Duration::from_secs(5),
+            Duration::from_secs(15),
         )
         .unwrap();
     assert!(

@@ -12,7 +12,10 @@ const STATE_SUBPATH: &str = ".local/state/herdr/plugins/metamach.janus";
 /// Resolve the Mutable State directory, creating it if missing.
 pub fn state_dir() -> PathBuf {
     let dir = match std::env::var("HERDR_PLUGIN_STATE_DIR") {
-        Ok(s) if !s.is_empty() => PathBuf::from(s),
+        Ok(s) if !s.is_empty() => {
+            let trimmed = s.trim_matches('\'').trim_matches('"');
+            PathBuf::from(trimmed)
+        }
         _ => {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
             PathBuf::from(home).join(STATE_SUBPATH)
@@ -30,7 +33,8 @@ pub fn sock_path() -> PathBuf {
     if let Ok(p) = std::env::var("JANUS_SOCK_PATH")
         && !p.is_empty()
     {
-        return PathBuf::from(p);
+        let trimmed = p.trim_matches('\'').trim_matches('"');
+        return PathBuf::from(trimmed);
     }
     state_dir().join("janus.sock")
 }

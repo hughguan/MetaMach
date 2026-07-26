@@ -75,7 +75,8 @@ impl AbsurdDb {
         tokio::spawn(async move {
             for attempt in 1..=PG_RETRY_ATTEMPTS {
                 match PgPoolOptions::new()
-                    .max_connections(8)
+                    .max_connections(3)
+                    .idle_timeout(Duration::from_secs(5))
                     .connect_with(opts.clone())
                     .await
                 {
@@ -130,7 +131,8 @@ impl AbsurdDb {
         let db_name = format!("metamach_blueprint_{}", sanitize_ident(name));
         let opts = base.database(&db_name);
         match PgPoolOptions::new()
-            .max_connections(4)
+            .max_connections(2)
+            .idle_timeout(Duration::from_secs(5))
             .connect_with(opts)
             .await
         {

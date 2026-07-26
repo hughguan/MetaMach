@@ -3,7 +3,8 @@
 # Install: ln -sf ../../scripts/pre-push .git/hooks/pre-push
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)/janus"
+TOPDIR="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
+cd "$TOPDIR/janus" || exit 0
 
 # Determine what files changed in this push (matching CI paths-ignore).
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.

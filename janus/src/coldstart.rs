@@ -111,6 +111,25 @@ pub async fn reconcile(
                 continue;
             }
         };
+        // Break any stale lease left by a crashed/killed daemon so coldstart resume
+        // claims the task immediately without waiting 30s for lease expiry.
+        // Set retry_strategy to 'none' so absurd's fail_run doesn't add exponential backoff.
+        let q_name = workflow::queue_name(&t.blueprint, &t.workflow_name);
+        let task_table = format!("absurd.t_{q_name}");
+        let run_table = format!("absurd.r_{q_name}");
+        let _ = sqlx::query(&format!(
+            "UPDATE {task_table} SET retry_strategy = '{{\"kind\":\"none\"}}'::jsonb WHERE task_id = $1"
+        ))
+        .bind(t.task_id)
+        .execute(&pool)
+        .await;
+        let _ = sqlx::query(&format!(
+            "UPDATE {run_table} SET claim_expires_at = NOW() - INTERVAL '1 second', available_at = NOW() - INTERVAL '1 second' WHERE task_id = $1 AND state = 'running'"
+        ))
+        .bind(t.task_id)
+        .execute(&pool)
+        .await;
+
         let engine = AbsurdPgAdapter::new(pool);
         // Per-step backend factory (ADR-017): local + remote (with reverse tunnel)
         // backends, cached per-host. SSH user from the blueprint's `[remote] user`.

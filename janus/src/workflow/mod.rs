@@ -399,6 +399,7 @@ where
         match step.command.as_deref() {
             Some(_) => {
                 let cmd = step_command(step, recipe, task_id, workflow_name, janush, host);
+                let _ = backend.kill_session(&session);
                 if let Err(e) = backend.create_session(&session, &cmd, Some(repo_root)) {
                     warn!(step = %step.name, %task_id, error = %e, "create_session failed");
                     db.finalize_step(

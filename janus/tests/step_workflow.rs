@@ -596,8 +596,9 @@ command = "sleep 6"
     drop(d1); // kill the daemon mid-step-2 (repo + state persist)
 
     // d2: restart against the same repo + state_dir. The blueprint DB persists,
-    // so d2 can resume without re-onboarding. reconcile fires at t+3s.
+    // so d2 can resume without re-onboarding. reconcile fires when PG is online.
     let d2 = Daemon::spawn_with_repo(state.path(), &agents, repo.path());
+    d2.wait_ready();
 
     let bp_url = match std::env::var("DATABASE_URL") {
         Ok(catalog_url) => {
@@ -620,8 +621,7 @@ command = "sleep 6"
     };
 
     // Wait for the absurd task to reach `completed`. The resume re-runs step 2
-    // (sleep 6); d2 must also wait for d1's run lease (30s) to expire before
-    // absurd re-offers the task. Allow 60s.
+    // (sleep 6). Coldstart breaks stale leases & backoff so task claims instantly.
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let out = psql(format!(
@@ -636,7 +636,7 @@ command = "sleep 6"
                 String::from_utf8_lossy(&out.stdout)
             );
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_secs(1));
     }
 
     // Both steps COMPLETED (step 1 from d1, step 2 resumed on d2).

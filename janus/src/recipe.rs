@@ -170,6 +170,13 @@ pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
     Ok(workflow)
 }
 
+pub fn read_blueprint_name(repo_root: &Path) -> Result<String> {
+    let recipe_path: PathBuf = repo_root.join(".janus/blueprint.toml");
+    let text = std::fs::read_to_string(&recipe_path)?;
+    let recipe: BlueprintRecipe = toml::from_str(&text)?;
+    Ok(recipe.blueprint.name)
+}
+
 pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
     // Name check runs BEFORE any DB write or file read.
     validate_name(name)?;

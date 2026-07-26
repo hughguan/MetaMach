@@ -69,9 +69,16 @@ async fn run() -> Result<()> {
         let db = db.clone();
         let repo_root = repo_root.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            if let Err(e) = coldstart::reconcile(db, repo_root, None).await {
-                warn!("cold-start reconcile failed: {e}");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let target_bp = recipe::read_blueprint_name(&repo_root).ok();
+            for _ in 0..10 {
+                if db.pg_online().await {
+                    let _ =
+                        coldstart::reconcile(db.clone(), repo_root.clone(), target_bp.as_deref())
+                            .await;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         });
     }

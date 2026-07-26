@@ -250,10 +250,12 @@ fn utc_03_01_step_state_transitions() {
     )
     .unwrap();
 
-    // Progress query returns empty before any dispatch.
+    // Progress query returns empty for this blueprint before any dispatch.
     let resp = d
         .uds(
-            &Request::Progress { blueprint: None },
+            &Request::Progress {
+                blueprint: Some(name.clone()),
+            },
             Duration::from_secs(5),
         )
         .unwrap();

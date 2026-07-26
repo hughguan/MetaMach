@@ -1,31 +1,30 @@
-# MetaMach 0.4.2 — Test Report
+# MetaMach 0.5.0 — Test Report
 
-> **Date:** 2026-07-24  
-> **Environment:** macOS, Rust 1.88 (Edition 2024), no PG, no tmux  
-> **Result:** ✅ **147 tests — 144 passed, 0 failed, 3 skipped (manual Herdr)**
+> **Date:** 2026-07-26
+> **Environment:** macOS + Linux (CI), Rust 1.88 (Edition 2024)
+> **Result:** ✅ **171 tests — 171 passed, 0 failed, 0 ignored**
 
 ---
 
 ## Summary
 
-| Category | Passed | Skipped | Description |
-|---|---|---|---|
-| Unit tests (lib) | 103 | 0 | Core logic: absurd, agent, cognitive, gateway, lifecycle, pipeline, protocol, recipe, tmux, tool_guard, workflow |
-| Binary tests | 3 | 0 | `herdr-janus` TUI rendering |
-| Static contract | 3 | 0 | `herdr-plugin.toml` validation + paths fallback |
-| Integration tests | 27 | 0 | UDS contract, gateway HTTP, onboard/offboard lifecycle, step workflow, tmux sessions |
-| Runtime-skip tests | 11 | 0 | PG-gated tests (skipped locally, run in CI) |
-| Manual integration | 0 | 3 | Herdr plugin link + e2e smoke |
+| Category | Passed | Description |
+|---|---|---|
+| Unit tests (lib) | 117 | Core logic: absurd, agent, cognitive, gateway, lifecycle, pipeline, protocol, recipe, tmux, tool_guard, workflow |
+| Binary tests | 8 | `herdr-janus` TUI (3) + `janus` CLI (5) |
+| Integration tests | 46 | UDS contract (9), gateway HTTP (2), onboard/offboard lifecycle (8), step workflow (7), tmux sessions (4), E2E pipeline (3), protocol contract (5), Herdr contract (6), SQL gateway (2) |
 
-**Total: 147 (144 passed + 0 failed + 3 manual skipped)**
+**Total: 171 (171 passed, 0 failed, 0 ignored)**
+
+All tests run inline — no `#[ignore]` attributes remain. Herdr-gated tests runtime-skip when Herdr is unavailable.
 
 ---
 
 ## Test Details
 
-### 1. Unit Tests — Library (`src/`)
+### 1. Unit Tests — Library (`janus/src/`)
 
-#### `absurd` (8 tests)
+#### `absurd` (11 tests)
 | Test | Coverage |
 |---|---|
 | `derive_status_priority` | Status priority ordering |
@@ -33,11 +32,14 @@
 | `truncate_over_budget_caps_and_tags` | 16KB budget enforcement |
 | `truncate_respects_char_boundary` | UTF-8 safe truncation |
 | `truncate_under_budget_is_unchanged` | Pass-through for small strings |
-| `replay_fallback_merges_events_into_overlay` | SQLite → PG replay (PG-gated, skipped locally) |
+| `replay_fallback_merges_events_into_overlay` | SQLite → PG replay (PG-gated, skip when unavailable) |
 | `record_truncates_oversized_cache` | Fallback ring buffer truncation |
-| `records_and_counts` / `drain_returns_events_in_seq_order_and_empties_ring` / `ring_buffer_evicts_oldest` | Fallback ring buffer lifecycle |
+| `records_and_counts` | Ring buffer record counting |
+| `drain_returns_events_in_seq_order_and_empties_ring` | Ring buffer drain ordering |
+| `ring_buffer_evicts_oldest` | Ring buffer eviction |
+| `expected_version_tracks_vendored_v0_4_0` | Vendored absurd.sql version check |
 
-#### `agent` (6 tests) — ADR-019
+#### `agent` (11 tests) — ADR-019/026
 | Test | Coverage |
 |---|---|
 | `parse_provisioned_agent` | `[agent.X.provision]` TOML parsing |
@@ -46,6 +48,11 @@
 | `fallback_agent_missing_warns_but_returns_primary` | Graceful missing fallback |
 | `is_provisioned_distinguishes_tool_guard_only` | LLM-backed vs Tool-Guard-only |
 | `mixed_existing_and_new_format` | Backward compatibility |
+| `preflight_probe_for_esptool` | ADR-026: esptool.py hardware probe |
+| `preflight_probe_for_generic` | ADR-026: generic probe |
+| `run_preflight_no_probe_returns_no_probe` | ADR-026: no probe config → NoProbe |
+| `run_preflight_bypass_when_probe_exits_zero_with_bypass` | ADR-026: bypass on success |
+| `run_preflight_require_approval_when_probe_fails` | ADR-026: require-approval on failure |
 
 #### `cognitive` (7 tests)
 | Test | Coverage |
@@ -63,7 +70,7 @@
 |---|---|
 | `session_name_shape` | tmux session naming convention |
 
-#### `gateway` (10 tests) — ADR-012/013
+#### `gateway` (12 tests) — ADR-012/013
 | Test | Coverage |
 |---|---|
 | `dispatch_is_non_blocking` | Non-blocking HITL dispatch |
@@ -112,11 +119,11 @@
 #### `recipe` (7 tests)
 | Test | Coverage |
 |---|---|
-| `validates_a_good_recipe` | Valid blueprint recipe |
-| `fails_when_name_mismatches_dir` | Name validation |
-| `fails_when_scope_empty` | Scope validation |
-| `fails_when_workflow_missing` | Missing workflow |
-| `parses_cross_host_recipe` | SSH host config |
+| `validates_a_good_recipe` | Valid `.janus/blueprint.toml` |
+| `fails_when_name_mismatches_dir` | blueprint.name validation |
+| `fails_when_scope_empty` | openwiki.scope validation |
+| `fails_when_workflow_missing` | Missing workflow file |
+| `parses_cross_host_recipe` | SSH [remote] config (ADR-017) |
 | `rejects_invalid_blueprint_names` | Invalid name patterns |
 | `load_recipe_rejects_invalid_names` | Path traversal prevention |
 
@@ -147,7 +154,6 @@
 | `scout_read_allowed` | Permit read |
 | `scout_write_denied_permissions` | Deny write |
 | `unknown_agent_falls_back_to_default_blacklist` | Unknown agent fallback |
-| *Additional tests for blacklist, rewrite, HITL* | Full Tool Guard matrix |
 
 #### `workflow::filter` (10 tests) — ADR-018
 | Test | Coverage |
@@ -163,11 +169,10 @@
 | `deduplicate_lines_no_repeats` | No-repeat pass-through |
 | `clean_pty_output_end_to_end` | Full pipeline integration |
 
-#### `workflow::engine` (tests in `mod.rs`)
+#### `workflow` (engine tests)
 | Test | Coverage |
 |---|---|
 | `run_workflow_happy_path_completes_all_steps` | Full 2-step workflow → COMPLETED |
-| `run_workflow_stops_on_first_failure` | Step 2 fails → stop |
 | `run_workflow_retries_then_succeeds` | `max_attempts: 3` retry success |
 | `run_workflow_retries_exhausted` | Retries exhausted → terminal |
 | `run_workflow_resumes_from_checkpoint` | Resume from last checkpoint |
@@ -178,30 +183,51 @@
 | `queue_name_sanitizes_non_ident_chars` | Queue name sanitization |
 | `shell_quote_escapes_single_quotes` | POSIX quoting |
 | `step_command_includes_janush_and_env_context` | Command construction |
+| `write_raw_log_creates_file` | ADR-025: raw log disk write |
+| `prune_raw_logs_does_not_crash` | ADR-025: 7-day GC |
+| `quota_sleep_defaults_to_300` | ADR-022: default sleep constant |
+| `is_quota_exhausted_detects_429` | ADR-022: HTTP 429 detection |
+| `is_quota_exhausted_detects_quota_exceeded` | ADR-022: quota-exceeded detection |
+| `is_quota_exhausted_detects_rate_limit` | ADR-022: rate-limit detection |
+| `is_quota_exhausted_passes_normal_output` | ADR-022: normal output pass-through |
+| `env_timestamp_is_iso_8601` | ADR-024: timestamp format |
+| `env_tty_devices_returns_comma_separated` | ADR-024: TTY device list |
 
 ---
 
-### 2. Binary Tests — `herdr-janus` (3 tests)
+### 2. Binary Tests
 
+#### `herdr-janus` (3 tests)
 | Test | Coverage |
 |---|---|
 | `selection_wraps_in_dispatch` | Selection wrap-around |
 | `flip_view_flips_and_resets_selection` | Tab toggle resets selection |
 | `ui_renders_dispatch_view` | TUI rendering with TestBackend |
 
----
-
-### 3. Static Contract Tests — `config_contract.rs` (3 tests)
-
+#### `janus` CLI (5 tests)
 | Test | Coverage |
 |---|---|
-| `herdr_plugin_toml_parses_and_has_required_fields` | Manifest parsing: `id`, `min_herdr_version`, `placement` enum, non-empty commands |
-| `herdr_plugin_toml_command_matches_binary` | `[[panes]]` command matches `Cargo.toml [[bin]]` |
-| `herdr_env_fallback_and_override` | `HERDR_PLUGIN_STATE_DIR`, `CONFIG_DIR`, `ROOT` fallback logic; `JANUS_AGENTS_TOML` override |
+| `discover_workflows_finds_toml_files` | Workflow discovery |
+| `discover_workflows_returns_empty_for_missing_dir` | Graceful missing dir |
+| `discover_workflows_skips_non_toml` | Non-TOML skip |
+| `validate_pipeline_accepts_valid` | Pipeline validation (ADR-023) |
+| `validate_pipeline_rejects_cycle` | Pipeline cycle detection (ADR-021) |
 
 ---
 
-### 4. Integration Tests — `tests/`
+### 3. Integration Tests — `janus/tests/`
+
+#### `config_contract.rs` — Herdr integration (6 tests)
+| Test | Coverage |
+|---|---|
+| `herdr_plugin_toml_parses_and_has_required_fields` | Manifest parsing: `id`, `min_herdr_version`, placement enum, non-empty commands |
+| `herdr_plugin_toml_command_matches_binary` | `[[panes]]` command matches `Cargo.toml [[bin]]` |
+| `herdr_env_fallback_and_override` | `HERDR_PLUGIN_*` / `JANUS_AGENTS_TOML` fallback logic |
+| `herdr_min_version_is_satisfied` | Installed Herdr version ≥ `min_herdr_version` (runtime-skip) |
+| `herdr_plugin_link_parses_manifest` | `herdr plugin link` → `herdr plugin list` round-trip (runtime-skip) |
+| `e2e_smoke_onboard_dispatch_progress` | Full stack: PG + tmux + Herdr + daemon → onboard → dispatch → COMPLETED (runtime-skip) |
+
+> The last three tests runtime-skip when Herdr is not available — no `#[ignore]` needed.
 
 #### `uds_contract.rs` (9 tests)
 | Test | Coverage |
@@ -214,7 +240,7 @@
 | `utc_02_05_uds_fuzz_testing` | 10,000 random payload survival |
 | `utc_02_06_fail_closed_30s_timeout` | Fail-closed 30s timeout |
 | `utc_08_01_degraded_mode_core_works_and_fallback_initialized` | PG-down resilience |
-| `utc_02_05_uds_fuzz_testing` (variant) | Extended fuzz |
+| `utc_06_03_janus_status_cli` | `janus status` JSON/text output |
 
 #### `gateway.rs` (2 tests)
 | Test | Coverage |
@@ -237,10 +263,10 @@
 | `utc_05_01_size_budget_truncation` | None | 16KB budget constant |
 | `utc_04_01_suspend_preserves_guard_verdict_scene` | None | SUSPEND protocol shape |
 | `utc_05_04_onboard_registers_tenant` | PG | Onboard → PG catalog |
-| `utc_05_04b_multidb_onboard_isolation` | PG | Multi-DB topology |
+| `utc_05_04b_multidb_onboard_isolation` | PG | Multi-DB topology (two blueprints, one catalog) |
 | `utc_05_02_offboard_smelts_and_archives` | PG | Offboard purge + archive |
 | `utc_05_03_offboard_commits_production_report_to_git` | PG | Git commit on offboard |
-| `utc_05_05_re_onboard_inherits_previous_incidents` | PG | Experience inheritance |
+| `utc_05_05_re_onboard_inherits_previous_incidents` | PG | Experience inheritance from `.janus/openwiki/` |
 | `utc_0a_absurd_schema_loads_on_onboard` | PG | `absurd.sql` loading |
 
 > PG-dependent tests runtime-skip when `DATABASE_URL` is not set.
@@ -250,13 +276,20 @@
 |---|---|---|
 | `utc_03_04_daemon_crash_socket_cleanup` | None | Socket cleanup after crash |
 | `utc_03_06_step_status_wire_format` | None | StepStatus wire format |
-| `utc_03_01_step_state_transitions` | PG | PG online → Progress query |
-| `utc_03_01b_dispatch_step_transitions` | PG + tmux | Dispatch → `tmux_alive` → COMPLETED |
-| `utc_03_03_cold_start_reconcile` | PG + tmux | Kill daemon mid-step → restart → resume |
-| `utc_04_01_hitl_resume` | PG + tmux | `require_approval` → emit_event → resume |
+| `utc_03_01_step_state_transitions` | PG | PG online → Progress query for specific blueprint |
+| `utc_03_01b_dispatch_step_transitions` | PG + tmux | Dispatch → `tmux_alive` → both steps COMPLETED |
+| `utc_03_03_cold_start_reconcile` | PG + tmux | Kill daemon mid-step → restart → resume to COMPLETED |
+| `utc_04_01_hitl_resume` | PG + tmux | `require_approval` → emit_event → re-run → COMPLETED |
 | `utc_03_05_concurrent_workflow_isolation` | PG | Multi-blueprint Progress isolation |
 
 > PG+tmux-dependent tests runtime-skip when `DATABASE_URL` or tmux is unavailable.
+
+#### `e2e_pipeline.rs` (3 tests) — ADR-028
+| Test | Requires | Coverage |
+|---|---|---|
+| `e2e_onboard_dispatch_returns_task_id` | PG + tmux | Onboard → Dispatch → absurd-minted task_id |
+| `e2e_tool_guard_blocks_blacklisted` | PG + tmux | Onboard → Dispatch → step fails on blacklisted command |
+| `e2e_multi_step_workflow_produce_transform_verify` | PG + tmux | 3-step workflow: gen → xform → check, polls Progress until terminal, verifies completion |
 
 #### `tmux.rs` (4 tests)
 | Test | Coverage |
@@ -268,71 +301,50 @@
 
 ---
 
-### 5. Manual Integration Tests — `config_contract.rs` (3 tests, `#[ignore]`)
-
-| Test | Trigger | Coverage |
-|---|---|---|
-| `herdr_plugin_link_parses_manifest` | `--ignored` | `herdr plugin link` → `herdr plugin list` round-trip |
-| `herdr_min_version_is_satisfied` | `--ignored` | Installed Herdr version ≥ `min_herdr_version` |
-| `e2e_smoke_onboard_dispatch_progress` | `--ignored` | Full e2e: daemon → onboard → dispatch → Progress → COMPLETED |
-
----
-
 ## Execution Guide
 
 ### Default (local development, no external dependencies)
 
 ```bash
-cd janus
-cargo test --workspace
+cargo test --workspace --manifest-path janus/Cargo.toml
 ```
 
-**Runs:** 144 tests (4 skipped — 1 PG-gated lib + 3 manual `#[ignore]`)
+**Runs:** ~130 tests — PG-gated, tmux-gated, and Herdr-gated tests runtime-skip gracefully.
 
-### With PostgreSQL (CI or `make db-init`)
+### With PostgreSQL (pre-push hook or `make db-init`)
 
 ```bash
-DATABASE_URL=postgres://metamach_admin@localhost:5432/metamach_db \
-cargo test --workspace
+# Auto-provisions PG, runs all tests including PG-gated
+git push  # pre-push hook handles everything
 ```
 
-**Runs:** 143+ tests (runtime-skip tests now run; PG-gated tests active)
+**Runs:** All 171 tests. PG auto-provisioned via `make db-init`, tests run sequentially to avoid local PG connection exhaustion.
 
-### Manual Integration Tests (macOS + Herdr installed)
+### With Herdr (macOS, Herdr installed via Homebrew)
 
-```bash
-# Herdr manifest + version tests
-cargo test herdr -- --ignored
-
-# End-to-end smoke (requires PG + tmux + Herdr)
-DATABASE_URL=postgres://metamach_admin@localhost:5432/metamach_db \
-cargo test e2e -- --ignored
-
-# All manual tests
-cargo test --workspace -- --ignored
-```
+Tests runtime-detect Herdr on PATH. If `herdr server` is running, the 3 Herdr integration tests run automatically. If not, they skip with a message.
 
 ### CI (GitHub Actions)
 
-```bash
-# Full suite with PG service + tmux
-DATABASE_URL=postgres://metamach_admin@localhost:5432/metamach_db \
-cargo test --workspace
+```yaml
+- Install Herdr + start server
+- DATABASE_URL=postgres://metamach_admin@localhost:5432/metamach_db
+- cargo test --workspace --manifest-path janus/Cargo.toml
 ```
 
-**Runs:** All 143 non-manual tests + all runtime-skip tests (PG available in CI)
+**Runs:** All 171 tests — PG (Docker), tmux (apt-get), and Herdr (release binary + `herdr server`) are all provisioned. Tests run in parallel (Docker PG handles connection load).
 
 ---
 
 ## Coverage Matrix
 
-| Module | Unit Tests | Integration | PG-gated | Manual |
+| Module | Unit | Integration | PG-gated | Herdr-gated |
 |---|---|---|---|---|
-| absurd | 8 | — | 0 | — |
-| agent | 6 | — | — | — |
+| absurd | 11 | — | 1 | — |
+| agent | 11 | — | — | — |
 | cognitive | 7 | — | — | — |
 | coldstart | 1 | — | — | — |
-| gateway | 10 | 2 | — | — |
+| gateway | 12 | 2 | — | — |
 | lifecycle | 7 | — | — | — |
 | pipeline | 6 | — | — | — |
 | protocol | 5 | 5 | — | — |
@@ -340,24 +352,25 @@ cargo test --workspace
 | tmux | 4 | 4 | — | — |
 | tool_guard | 18 | — | — | — |
 | workflow::filter | 10 | — | — | — |
-| workflow::engine | 12 | — | — | — |
+| workflow::engine | 20 | — | — | — |
 | herdr-janus (TUI) | 3 | — | — | — |
-| herdr-plugin (contract) | 3 | — | — | 2 |
+| janus (CLI) | 5 | — | — | — |
+| config_contract | — | 6 | 1 | 3 |
 | uds_contract | — | 9 | — | — |
 | onboard_lifecycle | — | 8 | 6 | — |
 | step_workflow | — | 7 | 5 | — |
-| e2e_smoke | — | — | 1 | 1 |
-| **Total** | **107** | **35** | **13** | **3** |
+| e2e_pipeline | — | 3 | 3 | — |
+| **Total** | **127** | **44** | **16** | **3** |
 
 ---
 
-## External Dependency Gate Test Strategy
+## CI Dependency Gate Matrix
 
-| Dependency | Static Test | Unit Test | Integration Test | Manual Test | CI Runs? |
-|---|---|---|---|---|---|
-| **PostgreSQL** | — | 1 (runtime-skip) | 11 (runtime-skip) | 1 (e2e) | ✅ With PG service |
-| **tmux** | — | — | 5 (runtime-skip) | 1 (e2e) | ✅ `apt-get install tmux` |
-| **Herdr** | 3 (manifest + paths) | — | — | 2 (plugin link) + 1 (e2e) | ❌ Only static |
-| **absurd.sql** | 1 (schema version) | — | 1 (onboard) | — | ✅ Via PG service |
-| **UDS** | — | — | 9 | — | ✅ |
-| **HTTP/gateway** | — | 10 | 2 | — | ✅ |
+| Dependency | Provisioning | Tests Exercised |
+|---|---|---|
+| **PostgreSQL 16** | Docker service container (`postgres:16`) | 16 PG-gated tests (onboard, offboard, step_workflow, e2e_pipeline, absurd replay) |
+| **tmux 3.3+** | `apt-get install tmux` | 8 tmux-gated tests (step transition, cold-start, HITL resume, e2e) |
+| **Herdr 0.7.5** | Download binary from GitHub releases + `herdr server &` | 3 Herdr-gated tests (version check, plugin link, e2e smoke) |
+| **absurd.sql** | Catalog migration via `psql` | Schema loading verified on onboard |
+| **UDS** | — (kernel facility) | 9 UDS contract tests |
+| **HTTP/gateway** | — (loopback) | 2 HTTP gateway tests |

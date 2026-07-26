@@ -5,6 +5,9 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)/janus"
 
+# Ensure origin/main is up to date for the diff below.
+git fetch origin main --quiet 2>/dev/null || true
+
 # Determine what files changed in this push (matching CI paths-ignore).
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.
 # Use origin/main..HEAD instead of stdin-based ref parsing — the while-read

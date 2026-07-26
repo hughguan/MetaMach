@@ -7,27 +7,16 @@ cd "$(git rev-parse --show-toplevel)/janus"
 
 # Determine what files changed in this push (matching CI paths-ignore).
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.
-# Read the git-push refs from stdin (the pre-push hook contract).
+# Uses git to detect unpushed commits rather than reading stdin.
 skip_tests=false
-changed_files=""
-refs_data="$(cat)"  # consume all stdin at once — avoids while-read + set -e issues
-if [ -n "$refs_data" ]; then
-    while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
-        [ -z "$local_sha" ] && continue
-        if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
-            # New branch — diff against the initial commit
-            range="$local_sha"
-        else
-            range="$remote_sha..$local_sha"
+if git rev-parse origin/main >/dev/null 2>&1; then
+    changed_files=$(git diff --name-only origin/main..HEAD 2>/dev/null || true)
+    if [ -n "$changed_files" ]; then
+        non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
+        if [ "$non_doc" -eq 0 ]; then
+            skip_tests=true
+            echo "=== Docs/md only — skipping test phases (matching CI paths-ignore) ==="
         fi
-        changed_files="$changed_files$(git diff --name-only "$range" 2>/dev/null || true)"$'\n'
-    done <<< "$refs_data"
-fi
-if [ -n "$changed_files" ]; then
-    non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
-    if [ "$non_doc" -eq 0 ]; then
-        skip_tests=true
-        echo "=== Docs/md only — skipping test phases (matching CI paths-ignore) ==="
     fi
 fi
 

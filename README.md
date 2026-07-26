@@ -5,7 +5,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
   <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
-  <img alt="Tests: 171" src="https://img.shields.io/badge/tests-171%20(CI%20green)-22c55e.svg">
+  <img alt="Tests: 174" src="https://img.shields.io/badge/tests-174%20(CI%20green)-22c55e.svg">
   <img alt="Version: 0.5.0" src="https://img.shields.io/badge/version-0.5.0-6366f1.svg">
 </p>
 
@@ -275,9 +275,9 @@ herdr plugin link ./janus           # register MetaMach plugin
 
 ## CI & Testing
 
-- **171 tests**: 168 default + 3 Herdr-gated (run on `--ignored` in CI)
-- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`
-- **E2E pipeline tests**: onboard → dispatch → multi-step workflow completion, Tool Guard interception
+- **171 tests**: 168 default + 3 Herdr-gated — all pass, 0 ignored
+- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (174 tests)
+- **E2E pipeline tests**: onboard → dispatch → multi-step workflow completion, pipeline DAG dispatch, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests
 

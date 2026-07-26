@@ -13,7 +13,7 @@ The **English specs directly under `docs/` are the sole version-controlled spec 
 
 ## Repository status
 
-This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.5.0** (~11,000 LOC, 171 tests, CI-green). All milestones M0–M4 plus M5 integration tests are complete, including the 0.3.0 de-containerization consensus and the 0.4.0 gateway/ecosystem delta.
+This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.5.0** (~11,000 LOC, 174 tests, CI-green). All milestones M0–M4 plus M5 integration tests are complete, including the 0.3.0 de-containerization consensus and the 0.4.0 gateway/ecosystem delta.
 
 **Implemented and tested:**
 - **M0:** Herdr 0.7.3 plugin contract validated.

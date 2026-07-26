@@ -6,58 +6,51 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.0] - Unreleased
 
-29 ADRs committed (001-029), 23 implemented, 168 tests.
+30 ADRs committed (001-030), 174 tests, CI-green across Linux + macOS.
 
 ### Added
 - **ADR-022 Time-Driven Sleep**: quota exhaustion detection (`is_quota_exhausted`),
-  `StepOutcome::QuotaExhausted`, `JANUS_QUOTA_SLEEP_SECONDS`. Fills the gap
-  between retry and permanent failure.
+  `StepOutcome::QuotaExhausted`, `JANUS_QUOTA_SLEEP_SECONDS`.
 - **ADR-023 Agent Planner**: `janus pipeline plan` (LLM → TOML → validate →
-  write), `janus pipeline validate`. LLM is advisory; validation is the final
-  gate.
-- **ADR-024 Environmental Snapshot (0.4.9.1)**: `JANUS_ENV_TIMESTAMP` +
-  `JANUS_ENV_TTY_DEVICES` injected at step start, stored in
-  `metamach_step_meta.env_snapshot`. Migration `004_env_snapshot.sql`.
-- **ADR-025 Dual-Path Log Pipeline (0.4.9.2)**: full raw PTY →
-  `/tmp/metamach/logs/`, 16KB → PG, 7-day GC.
-- **ADR-026 Hardware Pre-flight Probe (0.4.9.3)**: `PreflightConfig` in
-  `agents.toml`, `run_preflight()`, `ProbeOutcome{Bypass,RequireApproval,NoProbe}`.
-- **ADR-028 E2E Pipeline Tests (0.4.9.4)**: `tests/e2e_pipeline.rs` with mock
-  agents (onboard→dispatch + Tool Guard), CI green.
-- **`janus init`**: scaffolds `.janus/` from `templates/` (blueprint, agents,
-  workflows, pipelines). Auto-generates `.janus/blueprint.toml` from the
-  project directory name.
-- **Project-level agent config override**: `paths::agents_toml_paths()` returns
-  `[.janus/agents/..., configs/agents.toml]`, `AgentRules::load_merged()`.
-- **3 E2E pipeline templates**: `req2spec.toml` (11 nodes), `spec2software.toml`
-  (5 nodes), `adr-process.toml` (9 nodes).
-- **12 workflow templates** + 3 agent role templates (architect/builder/tester).
-- **Pre-push git hook**: `scripts/pre-push` runs fmt + clippy + test +
-  auto-provisions PG for E2E tests when `pg_ctl`/`initdb` available.
+  write), `janus pipeline validate`. LLM advisory; validation is the final gate.
+- **ADR-024 Environmental Snapshot**: `JANUS_ENV_TIMESTAMP` +
+  `JANUS_ENV_TTY_DEVICES`, migration `004_env_snapshot.sql`.
+- **ADR-025 Dual-Path Log Pipeline**: raw PTY → `/tmp/metamach/logs/`,
+  16KB → PG, 7-day GC.
+- **ADR-026 Hardware Pre-flight Probe**: `PreflightConfig` in `agents.toml`,
+  `run_preflight()`, `ProbeOutcome{Bypass,RequireApproval,NoProbe}`.
+- **ADR-028 E2E Pipeline Tests**: CI mock-agent tests + manual LLM validation.
+- **ADR-029 Project-based templates**: `.janus/` as sole config directory.
+- **ADR-030 CI & Pre-Push Hook**: fail-closed enforcement, docs-only skip.
+- **3-tier dispatch**: `janus dispatch` supports blueprint default, `--workflow`,
+  or `--pipeline` DAG. Blueprint name defaults to current directory.
+- **Pipeline DAG dispatch**: daemon executes DAG nodes via `handle_dispatch_pipeline`,
+  level-sequential dispatch to absurd worker leases.
+- **janus stop / continue**: stop active tasks (kill tmux sessions + mark STOPPED),
+  continue via cold-start reconciliation.
+- **`janus plan`** (top-level): alias for `janus pipeline plan`.
+- **Herder in CI**: pre-built binary + `herdr server`, all 6 config_contract tests.
+- **macOS CI**: `macos-latest` job with compile + unit tests.
+- **Docs-only pre-push skip**: `git diff-tree HEAD` detects docs/md-only changes,
+  skips test phases (sub-second push).
+- **PRD §1.3 competitive positioning**: bare-metal hardware moat comparison.
+- **Deployment-Spec §8**: CI pipeline + pre-push hook specification.
+- **Consolidated audit report**: DeepSeek V4 Pro + Claude Opus 4.6, 9.0/10.
 
 ### Changed
-- **ADR-029 Project-based templates**: all per-project config consolidated under
-  `.janus/`. Blueprint recipe moved from `blueprints/<name>/janus.toml` →
-  `.janus/blueprint.toml`. `janus init` scaffolds `.janus/` from `templates/`.
-  Daemon reads `.janus/blueprint.toml` and searches `.janus/workflows/` in
-  lookup path (after `templates/workflows/`, before `workflows/`).
-- `load_workflow` search order: `templates/workflows/` → `.janus/workflows/` →
-  `workflows/`.
-- `load_previous_incidents` reads from `.janus/openwiki/production_report.md`.
-- Blueprint examples (`blueprints/gatemetric/`, `blueprints/joyrobots/`)
-  removed — superseded by `templates/`.
-- Templates restructured: `workflows/` → `templates/workflows/`,
-  `pipelines/` → `templates/pipelines/`, new `templates/agents/` +
-  `templates/blueprint.toml`.
+- All spec files synced to 0.5.0 version stamps (ARCH, Feature-Spec, Deployment-Spec,
+  Review-Spec, Test-Spec, Absurd-Integration, Herdr-Integration).
+- CI job renamed `Test (Linux)` / `Test (macOS)`, single-element matrix removed.
+- Pre-push hook: sequential test execution with PG auto-provisioning.
 
 ### Fixed
-- `clippy::uninlined-format-args` in `agent.rs` + `tool_guard/rules.rs` for
-  Rust 1.83+ CI compatibility.
-- CI: blueprint `scope` must be in `[openwiki]`, not `[blueprint]` (serde
-  silently ignores unknown fields → empty `OpenwikiSection.scope` → validation
-  failure).
-- E2E pipeline tests: blueprint written to `.janus/blueprint.toml`, not
-  `blueprints/<name>/janus.toml`.
+- 6 test flakiness root causes: tmux error propagation, SQL type mismatch (i64→i32),
+  tmux session race (`sleep 3600` placeholder), PG connection pool exhaustion,
+  percent-encoded socket paths, env var quoting.
+- Cold-start reconciliation: scoped blueprint scanning, zero-backoff absurd resume,
+  retried pg_online gate, pre-spawn tmux session purge.
+- `janush` zero-arg bypass: interactive invocation now blocked (exit 126).
+- `cargo audit` false positives suppressed (`.cargo/audit.toml`).
 
 ## [0.4.9] - 2026-07-25
 

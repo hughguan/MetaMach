@@ -1,10 +1,17 @@
-# 🛡️ MetaMach 0.4.0
+# 🛡️ MetaMach
+
+<p align="center">
+  <a href="https://github.com/hughguan/MetaMach/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hughguan/MetaMach/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
+  <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3 or newer" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
+  <img alt="Platforms: macOS and Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
+</p>
 
 > $$\text{MetaMach} = \mathbf{META}\text{-Control } + \text{ Bare-}\mathbf{MACH}\text{ine Engine}$$
 >
 > **MetaMach is NOT an AI agent framework. It is a Bare-Metal, High-Availability Safety Harness & Execution Engine for Autonomous Agents in the Physical World.**
 
-MetaMach 0.4.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines — managed straight from your pocket via Teams, Telegram, or TUI.
+MetaMach orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines — managed straight from your pocket via Teams, Telegram, or TUI.
 
 ---
 
@@ -12,7 +19,7 @@ MetaMach 0.4.0 orchestrates specialized AI agents (Claude Code, Codex, Pi) as is
 
 ```
                        ┌─────────────────────────────────────────────────────────┐
-                       │          🪐 MetaMach 0.4.0 Industrial Suite              │
+                       │          🪐 MetaMach Industrial Suite              │
                        └────────────────────────────┬────────────────────────────┘
                                                     │
     ════════════════════ 1. PHYSICAL INTERCEPTION & EXECUTION ════════════════════
@@ -169,7 +176,8 @@ metamach/
 
 ### Prerequisites
 - Linux or macOS
-- Rust 1.88+ (Edition 2024), Tmux 3.3+
+- Rust 1.88+ (Edition 2024)
+- Tmux 3.3+
 - **Postgres 16+** (host-native — no Docker required)
 - Herdr with `metamach.janus` plugin installed
 

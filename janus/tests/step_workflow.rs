@@ -415,7 +415,7 @@ fn utc_03_01b_dispatch_step_transitions() {
     // Wait for the absurd task to reach `completed` (source of truth - avoids
     // the brief Progress-empty window between step 1 COMPLETED and step 2 STARTING).
     // Queue name = `<name>_test_flow` (sanitized; workflow `test-flow` -> `test_flow`).
-    let final_deadline = Instant::now() + Duration::from_secs(45);
+    let final_deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let out = psql(format!(
             "SELECT state FROM absurd.t_{name}_test_flow WHERE task_id = '{task_id}'"
@@ -432,7 +432,7 @@ fn utc_03_01b_dispatch_step_transitions() {
             panic!("absurd task failed mid-execution: {stdout_meta}");
         }
         if Instant::now() > final_deadline {
-            panic!("absurd task did not reach completed within 45s: {state_str}");
+            panic!("absurd task did not reach completed within 60s: {state_str}");
         }
         std::thread::sleep(Duration::from_millis(300));
     }

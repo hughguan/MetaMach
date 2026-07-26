@@ -150,7 +150,6 @@ fn herdr_available() -> bool {
 }
 
 #[test]
-#[ignore = "requires running herdr server"]
 fn herdr_plugin_link_parses_manifest() {
     if !herdr_available() {
         eprintln!("skipping: herdr not on PATH");

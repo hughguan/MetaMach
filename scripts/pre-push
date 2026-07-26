@@ -19,6 +19,7 @@ if [ -z "${DATABASE_URL:-}" ] && [ -z "${METAMACH_PG_SOCKET_DIR:-}" ]; then
         if make -s -C "$(git rev-parse --show-toplevel)" db-init 2>/dev/null; then
             export DATABASE_URL="postgres://metamach_admin@/metamach_db"
             export METAMACH_PG_SOCKET_DIR="$HOME/.local/state/herdr/plugins/metamach.janus/pg_socket"
+            export PGHOST="$METAMACH_PG_SOCKET_DIR"
             echo "=== PG ready ==="
         else
             echo "=== PG init failed — PG-gated tests will skip ==="

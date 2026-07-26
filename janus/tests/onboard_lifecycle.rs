@@ -86,7 +86,7 @@ impl Daemon {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(10) {
             if let Ok(Response::Pong) = self.uds(&Request::Ping, Duration::from_millis(200)) {
-                std::thread::sleep(Duration::from_millis(150));
+                std::thread::sleep(Duration::from_millis(500));
                 return;
             }
             std::thread::sleep(Duration::from_millis(50));

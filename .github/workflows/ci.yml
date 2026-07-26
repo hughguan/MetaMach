@@ -161,6 +161,16 @@ jobs:
       - name: Ensure rustfmt & clippy
         run: rustup component add rustfmt clippy 2>/dev/null || true
 
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            janus/target
+          key: ${{ runner.os }}-cargo-1.88-${{ hashFiles('janus/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-1.88-
+
       - name: Check formatting
         run: cargo fmt --all --manifest-path janus/Cargo.toml -- --check
 

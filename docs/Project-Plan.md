@@ -134,7 +134,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 #### Task 2.5: OpenWiki External Dependency Fetch & RAG Query Verification (Check-in Unit 4d)
 - **Description:** Integrate the external dependency OpenWiki (https://github.com/langchain-ai/openwiki) into the build flow, and connect the Daemon -> OpenWiki RAG query chain-pre-positioning for M4 Offboard write-back and Agent onboarding retrieval.
 - **Implementation:**
-    - `make bootstrap` adds `openwiki` target: fetch/build OpenWiki engine; configure index scopes for `blueprints/<name>/openwiki/` and global `configs/global_rules.md`.
+    - `make bootstrap` adds `openwiki` target: fetch/build OpenWiki engine; configure index scopes for `.janus/openwiki/` and global `configs/global_rules.md`.
     - Daemon implements `openwiki_query` bypass: when an Agent encounters a code blind spot and initiates RAG retrieval, Daemon preferentially hits the Absurd Postgres-level cache (Git-SHA dedup); on miss, queries the OpenWiki engine.
     - Verify index scope isolation: different blueprints' local knowledge graphs do not cross-contaminate.
 - **UAT:** After indexing a blueprint's `openwiki/`, `openwiki_query` returns precise AST snippets; cross-blueprint query results do not leak. After Offboard writes back `production_report.md`, re-indexing can retrieve it (closing the loop with M4 Tasks 4.2/4.3).
@@ -172,7 +172,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Goal:** Grid-connect `janus::tmux` cross-host, implement cold-start zero-state self-heal + SQLite Log Replay (abandon tmux-resurrect), and Offboard trace purge + audit archive.
 
 - **Check-in-able directory structure:**
-    `workflows/`, `blueprints/` (product recipes), `janus/src/bin/janus_daemon.rs` (supplement Onboard / Offboard / audit-archive / `target_sha` submodules), `janus/src/tmux/` (internalized `janus::tmux`)
+    `.janus/`, `templates/` (product recipes & workflows), `janus/src/bin/janus_daemon.rs` (supplement Onboard / Offboard / audit-archive / `target_sha` submodules), `janus/src/tmux/` (internalized `janus::tmux`)
 
 ### Tasks
 
@@ -188,17 +188,17 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Description:** Implement `janus offboard --blueprint <name>` per 0.3.0 §1.3: LLM-smelt `production_report.md`, then `DELETE` `result_cache` and **archive** traces/interception/sign-off logs to the global `absurd_audit_log` (NOT `DROP DATABASE`, NOT a `melt`/`VACUUM`-only step). Split into three check-in units per Project-Plan-Review §2.3.
 - **Implementation:**
     - **8a - Audit Archive + DELETE (F2):** Daemon-orchestrated multi-DB sequence (a single stored proc cannot span DBs): from `metamach_blueprint_<name>`, archive Step traces + Tool Guard interception logs + three-party sign-off records into the global `absurd_audit_log` (catalog DB, `task_id UUID`), then purge operational data via absurd's generic `cleanup_tasks` (absurd provides **no** `melt_blueprint_data` / `offboard_blueprint_data` proc - that was an inaccurate ARCH-0.2.0 assumption). The per-blueprint database is **retained** (not dropped). MetaMach's `offboard_blueprint_data` is a Daemon function, not an absurd proc.
-    - **8b - LLM Smelt:** per `configs/offboard.toml` (Contract TBD: endpoint, `api_key_env`, model, `max_input_tokens`), summarize the archived trace into high-density Markdown -> `blueprints/<name>/openwiki/production_report.md`. 120s timeout; on failure write `production_report.raw.json` fallback. Async; Offboard returns immediately.
+    - **8b - LLM Smelt:** per `configs/offboard.toml` (Contract TBD: endpoint, `api_key_env`, model, `max_input_tokens`), summarize the archived trace into high-density Markdown -> `.janus/openwiki/production_report.md`. 120s timeout; on failure write `production_report.raw.json` fallback. Async; Offboard returns immediately.
     - **8c - Git Commit:** additively commit `production_report.md` to the blueprint Git repo (no `--amend`, no history rewrite per ARCH §2.2C design decision); push with configured credentials.
 - **UAT:** For a product with heavy logs, `janus offboard --blueprint gatemetric` => (a) `absurd_audit_log` gains the archived rows; (b) `SELECT datname FROM pg_database WHERE datname='metamach_blueprint_gatemetric'` still returns a row (DB not dropped); (c) `production_report.md` is additively committed; (d) per-blueprint `result_cache` JSONs are gone.
 
 #### Task 4.3: Blueprint Onboard & Multi-DB Tenant Registration (Check-in Unit 8d)
 - **Description:** Implement `janus onboard --blueprint <name>` per 0.3.0 §1.4 (Multi-DB baseline), symmetric with Offboard.
 - **Implementation:**
-    - Read/validate `blueprints/<name>/janus.toml` + `workflows/<default_workflow>.toml` existence; validate blueprint name (charset + length <= 44 bytes, to fit `metamach_blueprint_<name>` within the Postgres 63-byte identifier limit).
+    - Read/validate `.janus/blueprint.toml` + workflow existence; validate blueprint name (charset + length <= 44 bytes, to fit `metamach_blueprint_<name>` within the Postgres 63-byte identifier limit).
     - Pre-ignition checks: catalog DB reachable, `janus::tmux`/tmux ready; best-effort SSH probe for cross-host blueprints (unreachable = `WARN` only).
     - **Multi-DB tenant registration (F1):** `CREATE DATABASE metamach_blueprint_<name>` (catch SQLSTATE 42P04 => idempotent success; standard PG has no `CREATE DATABASE IF NOT EXISTS`), then `absurdctl init` (installs the absurd engine into the DB) + run `002_blueprint.sql` (the `metamach_step_meta` overlay), and `INSERT ... ON CONFLICT (name) DO UPDATE` a `status='ACTIVE'` row in the **global catalog** `blueprints` table; also `absurd.create_queue('<name>.<workflow>')` per bound workflow. Because `CREATE DATABASE` cannot run inside a transaction, wrap post-create steps in compensation: on any failure after the DB is created, `DROP DATABASE` to avoid a half-activated state.
-    - **Knowledge inheritance:** index `blueprints/<name>/openwiki/`; if a prior `production_report.md` exists, inject key patterns as `## Previous Incidents` few-shot into the Agent System Prompt.
+    - **Knowledge inheritance:** index `.janus/openwiki/`; if a prior `production_report.md` exists, inject key patterns as `## Previous Incidents` few-shot into the Agent System Prompt.
     - Broadcast `blueprint_registered` UDS event; Popup dispatch menu refreshes.
 - **UAT:** On a clean workshop, `janus onboard --blueprint joyrobots` => `SELECT datname FROM pg_database WHERE datname='metamach_blueprint_joyrobots'` returns a row; the catalog `blueprints` table has one `ACTIVE` row; the Popup menu shows it; repeated Onboard is idempotent (42P04 caught); re-Onboard of an Offboarded blueprint recycles `production_report.md`.
 

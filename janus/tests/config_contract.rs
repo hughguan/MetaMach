@@ -299,7 +299,7 @@ fn e2e_smoke_onboard_dispatch_progress() {
             &janus::protocol::Request::Ping,
             std::time::Duration::from_millis(200),
         ) {
-            std::thread::sleep(std::time::Duration::from_millis(150));
+            std::thread::sleep(std::time::Duration::from_millis(500));
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));

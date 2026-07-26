@@ -235,7 +235,7 @@ All tests run inline — no `#[ignore]` attributes remain. Herdr-gated tests run
 | `utc_01_01_daemon_binds_socket_and_pid` | Daemon startup: `janus.sock` + `janus.pid` |
 | `utc_01_01_second_launch_refuses_duplicate_pid_lock` | Singleton PID lock enforcement |
 | `contract_3_2_and_3_4_uds_round_trip` | Ping→Pong, ALLOW/BLOCK/REWRITE verdicts |
-| `utc_02_02_janush_intercepts_block_and_allows` | `janush` proxy shell: exit 126 on BLOCK |
+| `utc_02_02_janush_intercepts_block_and_allows` | `janush` proxy shell: exit 126 on BLOCK & zero-arg interactive rejection |
 | `utc_02_04_uds_protocol_robustness` | Malformed/oversized/burst payloads |
 | `utc_02_05_uds_fuzz_testing` | 10,000 random payload survival |
 | `utc_02_06_fail_closed_30s_timeout` | Fail-closed 30s timeout |
@@ -285,6 +285,13 @@ All tests run inline — no `#[ignore]` attributes remain. Herdr-gated tests run
 > PG+tmux-dependent tests runtime-skip when `DATABASE_URL` or tmux is unavailable.
 
 #### `e2e_pipeline.rs` (3 tests) — ADR-028
+
+> **Note:** These tests exercise the multi-step execution DAG, Tool Guard interception,
+> and Absurd DB state machine automatically in CI using deterministic mock processes
+> (`echo`, `true`, `sleep`). Live LLM multi-agent pipelines (UTC-E2E-01 through
+> UTC-E2E-03 in `Test-Spec.md` §2.11) are executed manually prior to tagging
+> production releases.
+
 | Test | Requires | Coverage |
 |---|---|---|
 | `e2e_onboard_dispatch_returns_task_id` | PG + tmux | Onboard → Dispatch → absurd-minted task_id |

@@ -40,3 +40,24 @@ fi
 
 echo ""
 echo "✅ All CI gates green — safe to push"
+
+# Run Herdr-gated tests if Herdr is available locally (macOS with Homebrew).
+if command -v herdr >/dev/null 2>&1; then
+    # Start herdr server if not already running (check socket).
+    if [ -z "${HERDR_SOCKET_PATH:-}" ]; then
+        export HERDR_SOCKET_PATH="${HOME}/.config/herdr/herdr.sock"
+    fi
+    if ! [ -S "$HERDR_SOCKET_PATH" ]; then
+        echo "=== Starting herdr server for contract tests ==="
+        mkdir -p "$(dirname "$HERDR_SOCKET_PATH")"
+        herdr server &
+        for i in $(seq 1 10); do
+            [ -S "$HERDR_SOCKET_PATH" ] && break
+            sleep 0.5
+        done
+    fi
+    if [ -S "$HERDR_SOCKET_PATH" ]; then
+        echo "=== Herdr contract tests (ignored) ==="
+        cargo test -- --ignored || echo "⚠️  Herdr tests failed (check above)"
+    fi
+fi

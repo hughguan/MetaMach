@@ -3,198 +3,286 @@
 <p align="center">
   <a href="https://github.com/hughguan/MetaMach/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hughguan/MetaMach/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
-  <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3 or newer" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
-  <img alt="Platforms: macOS and Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
+  <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
+  <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
+  <img alt="Tests: 171" src="https://img.shields.io/badge/tests-171%20(CI%20green)-22c55e.svg">
+  <img alt="Version: 0.5.0" src="https://img.shields.io/badge/version-0.5.0-6366f1.svg">
 </p>
 
-> $$\text{MetaMach} = \mathbf{META}\text{-Control } + \text{ Bare-}\mathbf{MACH}\text{ine Engine}$$
->
-> **MetaMach is NOT an AI agent framework. It is a Bare-Metal, High-Availability Safety Harness & Execution Engine for Autonomous Agents in the Physical World.**
-
-MetaMach orchestrates specialized AI agents (Claude Code, Codex, Pi) as isolated, ephemeral function nodes inside robust, survivable engineering pipelines — managed straight from your pocket via Teams, Telegram, or TUI.
+> **MetaMach is NOT an AI agent framework. It is a durable AI Software Factory OS —**
+> a bare-metal safety harness and execution engine that orchestrates autonomous agents
+> inside survivable engineering pipelines with physical hardware access.
 
 ---
 
-## 🪐 Industrial Suite Architecture
+## Architecture
 
 ```
-                       ┌─────────────────────────────────────────────────────────┐
-                       │          🪐 MetaMach Industrial Suite              │
-                       └────────────────────────────┬────────────────────────────┘
-                                                    │
-    ════════════════════ 1. PHYSICAL INTERCEPTION & EXECUTION ════════════════════
-                                                    │
-      【 Terminal / Any CLI Agent 】 ──(Spawns)──► 【 janush 】 (Interception Shell)
-      (Aider, Roo Code, Claude Code...)              │
-                                                     │ ── 16KB Streaming Truncation
-                                                     │ ── Synchronous UDS
-                                                     ▼
-    ═══════════════════════ 2. MM-CORE CONTROL PLANE ═════════════════════════════
-
-                                 ┌───────────────────────────────────────┐
-                                 │     🧠 janus-daemon (MM-CORE)        │
-                                 │  - Master State Machine & UDS Router  │
-                                 │  - 30s Fail-Closed Timeout Engine     │
-                                 └───────────┬───────────────┬───────────┘
-                                             │               │
-                     ┌───────────────────────┘               └───────────────────────┐
-                     ▼                                                               ▼
-   【 janus::tmux 】 (PTY Sandbox Engine)                            【 Storage & Data Survival 】
-   - Isolated `tmux -L metamach-tmux`                                - Primary: Native Absurd PG (`~/.metamach/db/`)
-   - SIGHUP Immunity & Physical Keep-Alive                           - Fallback: SQLite Ring Buffer (`fallback.db`)
-   - Bare-Metal Hardware Access (USB/GPIO)                           - Authoritative 16KB Pre-Insert Truncation
-                     │
-                     ▲ (Reattach View)
-                     │
-         【 herdr-janus 】 (Shadow TUI)
-         Transient Renderer / Zero State
-
-    ═══════════════════ 3. DECOUPLED ECOSYSTEM INTEGRATIONS ═══════════════════════
-                                                     │
-                                                     ▼
-                                       【 janus::gateway 】 (HITL Gateway)
-                                       - Payload-Complete HTTP/UDS Proxy
-                                       - Hermes Run API Schema (/v1/runs)
-                                                     │
-                             ┌───────────────────────┴───────────────────────┐
-                             ▼                                               ▼
-         【 Human-in-the-Loop Channels 】                   【 Opt-in Cognitive Services (SPI) 】
-         - Microsoft Teams (Adaptive Cards)                - OpenWiki (Contextual Markdown)
-         - Telegram / Out-of-band Webhooks                 - codebase-memory-mcp (Tree-Sitter / MCP)
-         - Remote Approve / Reject / Override
-
+                         ═══════════════════════════════════════════
+                          CLI Agent (Claude Code / Codex / Pi / ...)
+                         ═══════════════════════════════════════════
+                                        │
+                                        │ spawns on user command
+                                        ▼
+                         ┌──────────────────────────────┐
+                         │  janush  (Proxy Shell)       │
+                         │  • Tool Guard reconciliation │
+                         │  • 30s fail-closed timeout   │
+                         │  • 16KB streaming truncation │
+                         └──────────────┬───────────────┘
+                                        │ UDS (Unix Domain Socket)
+                                        ▼
+                         ┌──────────────────────────────────────────┐
+                         │        janus-daemon  (MM-CORE)           │
+                         │  • Master state machine & UDS router     │
+                         │  • Workflow engine (absurd pull-mode)    │
+                         │  • Pipeline DAG (topological sort)       │
+                         │  • HITL Gateway + Teams Adaptive Cards   │
+                         │  • Cold-start resume & checkpoint/recover│
+                         └──┬─────────────┬─────────────┬──────────┘
+                            │             │             │
+                   ┌────────┘             │             └──────────┐
+                   ▼                      ▼                        ▼
+     ┌─────────────────────┐  ┌───────────────────┐  ┌──────────────────────┐
+     │  janus::tmux         │  │  Absurd Postgres  │  │  janus::gateway       │
+     │  • tmux -L mm-tmux   │  │  • catalog DB     │  │  • HITL dispatch      │
+     │  • remain-on-exit    │  │  • per-blueprint DB│  │  • Hermes /v1/runs     │
+     │  • SSH reverse tunnel│  │  • SQLite fallback │  │  • HMAC webhooks      │
+     └──────────────────────┘  └───────────────────┘  └──────────────────────┘
+                   ▲
+                   │ (reattach view)
+     ┌──────────────────────┐
+     │  herdr-janus (TUI)    │  ← Herdr overlay pane (prefix+j)
+     │  • Dispatch / Progress│     Shadow client — zero state, zero logic
+     └──────────────────────┘
 ```
 
-### 🛠️ Layer-by-Layer Physical Logic
-
-**1. Physical Interception Layer.** Any CLI Agent running in a shell issues commands — `janush` acts as the first interception line, performing transparent capture, 16KB real-time streaming truncation, and synchronous reporting to `janus-daemon` via Unix Domain Socket (UDS).
-
-**2. MM-CORE Control & Durability Layer.**
-- **`janus-daemon` → `janus::tmux`**: After confirming the command is safe, the Daemon drives the underlying `janus::tmux` engine to execute the instruction inside the isolated `metamach-tmux` server. Even if the foreground UI crashes or the SSH connection drops, the underlying process keeps running uninterrupted.
-- **`janus-daemon` → Storage**: State writes are preferentially committed to the host-native Absurd PG. If PG crashes, writes seamlessly fail over to the SQLite ring buffer for degraded-mode survival; PG automatically replays on recovery.
-- **`herdr-janus` → `janus::tmux`**: A pure shadow TUI renderer — only mounts and interacts with the physical screen; holds zero state.
-
-**3. Decoupled Gateway & Cognition Layer.**
-- **`janus-daemon` ↔ `janus::gateway`**: When a high-risk operation triggers the 30s Fail-Closed suspension, the Daemon dispatches the event to the payload-complete `janus::gateway`.
-- **`janus::gateway` → External World**:
-  - **Human Circuit-Breaker**: Pushes Rich Adaptive Cards to **Microsoft Teams** via the Hermes `/v1/runs` compatible protocol. The Factory Director remotely taps Approve to energize the circuit; the signal returns through the Gateway to the Daemon, unfreezing `janush`.
-  - **Cognitive Enhancement**: Asynchronously queries `codebase-memory-mcp` and `OpenWiki` context via MCP on demand; the MM-CORE Daemon maintains a minimal memory footprint (< 50MB).
-
 ---
 
-## 🧱 Core Pillars
+## Project Structure
 
-> **Architecture Invariant:** MetaMach is built on four non-negotiable industrial principles: Safety, Stability, Decoupling, and Reusability. It provides a bare-metal, fail-closed execution harness for autonomous AI agents operating in high-risk engineering environments.
-
-### 🛡️ 1. Safety First
-
-**Fail-Closed Gatekeeping (`janush`).** Every shell command passes through the synchronous `janush` interceptor. Any unverified or high-risk operation triggers a strict 30-second timeout — if unapproved, execution hard-fails closed, preventing catastrophic hardware or system mutations.
-
-**Dual-Tier Flow Budgeting.** Strict 16KB log truncation enforced both at the streaming shell boundary (`janush`) and pre-database insertion (`janus-daemon`), shielding local storage from agent infinite loops.
-
-**Out-of-Band HITL Guard.** High-risk actions automatically freeze state and fan out interactive Adaptive Cards to Microsoft Teams/Telegram via `janus::gateway`. Human operators can approve, modify, or terminate execution remotely without granting the network layer write access to local PTY sandboxes.
-
-### ⚙️ 2. Uncompromising Stability
-
-**Brain-as-a-Daemon (`janus-daemon`).** The core control plane is an independent, host-native Rust daemon owning the transactional state machine (Absurd PG) and UDS event router. The TUI (`herdr-janus`) is merely a transient view — UI crashes or terminal closures never lose engineering state.
-
-**Dual-Track Data Survival (SQLite Ring Buffer).** Production state is atomically backed by Postgres. In the event of a host PG crash (OOM or disk pressure), execution seamlessly fails over to a local SQLite ring buffer (`fallback.db`), keeping the workshop running in Degraded Mode until PG automatically replays and recovers.
-
-**De-containerized Physical Persistence.** No Docker or Compose overhead. Postgres runs as a native host sandbox writing directly to `~/.metamach/db/`, ensuring absolute state preservation across power-cycle restarts.
-
-### 🔌 3. Pure Decoupling
-
-**Execution vs. UI Decoupling.** PTY session keep-alive is isolated inside the native `janus::tmux` engine (`tmux -L metamach-tmux`). Sessions possess SIGHUP immunity and survive complete disconnection of the developer's laptop or frontend interface.
-
-**Control vs. Cognition Decoupling (Opt-in SPIs).** Heavy symbol indexing (`codebase-memory-mcp`) and contextual knowledge mapping (OpenWiki) are completely isolated into asynchronous, opt-in Model Context Protocol (MCP) plugins, maintaining a minimal core daemon footprint.
-
-**Payload-Complete HITL Gateway.** The notification routing layer (`janus::gateway`) is completely decoupled from PTY lifecycle management; network latency or external webhook failures will never deadlock or crash ongoing physical execution.
-
-### 🔄 4. Universal Reusability
-
-**Hermes Protocol Convergence.** The gateway exposes native compatibility with the Hermes Run API Schema (`/v1/runs`), allowing MetaMach to instantly reuse pre-existing open-source agent dashboards, webhooks, and multi-channel notification bots out-of-the-box.
-
-**Agent & Model Agnostic.** Operates directly at the OS PTY boundary. Works seamlessly with any CLI agent (Claude Code, Aider, Roo Code, Codex) without requiring custom prompts, specific vendor models, or API wrappers.
-
-**Single-Binary Zero-Dependency Bootstrap.** A clean, host-native Rust binary architecture. `make bootstrap` compiles, symlinks, and points to `~/.metamach/db/` for immediate bare-metal deployment.
-
----
-
-## 📐 Three-Dimensional Customization
-
-| Dimension | Description |
-|-----------|-------------|
-| **Agent Pool & Stack** | Global registration of AI resources — API keys and SSH credentials decrypted in `/dev/shm` (RAM disk, never leaked to disk). Fine-grained role-based permission levels (Scout / Coder / Deployer). |
-| **Workflows** | Declarative `.toml` pipelines (`workflows/*.toml`). Chain multiple agent stations across local and remote SSH hosts. |
-| **Blueprints** | Physical project containers under `blueprints/<name>/`. Each binds a custom `janus.toml` recipe, a dedicated per-blueprint database (`metamach_blueprint_<name>`), OpenWiki knowledge scope, and optional remote compilation targets. On offboarding, purges operational data with full audit trail and generates a `production_report.md`. |
-
----
-
-## 🗂️ Project Structure
+### MetaMach source repo
 
 ```
 metamach/
-├── blueprints/               # Product blueprints (joyrobots, gatemetric...)
-│   ├── joyrobots/            #   Modular education robot platform
-│   └── gatemetric/           #   BMX attitude evaluation system
-├── integrations/             # 🔌 Opt-in external services (SPI / MCP)
-│   ├── openwiki/             #   Shared RAG knowledge base
-│   └── codebase-memory-mcp/  #   Tree-sitter symbol index (MCP transport)
-├── docs/                     # Full design specs, PRD, test, deployment
-├── janus/                    # 🛡️ Janus Core (Rust)
-│   ├── Cargo.toml            #   Rust workspace
-│   ├── herdr-plugin.toml     #   Herdr 0.7.3 plugin manifest
-│   └── src/
-│       ├── bin/
-│       │   ├── janus_daemon.rs  # 🪐 Control-plane daemon (MM-CORE Brain)
-│       │   ├── herdr_janus.rs   # 🔌 Herdr shadow client (TUI only)
-│       │   ├── janush.rs        # 🛡️ Proxy shell (30s Fail-Closed fuse)
-│       │   └── janus.rs         # 📋 Unified CLI entrypoint
-│       ├── gateway/             # 🌐 janus::gateway — HITL dispatch (Hermes/Teams)
-│       ├── cognitive/           # 🔌 Cognitive Provider SPI
-│       ├── tmux/                # 🔌 janus::tmux — PTY session engine
-│       ├── tool_guard/          # 🛡️ Rule engine + webhook dispatch
-│       ├── absurd/              # 📊 Postgres transaction ledger + SQLite fallback
-│       ├── lifecycle.rs         # 🔄 Onboard/Offboard lifecycle
-│       ├── coldstart.rs         # ❄️ Cold-start self-healing
-│       ├── protocol.rs          # 📜 Shared types + Contracts 3.x/4.x
-│       └── lib.rs               # 📚 Crate root
-├── configs/                  # Agent pool, tmux config, global rules
-├── workflows/                # Declarative pipeline SOPs
-│   ├── dev-flow.toml
-│   ├── debug-flow.toml
-│   └── firmware-deploy.toml
-├── provisioning/             # Bootstrap, init scripts
-└── Makefile                  # Factory master switch (no Docker)
+├── docs/                        # English specs (source of truth)
+│   ├── ARCH.md                  #   Architecture (0.5.0 converged)
+│   ├── ADR.md                   #   29 Architecture Decision Records
+│   ├── PRD.md, Feature-Spec.md  #   Product & feature specs
+│   ├── Test-Spec.md             #   Test specifications
+│   └── Deployment-Spec.md       #   Deployment guide
+├── janus/                       # Rust workspace (~2,800 LOC)
+│   ├── Cargo.toml
+│   ├── herdr-plugin.toml        #   Herdr 0.7.3 plugin manifest
+│   ├── src/
+│   │   ├── bin/
+│   │   │   ├── janus_daemon.rs  #   Control-plane daemon
+│   │   │   ├── herdr_janus.rs   #   Herdr shadow TUI client
+│   │   │   ├── janush.rs        #   Proxy shell (Tool Guard)
+│   │   │   └── janus.rs         #   CLI: init, onboard, dispatch, pipeline
+│   │   ├── absurd/              #   Postgres adapter + SQLite fallback
+│   │   ├── tmux/                #   PTY session engine
+│   │   ├── tool_guard/          #   Rule engine + webhook dispatch
+│   │   ├── gateway/             #   HITL Gateway (Teams, HMAC)
+│   │   ├── cognitive/           #   Cognitive Provider SPI (MCP)
+│   │   ├── workflow/            #   Workflow engine + stream filter
+│   │   ├── pipeline.rs          #   Pipeline DAG engine (topological sort)
+│   │   ├── lifecycle.rs         #   Onboard / Offboard lifecycle
+│   │   ├── coldstart.rs         #   Cold-start self-healing
+│   │   ├── recipe.rs            #   Blueprint recipe validation
+│   │   ├── agent.rs             #   Agent pool & provisioning
+│   │   ├── paths.rs             #   Path resolution (Herdr + standalone)
+│   │   └── protocol.rs          #   Shared UDS types (Contracts 3.x/4.x)
+│   ├── migrations/              #   SQL (001_catalog, 002_blueprint, ...)
+│   └── tests/                   #   Integration & E2E tests (171 total)
+├── templates/                   # `janus init` scaffolds from here
+│   ├── blueprint.toml           #   Default project recipe
+│   ├── agents/                  #   Architect, Builder, Tester roles
+│   ├── workflows/               #   12 workflow templates
+│   └── pipelines/               #   req2spec, spec2software, adr-process
+├── configs/                     # Factory defaults
+│   ├── agents.toml              #   Global agent pool
+│   ├── offboard.toml            #   Offboard configuration
+│   └── global_rules.md          #   Shared rules
+├── scripts/
+│   └── pre-push                 #   Git hook: fmt + clippy + test + PG E2E
+├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 171 tests
+└── Makefile                     #   bootstrap, db-init, health, clean
+```
+
+### Per-project (after `janus init`)
+
+```
+my-project/
+├── .janus/                      # All MetaMach config for this project
+│   ├── blueprint.toml           #   [blueprint] name, default_workflow, [remote]
+│   ├── agents/                  #   Project-specific agent overrides
+│   │   ├── architecture.toml
+│   │   ├── builder.toml
+│   │   └── tester.toml
+│   ├── workflows/               #   Workflow definitions
+│   │   ├── wf_architect_design.toml
+│   │   ├── wf_builder_implement.toml
+│   │   └── wf_tester_validate.toml
+│   ├── pipelines/               #   DAG pipeline definitions
+│   │   ├── req2spec.toml
+│   │   └── spec2software.toml
+│   └── openwiki/                #   RAG knowledge scope (per-blueprint)
+│       └── production_report.md #   Generated on offboard
+└── src/                         # Your project source
 ```
 
 ---
 
----
-
-## ⚡ Quick Start
+## Quick Start
 
 ### Prerequisites
-- Linux or macOS
-- Rust 1.88+ (Edition 2024)
-- Tmux 3.3+
-- **Postgres 16+** (host-native — no Docker required)
-- Herdr with `metamach.janus` plugin installed
 
-### Bootstrap
+| Dependency | Version | Check |
+|---|---|---|
+| Rust | 1.88+ (Edition 2024) | `rustc --version` |
+| PostgreSQL | 16+ (host-native, no Docker) | `pg_config --version` |
+| tmux | 3.3+ | `tmux -V` |
+| Herdr | 0.7.3+ (plugin host) | `herdr --version` |
+
+### Bootstrap MetaMach
+
 ```bash
-make prereq      # Check for pg_config, tmux, cargo (fails fast with instructions)
-make bootstrap   # Compile + symlink + init DB
+git clone https://github.com/hughguan/MetaMach.git
+cd MetaMach
+make bootstrap          # prereq → symlinks → compile → db-init
 ```
-`make bootstrap` **auto-provisions** everything:
-1. Creates immutable/mutable directory separation with symlinks (`~/.metamach/db/`)
-2. Compiles `janus-daemon`, `herdr-janus`, `janush`, and `janus` in release mode
-3. Launches host-native Postgres and runs catalog migration (`001_catalog.sql`)
 
-After bootstrap, press `prefix+j` inside Herdr to open the Dispatcher console and dispatch a workflow.
+`make bootstrap` auto-provisions:
+1. Checks prerequisites (`pg_config`, `tmux`, `cargo`)
+2. Compiles 4 binaries in release mode
+3. Initializes native Postgres at `~/.metamach/db/`
+4. Applies catalog migration (`001_catalog.sql`)
 
-### Shutdown
+### Start a project
+
 ```bash
-make db-down   # Gracefully stop the Postgres instance
-make clean     # Clean build artifacts and unmount RAM disk
+cd my-project
+janus init
 ```
+
+This scaffolds `.janus/` with:
+- `blueprint.toml` — edit the `name` and `default_workflow` fields
+- `agents/` — architect, builder, tester role templates
+- `workflows/` — 12 workflow templates
+- `pipelines/` — 3 pipeline DAG templates (`req2spec`, `spec2software`, `adr-process`)
+
+### Onboard a blueprint
+
+```bash
+janus onboard --blueprint my-project
+```
+
+Validates `.janus/blueprint.toml` (name, workflow, openwiki scope), creates a
+dedicated `metamach_blueprint_my_project` database with the absurd schema, and
+registers the blueprint in the catalog.
+
+### Dispatch a workflow
+
+```bash
+janus dispatch --blueprint my-project                 # uses default_workflow
+janus dispatch --blueprint my-project --workflow ci   # override workflow
+```
+
+The daemon spawns a detached background task that:
+1. Claims the absurd task (pull-mode lease)
+2. For each step: creates a tmux session → runs `janush -c "<command>"` (Tool Guard gated)
+3. Captures stdout/stderr, records exit code
+4. Checkpoints after each step (cold-start resume on daemon restart)
+5. Reaches `COMPLETED` or `FAILED`
+
+### Check progress
+
+```bash
+janus status                           # all active blueprints
+janus status --blueprint my-project    # one blueprint
+janus status --json                    # machine-readable
+```
+
+### Pipeline DAGs (ADR-021)
+
+```bash
+# Validate a pipeline definition
+janus pipeline validate .janus/pipelines/spec2software.toml
+
+# Generate a pipeline from natural language (ADR-023, LLM-assisted)
+janus pipeline plan --blueprint my-project \
+  "Architect designs, Builder implements, Tester validates, loop until green"
+```
+
+Pipelines define DAGs with `[nodes]` and dependency `needs` edges. The engine
+topologically sorts nodes and executes independent branches in parallel.
+
+### Offboard a blueprint
+
+```bash
+janus offboard --blueprint my-project
+```
+
+Purges operational data from the per-blueprint database, archives the audit
+trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
+
+### Herdr integration
+
+```bash
+herdr plugin link ./janus           # register MetaMach plugin
+# prefix+j opens the Dispatcher TUI overlay
+```
+
+---
+
+## Customization Dimensions
+
+| Dimension | Location | Description |
+|---|---|---|
+| **Agent Pool** | `configs/agents.toml` + `.janus/agents/` | Permissions, provisioning, quota, fallback chains, pre-flight probes |
+| **Workflows** | `templates/workflows/` + `.janus/workflows/` | Linear step sequences: agent + command per step |
+| **Pipelines** | `templates/pipelines/` + `.janus/pipelines/` | DAG composition: nodes with `needs` dependencies, parallel execution |
+| **Blueprints** | `.janus/blueprint.toml` | Per-project recipe: name, default workflow, openwiki scope, remote host |
+
+---
+
+## Core Principles
+
+### 🛡️ Safety First
+- **Fail-closed**: 30s timeout → BLOCK (never pass-through on uncertainty)
+- **Dual 16KB budget**: truncation at both `janush` (stream) and `janus-daemon` (DB insert)
+- **Tool Guard**: ALLOW / BLOCK / REWRITE rules per agent role, with hot-reload
+- **HITL Gateway**: high-risk ops freeze → Teams Adaptive Card → Approve/Reject → resume/fail
+
+### ⚙️ Uncompromising Stability
+- **Daemon-owned state**: TUI is transient; state survives UI crashes and SSH drops
+- **Dual-track survival**: primary Absurd PG → SQLite fallback ring on PG outage → auto-replay
+- **Cold-start resume**: daemon restart picks up from last `COMPLETED` checkpoint
+- **De-containerized**: native PostgreSQL at `~/.metamach/db/`, no Docker
+
+### 🔌 Pure Decoupling
+- **tmux isolation**: `tmux -L metamach-tmux`, sessions survive agent disconnection
+- **Cognitive SPI**: opt-in MCP plugins (`codebase-memory-mcp`, OpenWiki) — async, advisory only
+- **HITL Gateway**: external webhook latency never blocks PTY execution
+
+### 🔄 Universal Reusability
+- **Agent-agnostic**: works with any CLI agent (Claude Code, Codex, Pi, Aider, Roo Code)
+- **Cross-host**: SSH `-R` reverse tunnels for remote compilation targets (ADR-017)
+- **Single-binary bootstrap**: `make bootstrap` → ready to deploy
+
+---
+
+## CI & Testing
+
+- **171 tests**: 168 default + 3 Herdr-gated (run on `--ignored` in CI)
+- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`
+- **E2E pipeline tests**: onboard → dispatch → multi-step workflow completion, Tool Guard interception
+- **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
+- **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

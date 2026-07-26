@@ -133,13 +133,3 @@ jobs:
         env:
           DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
           TMUX_TMPDIR: /tmp
-
-      - name: Run Herdr contract tests (ignored)
-        # Add herdr-janus to PATH so the manifest's `command = ["herdr-janus"]` resolves.
-        # The e2e_smoke test also needs PG + tmux (already available).
-        run: |
-          export PATH="$PWD/janus/target/release:$PATH"
-          cargo test --manifest-path janus/Cargo.toml -- --ignored
-        env:
-          DATABASE_URL: postgres://metamach_admin@localhost:5432/metamach_db
-          TMUX_TMPDIR: /tmp

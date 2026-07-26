@@ -2,9 +2,8 @@
 //!
 //! Validates `herdr-plugin.toml` format + `HERDR_PLUGIN_*` fallback logic
 //! without requiring a running Herdr daemon.
-//!
-//! Real Herdr integration tests (`herdr plugin link` / overlay popup) are
-//! `#[ignore = "requires running herdr server"]` — run manually on macOS.
+//! Herdr integration tests. All tests runtime-skip when Herdr is
+//! unavailable (no `#[ignore]` — they run whenever Herdr is on PATH).
 
 use std::path::PathBuf;
 
@@ -194,7 +193,6 @@ fn herdr_plugin_link_parses_manifest() {
 }
 
 #[test]
-#[ignore = "requires running herdr server"]
 fn herdr_min_version_is_satisfied() {
     if !herdr_available() {
         eprintln!("skipping: herdr not on PATH");
@@ -233,7 +231,6 @@ fn herdr_min_version_is_satisfied() {
 // ── End-to-end smoke test (PG + tmux + Herdr + janus-daemon) ───────────
 
 #[test]
-#[ignore = "requires PG + tmux + herdr"]
 #[allow(clippy::collapsible_if)]
 fn e2e_smoke_onboard_dispatch_progress() {
     let pg_ok =

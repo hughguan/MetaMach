@@ -282,6 +282,7 @@ fn e2e_smoke_onboard_dispatch_progress() {
         .env("HERDR_PLUGIN_STATE_DIR", state.path())
         .env("HERDR_PLUGIN_ROOT", repo.path())
         .env("JANUS_AGENTS_TOML", &agents)
+        .env("JANUS_JANUSH_BIN", env!("CARGO_BIN_EXE_janush"))
         .env("JANUS_GATEWAY_LISTEN_PORT", "0")
         .env("RUST_LOG", "warn")
         .stdin(std::process::Stdio::null())
@@ -319,6 +320,9 @@ fn e2e_smoke_onboard_dispatch_progress() {
         other => panic!("expected Dispatch, got {other:?}"),
     };
 
+    // Poll until the task disappears from active_tasks (terminal state).
+    // db.progress() only returns STARTING/RUNNING/SUSPENDED — COMPLETED
+    // tasks vanish, so we detect completion by task absence.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut completed = false;
     while std::time::Instant::now() < deadline {
@@ -328,10 +332,8 @@ fn e2e_smoke_onboard_dispatch_progress() {
         if let Ok(janus::protocol::Response::Progress { active_tasks }) =
             janus::uds::request_to(&sock, &req, std::time::Duration::from_secs(5))
         {
-            if active_tasks
-                .iter()
-                .any(|t| t.steps.iter().any(|s| s.status == "COMPLETED"))
-            {
+            // Task disappeared → terminal state reached.
+            if active_tasks.is_empty() {
                 completed = true;
                 break;
             }

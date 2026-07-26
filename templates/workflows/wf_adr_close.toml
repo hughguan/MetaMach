@@ -1,0 +1,10 @@
+# wf_adr_close — ARCHITECT closes ADR as APPROVED/DEFERRED/REJECTED
+
+[workflow]
+name = "wf_adr_close"
+description = "ARCHITECT closes ADR as APPROVED/DEFERRED/REJECTED"
+
+[[steps]]
+name = "execute"
+agent = "architect"
+command = "echo ok"

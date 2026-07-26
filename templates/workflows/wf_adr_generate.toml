@@ -1,0 +1,10 @@
+# wf_adr_generate — ARCHITECT generates Architecture Decision Record (PENDING)
+
+[workflow]
+name = "wf_adr_generate"
+description = "ARCHITECT generates Architecture Decision Record (PENDING)"
+
+[[steps]]
+name = "execute"
+agent = "architect"
+command = "echo ok"

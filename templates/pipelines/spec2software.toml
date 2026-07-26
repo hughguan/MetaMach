@@ -1,0 +1,32 @@
+# spec2software — Specs to Software (per-milestone iteration)
+# BUILDER implements → TESTER validates → ARCHITECT reviews → loop → TESTER commits+tags
+# Between milestones: HITL gate for next kickoff
+
+[pipeline]
+name = "spec2software"
+description = "Implement software from specs with BUILDER/TESTER/ARCHITECT review loops and milestone HITL gates"
+
+# ── Per-unit cycle (repeats per dev plan unit) ──
+[[nodes]]
+id = "builder_implement"
+workflow = "wf_builder_implement"
+# Implements one unit per feature-spec dev plan, commits the change
+
+[[nodes]]
+id = "tester_validate"
+workflow = "wf_tester_validate"
+needs = ["builder_implement"]
+# Runs tests per test-spec, produces test report or REJECT
+
+[[nodes]]
+id = "architect_review"
+workflow = "wf_architect_signoff"
+needs = ["tester_validate"]
+# Reviews code against feature-spec, arch-design, and test report
+
+# ── Milestone gate ──
+[[nodes]]
+id = "tester_milestone_commit"
+workflow = "wf_tester_commit"
+needs = ["architect_review"]
+# After all units in milestone pass: git commit + push + tag

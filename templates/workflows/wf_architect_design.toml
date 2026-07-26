@@ -1,0 +1,17 @@
+# wf_architect_design — ARCHITECT produces architecture design from requirements
+# Reads: requirements/product.md
+# Produces: docs/architecture-design.md
+
+[workflow]
+name = "wf_architect_design"
+description = "ARCHITECT reviews product requirements and produces architecture design document"
+
+[[steps]]
+name = "read_requirements"
+agent = "architect"
+command = "cat requirements/product.md"
+
+[[steps]]
+name = "produce_design"
+agent = "architect"
+command = "echo '## Architecture Design' > docs/architecture-design.md"

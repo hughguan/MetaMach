@@ -1,0 +1,52 @@
+# adr-process — Architecture Decision Record (mid-development change injection)
+# ARCHITECT generates ADR → BUILDER + TESTER cross-review → CLOSE ADR → update specs if APPROVED
+
+[pipeline]
+name = "adr-process"
+description = "Process mid-development changes via Architecture Decision Records with cross-review and spec updates"
+
+# ── Phase A: ADR generation ──
+[[nodes]]
+id = "architect_adr"
+workflow = "wf_adr_generate"
+# ARCHITECT reviews change request, generates ADR with status PENDING
+
+# ── Phase B: Cross-review ──
+[[nodes]]
+id = "builder_review_adr"
+workflow = "wf_cross_review"
+needs = ["architect_adr"]
+
+[[nodes]]
+id = "tester_review_adr"
+workflow = "wf_cross_review"
+needs = ["architect_adr"]
+
+# ── Phase C: ADR closure ──
+[[nodes]]
+id = "architect_close_adr"
+workflow = "wf_adr_close"
+needs = ["builder_review_adr", "tester_review_adr"]
+# CLOSED: APPROVED / DEFERRED / REJECTED
+
+# ── Phase D: Spec update (only if APPROVED) ──
+[[nodes]]
+id = "architect_update_design"
+workflow = "wf_architect_design"
+needs = ["architect_close_adr"]
+
+[[nodes]]
+id = "builder_update_spec"
+workflow = "wf_builder_spec"
+needs = ["architect_close_adr"]
+
+[[nodes]]
+id = "tester_update_spec"
+workflow = "wf_tester_spec"
+needs = ["architect_close_adr"]
+
+# ── Phase E: Cross-review updated specs + commit ──
+[[nodes]]
+id = "tester_commit_updates"
+workflow = "wf_tester_commit"
+needs = ["architect_update_design", "builder_update_spec", "tester_update_spec"]

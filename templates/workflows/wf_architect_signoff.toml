@@ -1,0 +1,10 @@
+# wf_architect_signoff — ARCHITECT reviews code against specs and test report
+
+[workflow]
+name = "wf_architect_signoff"
+description = "ARCHITECT reviews code against specs and test report"
+
+[[steps]]
+name = "execute"
+agent = "architect"
+command = "echo ok"

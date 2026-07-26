@@ -1,0 +1,10 @@
+# wf_builder_implement — BUILDER implements one unit per dev plan
+
+[workflow]
+name = "wf_builder_implement"
+description = "BUILDER implements one unit per dev plan"
+
+[[steps]]
+name = "execute"
+agent = "architect"
+command = "echo ok"

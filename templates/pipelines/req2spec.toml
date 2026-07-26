@@ -1,0 +1,61 @@
+# req2spec — Requirements to Specs (3-agent cross-review)
+# ARCHITECT → BUILDER + TESTER review → ARCHITECT address → loop → BUILDER + TESTER produce specs → cross-review → TESTER commit
+
+[pipeline]
+name = "req2spec"
+description = "Transform product requirements into architecture design, feature spec, and test spec via ARCHITECT/BUILDER/TESTER cross-review loops"
+
+# ── Phase A: Architect produces design ──
+[[nodes]]
+id = "architect_design"
+workflow = "wf_architect_design"
+
+# ── Phase B: Builder + Tester review in parallel ──
+[[nodes]]
+id = "builder_review_design"
+workflow = "wf_cross_review"
+needs = ["architect_design"]
+
+[[nodes]]
+id = "tester_review_design"
+workflow = "wf_cross_review"
+needs = ["architect_design"]
+
+# ── Phase C: Architect addresses comments ──
+[[nodes]]
+id = "architect_address"
+workflow = "wf_architect_address"
+needs = ["builder_review_design", "tester_review_design"]
+
+# ── Phase D: Builder + Tester produce specs in parallel ──
+[[nodes]]
+id = "builder_spec"
+workflow = "wf_builder_spec"
+needs = ["architect_address"]
+
+[[nodes]]
+id = "tester_spec"
+workflow = "wf_tester_spec"
+needs = ["architect_address"]
+
+# ── Phase E: Cross-review all specs ──
+[[nodes]]
+id = "architect_review_specs"
+workflow = "wf_cross_review"
+needs = ["builder_spec", "tester_spec"]
+
+[[nodes]]
+id = "tester_review_builder"
+workflow = "wf_cross_review"
+needs = ["builder_spec"]
+
+[[nodes]]
+id = "builder_review_tester"
+workflow = "wf_cross_review"
+needs = ["tester_spec"]
+
+# ── Phase F: Final sign-off + commit ──
+[[nodes]]
+id = "tester_commit"
+workflow = "wf_tester_commit"
+needs = ["architect_review_specs", "tester_review_builder", "builder_review_tester"]

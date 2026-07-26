@@ -1,0 +1,16 @@
+# Agent role template: BUILDER
+# Copy to .janus/agents/ and customize per project.
+
+[agent.builder]
+permissions   = ["read", "write", "edit", "bash-safe", "git-commit"]
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*"]
+
+# Uncomment and customize for your LLM provider:
+# [agent.builder.provision]
+# adapter = "aider"
+# command = "aider --model anthropic/claude-3-5-sonnet-20241022"
+# system_prompt = "You are the Builder. Implement features per the development plan."
+# [agent.builder.provision.quota]
+# max_requests_per_hour = 50
+# fallback_agent = "coder_backup"

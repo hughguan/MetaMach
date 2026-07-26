@@ -1,0 +1,11 @@
+# wf_cross_review — Review a document with REJECT/APPROVE comments
+# Expects the target document path in JANUS_REVIEW_TARGET env var
+
+[workflow]
+name = "wf_cross_review"
+description = "Review a document and return APPROVED or REJECT with inline comments"
+
+[[steps]]
+name = "review"
+agent = "architect"
+command = "echo APPROVED"

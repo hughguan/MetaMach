@@ -1,0 +1,10 @@
+# wf_architect_address — ARCHITECT reads review comments and addresses them
+
+[workflow]
+name = "wf_architect_address"
+description = "ARCHITECT reads all REJECT comments and addresses each (accepts or explains)"
+
+[[steps]]
+name = "address"
+agent = "architect"
+command = "echo 'All comments addressed'"

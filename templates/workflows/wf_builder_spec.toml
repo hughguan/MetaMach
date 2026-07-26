@@ -1,0 +1,10 @@
+# wf_builder_spec — BUILDER produces feature-spec.md with development plan
+
+[workflow]
+name = "wf_builder_spec"
+description = "BUILDER produces feature-spec.md with development plan"
+
+[[steps]]
+name = "execute"
+agent = "architect"
+command = "echo ok"

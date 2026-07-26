@@ -1,0 +1,13 @@
+# Agent role template: TESTER
+# Copy to .janus/agents/ and customize per project.
+
+[agent.tester]
+permissions   = ["read", "write", "bash-safe", "git-commit", "git-push"]
+bash_safe     = true
+bash_blacklist = ["rm -rf /", "> /dev/sd*"]
+
+# Uncomment and customize for your LLM provider:
+# [agent.tester.provision]
+# adapter = "codex"
+# command = "codex --model deepseek-chat"
+# system_prompt = "You are the Tester. Validate implementations against test specs."

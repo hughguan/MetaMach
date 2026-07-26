@@ -1,0 +1,10 @@
+# wf_tester_spec — TESTER produces test-spec.md
+
+[workflow]
+name = "wf_tester_spec"
+description = "TESTER produces test-spec.md"
+
+[[steps]]
+name = "execute"
+agent = "architect"
+command = "echo ok"

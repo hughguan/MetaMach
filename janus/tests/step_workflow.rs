@@ -72,13 +72,6 @@ impl Daemon {
         repo_path: &Path,
         repo: Option<tempfile::TempDir>,
     ) -> Self {
-        // Ensure clean tmux server state for test isolation on local runs
-        let _ = Command::new("tmux")
-            .args(["-L", "metamach-tmux", "kill-server"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-
         let child = Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
             .env("HERDR_PLUGIN_STATE_DIR", state_dir)
             .env("HERDR_PLUGIN_ROOT", repo_path)
@@ -409,13 +402,23 @@ fn utc_03_01b_dispatch_step_transitions() {
         let out = psql(format!(
             "SELECT state FROM absurd.t_{name}_test_flow WHERE task_id = '{task_id}'"
         ));
-        if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "completed" {
+        let state_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && state_str == "completed" {
             break;
+        }
+        if state_str == "failed" {
+            let meta = psql(format!(
+                "SELECT step_name, status, exit_code, stdout_tail FROM metamach_step_meta WHERE task_id = '{task_id}'"
+            ));
+            panic!(
+                "absurd task failed mid-execution: {}",
+                String::from_utf8_lossy(&meta.stdout)
+            );
         }
         if Instant::now() > final_deadline {
             panic!(
                 "absurd task did not reach completed within 30s: {}",
-                String::from_utf8_lossy(&out.stdout)
+                state_str
             );
         }
         std::thread::sleep(Duration::from_millis(300));

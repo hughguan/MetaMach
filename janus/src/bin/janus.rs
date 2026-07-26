@@ -48,7 +48,7 @@ enum CliCommand {
     Daemon,
     /// Register / reactivate a blueprint (Feature-Spec §2.5, Task 4.3).
     Onboard {
-        /// Blueprint name (the `blueprints/<name>/` directory).
+        /// Blueprint name (validated against .janus/blueprint.toml).
         #[arg(long)]
         blueprint: String,
     },

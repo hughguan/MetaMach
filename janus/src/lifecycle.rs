@@ -180,15 +180,11 @@ fn ssh_probe(host: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Parse `blueprints/<name>/openwiki/production_report.md` and extract incident
+/// Parse `.janus/openwiki/production_report.md` and extract incident
 /// lines for `## Previous Incidents` few-shot injection (Feature-Spec §2.5.5,
 /// UTC-05-05). Returns an empty vec if no prior report exists.
-pub fn load_previous_incidents(repo_root: &Path, name: &str) -> Vec<String> {
-    let path: PathBuf = repo_root
-        .join("blueprints")
-        .join(name)
-        .join("openwiki")
-        .join("production_report.md");
+pub fn load_previous_incidents(repo_root: &Path, _name: &str) -> Vec<String> {
+    let path: PathBuf = repo_root.join(".janus/openwiki/production_report.md");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Vec::new();
     };

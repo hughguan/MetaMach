@@ -122,7 +122,7 @@ impl Drop for Daemon {
 }
 
 /// Copy the real `configs/` into a fresh repo (so Offboard can load
-/// `configs/offboard.toml`). We do NOT copy blueprints/workflows - each test
+/// `configs/offboard.toml`). We do NOT copy .janus/ - each test
 /// writes its own unique blueprint + workflow.
 fn copy_configs(repo_path: &Path) {
     let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -110,7 +110,7 @@ pub struct ValidatedRecipe {
 }
 
 /// Read + validate `.janus/blueprint.toml` and its bound workflow.
-/// `repo_root` is the Immutable ROOT where `blueprints/` and `workflows/` live
+/// `repo_root` is the Immutable ROOT where `.janus/`, `templates/`, and `workflows/` live
 /// (`HERDR_PLUGIN_ROOT` in production; CWD when standalone).
 /// Validate a blueprint name per Contract 3.6 / Feature-Spec §2.5: 1-60 chars
 /// of alphanumeric + underscore (the charset `sanitize_ident` preserves, and a
@@ -130,12 +130,12 @@ fn validate_name(name: &str) -> Result<()> {
 /// Read + validate a workflow file (Contract 3.7). Tries `templates/workflows/<name>.toml`
 /// first (0.5.0+ template layout), then `workflows/<name>.toml` (legacy).
 pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
-    let wf_path = ["templates/workflows", "workflows"]
+    let wf_path = ["templates/workflows", ".janus/workflows", "workflows"]
         .iter()
         .map(|d| repo_root.join(d).join(format!("{name}.toml")))
         .find(|p| p.exists())
         .with_context(|| {
-            format!("workflow '{name}' not found in templates/workflows/ or workflows/")
+            format!("workflow '{name}' not found in templates/workflows/, .janus/workflows/, or workflows/")
         })?;
     let wf_text = std::fs::read_to_string(&wf_path)
         .with_context(|| format!("read workflow {}", wf_path.display()))?;

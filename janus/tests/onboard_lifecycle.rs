@@ -51,7 +51,7 @@ impl Daemon {
     fn spawn(state_dir: &Path, agents: &Path) -> Self {
         let repo = tempfile::tempdir().expect("repo tempdir");
         // Copy real configs/ so Offboard can load configs/offboard.toml. We do
-        // NOT copy blueprints/workflows - the test writes its own unique
+        // NOT copy .janus/ - the test writes its own unique
         // blueprint + test-flow workflow via make_blueprint.
         let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -97,7 +97,7 @@ impl Drop for Daemon {
     }
 }
 
-/// Build a valid minimal blueprint recipe under `base/blueprints/<name>/` plus
+/// Build a valid minimal blueprint recipe under `base/.janus/` plus
 /// a `test-flow` workflow. The recipe matches Contract 3.6 (`[blueprint]` name
 /// and `default_workflow`, `[openwiki]` scope) and the workflow matches
 /// Contract 3.7 (steps keyed by `name`). Returns the blueprint directory path.

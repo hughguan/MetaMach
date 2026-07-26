@@ -98,7 +98,7 @@ pub fn agents_toml_paths() -> Vec<PathBuf> {
 }
 
 /// Immutable ROOT: the plugin source checkout (`HERDR_PLUGIN_ROOT`, injected by
-/// Herdr 0.7.3; the repo dir when standalone). Hosts `blueprints/`, `workflows/`,
+/// Herdr 0.7.3; the repo dir when standalone). Hosts `.janus/`, `workflows/`,
 /// `configs/`, and `target/release/`. Onboard/Offboard resolve recipes + the
 /// offboard LLM config relative to this.
 pub fn repo_root() -> PathBuf {

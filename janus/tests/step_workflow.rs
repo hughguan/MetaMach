@@ -150,7 +150,7 @@ default_workflow = "test-flow"
 scope = ["test"]
 "#
     );
-    std::fs::write(bp.join("janus.toml"), recipe).unwrap();
+    std::fs::write(bp.join("blueprint.toml"), recipe).unwrap();
 
     // Minimal workflow file (Contract 3.7: step `name`, not `id`).
     let wf_dir = base.join("workflows");
@@ -198,7 +198,7 @@ default_workflow = "test-flow"
 scope = ["test"]
 "#
     );
-    std::fs::write(bp.join("janus.toml"), recipe).unwrap();
+    std::fs::write(bp.join("blueprint.toml"), recipe).unwrap();
 
     let wf_dir = base.join("workflows");
     std::fs::create_dir_all(&wf_dir).unwrap();
@@ -459,7 +459,7 @@ fn utc_03_03_cold_start_reconcile() {
     let bp = repo.path().join("blueprints").join(&name);
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
-        bp.join("janus.toml"),
+        bp.join("blueprint.toml"),
         format!(
             r#"[blueprint]
 name = "{name}"
@@ -634,7 +634,7 @@ require_approval = ["echo hi"]
     let bp = d.repo_path().join("blueprints").join(&name);
     std::fs::create_dir_all(&bp).unwrap();
     std::fs::write(
-        bp.join("janus.toml"),
+        bp.join("blueprint.toml"),
         format!(
             r#"[blueprint]
 name = "{name}"

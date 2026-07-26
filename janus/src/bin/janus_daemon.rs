@@ -716,6 +716,10 @@ fn install_subscriber<S: tracing::Subscriber + Send + Sync + 'static>(subscriber
     }
 }
 
+/// Dispatches a pipeline DAG level-by-level onto the absurd engine.
+/// Execution model: level-sequential dispatch to the absurd queue (safe baseline).
+/// Nodes within a level are enqueued to absurd, where worker leases claim and
+/// execute their workflows detached.
 async fn handle_dispatch_pipeline(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
@@ -761,9 +765,19 @@ async fn handle_stop(
                 {
                     continue;
                 }
-                let session = SessionId::new_for_task(&format!("{}-0", t.task_id));
                 let backend = factory.get(None);
-                let _ = backend.kill_session(&session);
+                let task_str = t.task_id.to_string();
+                if let Ok(active_sessions) = backend.list_sessions() {
+                    for s_name in active_sessions {
+                        if s_name.contains(&task_str) {
+                            let s_id = SessionId::from_name(s_name);
+                            let _ = backend.kill_session(&s_id);
+                        }
+                    }
+                } else {
+                    let session = SessionId::new_for_task(&format!("{}-0", t.task_id));
+                    let _ = backend.kill_session(&session);
+                }
 
                 if let Ok(Some(pool)) = db.blueprint_pool(&t.blueprint_id).await {
                     let step_name = t.current_step.as_deref().unwrap_or("");

@@ -232,17 +232,20 @@ fn utc_03_01_step_state_transitions() {
     // With PG online, onboard a blueprint, then verify the Progress query
     // returns the expected task/step lifecycle fields. The actual tmux session
     // dispatch requires a live tmux server and is covered by UTC-09-xx.
-    const NAME: &str = "gate_03_01";
+    let name = format!(
+        "gate_03_01_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
     let state = tempfile::tempdir().unwrap();
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
     let d = Daemon::spawn(state.path(), &agents);
-    make_blueprint(d.repo_path(), NAME);
+    make_blueprint(d.repo_path(), &name);
     std::thread::sleep(Duration::from_secs(12));
 
     d.uds(
-        &Request::Onboard { name: NAME.into() },
+        &Request::Onboard { name: name.clone() },
         Duration::from_secs(10),
     )
     .unwrap();

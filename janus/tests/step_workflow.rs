@@ -72,6 +72,13 @@ impl Daemon {
         repo_path: &Path,
         repo: Option<tempfile::TempDir>,
     ) -> Self {
+        // Ensure clean tmux server state for test isolation on local runs
+        let _ = Command::new("tmux")
+            .args(["-L", "metamach-tmux", "kill-server"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
         let child = Command::new(env!("CARGO_BIN_EXE_janus-daemon"))
             .env("HERDR_PLUGIN_STATE_DIR", state_dir)
             .env("HERDR_PLUGIN_ROOT", repo_path)

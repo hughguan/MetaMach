@@ -36,23 +36,15 @@ fn pg_available() -> bool {
 struct Daemon {
     child: std::process::Child,
     sock: std::path::PathBuf,
-    /// Isolated repo root kept alive for the daemon's lifetime. Only the real
-    /// `configs/` is copied in (so Offboard can load `configs/offboard.toml`);
-    /// each test writes its OWN uniquely-named blueprint and workflow here via
-    /// `make_blueprint`. Unique names mean each test owns an isolated catalog
-    /// row and `metamach_blueprint_<name>` DB, so the PG-gated tests can run in
-    /// parallel without racing on `CREATE DATABASE` or interfering via the
-    /// shared catalog. Offboard writes (`production_report.md`, git commit)
-    /// land here in the temp dir, never the real repo.
+    /// Kept alive for the daemon's lifetime.
+    #[allow(dead_code)]
     repo: tempfile::TempDir,
 }
 
 impl Daemon {
     fn spawn(state_dir: &Path, agents: &Path) -> Self {
         let repo = tempfile::tempdir().expect("repo tempdir");
-        // Copy real configs/ so Offboard can load configs/offboard.toml. We do
-        // NOT copy .janus/ - the test writes its own unique
-        // blueprint + test-flow workflow via make_blueprint.
+        // Copy real configs/ so Offboard can load configs/offboard.toml.
         let ws = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap();
@@ -205,7 +197,9 @@ fn utc_05_04b_multidb_onboard_isolation() {
         eprintln!("skipping: PG not available");
         return;
     }
-    // Two uniquely-named blueprints => two isolated catalog rows + blueprint DBs.
+    // Two isolated blueprints — each needs its own blueprint.toml in .janus/.
+    // Overwrite the single recipe file between onboards (daemon reads it fresh
+    // on each Onboard call). Both share the same catalog DB (PG) for isolation test.
     const JOY: &str = "joy_05_04b";
     const GATE: &str = "gate_05_04b";
     let state = tempfile::tempdir().unwrap();
@@ -213,23 +207,32 @@ fn utc_05_04b_multidb_onboard_isolation() {
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
     let d = Daemon::spawn(state.path(), &agents);
-    make_blueprint(d.repo.path(), JOY);
-    make_blueprint(d.repo.path(), GATE);
-    std::thread::sleep(Duration::from_secs(12));
 
-    // Onboard both blueprints.
-    for name in [JOY, GATE] {
-        let resp = d
-            .uds(
-                &Request::Onboard { name: name.into() },
-                Duration::from_secs(10),
-            )
-            .unwrap();
-        assert!(
-            matches!(resp, Response::Ok { .. }),
-            "{name} onboard failed: {resp:?}"
-        );
-    }
+    // Onboard joy, then rewrite .janus/blueprint.toml and onboard gate.
+    make_blueprint(d.repo.path(), JOY);
+    std::thread::sleep(Duration::from_secs(12));
+    let resp = d
+        .uds(
+            &Request::Onboard { name: JOY.into() },
+            Duration::from_secs(10),
+        )
+        .unwrap();
+    assert!(
+        matches!(resp, Response::Ok { .. }),
+        "{JOY} onboard failed: {resp:?}"
+    );
+
+    make_blueprint(d.repo.path(), GATE);
+    let resp = d
+        .uds(
+            &Request::Onboard { name: GATE.into() },
+            Duration::from_secs(10),
+        )
+        .unwrap();
+    assert!(
+        matches!(resp, Response::Ok { .. }),
+        "{GATE} onboard failed: {resp:?}"
+    );
 
     // Both appear in the blueprint list. The catalog is shared across the
     // parallel PG-gated tests, so assert presence of our two (not an exact
@@ -485,7 +488,7 @@ fn utc_05_05_re_onboard_inherits_previous_incidents() {
 
     // Simulate a prior Offboard's report: `- ` bullet lines are the incidents
     // parse_incidents extracts.
-    let openwiki = d.repo.path().join("blueprints").join(NAME).join("openwiki");
+    let openwiki = d.repo.path().join(".janus").join("openwiki");
     std::fs::create_dir_all(&openwiki).unwrap();
     std::fs::write(
         openwiki.join("production_report.md"),

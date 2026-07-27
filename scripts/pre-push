@@ -10,9 +10,18 @@ cd "$TOPDIR/janus" || exit 0
 # Skip the heavy test phases for docs-only changes; still run fmt + clippy.
 # Uses git diff-tree on the latest commit, which works reliably from any
 # hook context without needing remote ref access.
+# Determine what files changed in this push (matching CI paths-ignore).
+# Skip the heavy test phases for docs-only changes; still run fmt + clippy.
+# Uses git merge-base to find all files across all unpushed commits without
+# needing network access (merge-base is purely local).
 skip_tests=false
-# Show ALL files across ALL unpushed commits, not just HEAD.
-changed_files=$(git diff --name-only origin/main..HEAD 2>/dev/null || true)
+base=$(git merge-base origin/main HEAD 2>/dev/null || echo "")
+if [ -n "$base" ]; then
+    changed_files=$(git diff --name-only "$base"..HEAD 2>/dev/null || true)
+else
+    # Fallback: check the latest commit only.
+    changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null || true)
+fi
 if [ -n "$changed_files" ]; then
     non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
     if [ "$non_doc" -eq 0 ]; then

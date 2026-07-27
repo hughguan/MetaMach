@@ -27,7 +27,7 @@ metamach/
 ├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
 ├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
-├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 171 tests)
+├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 174 tests)
 ├── Makefile             # ✅ bootstrap/db-init/db-backup/health/uninstall/...
 ├── CLAUDE.md            # AI agent guidance for Claude Code
 └── AGENTS.md            # This file
@@ -75,7 +75,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 171 tests total).
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 174 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
 - Test names are prefixed with UTC IDs mapped to `Test-Spec.md` (e.g., `utc_03_03_cold_start_reconcile`).

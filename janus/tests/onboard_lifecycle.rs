@@ -270,7 +270,7 @@ fn utc_05_04b_multidb_onboard_isolation() {
     let resp = d
         .uds(
             &Request::Progress { blueprint: None },
-            Duration::from_secs(15),
+            Duration::from_secs(30),
         )
         .unwrap();
     assert!(

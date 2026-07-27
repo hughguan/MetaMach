@@ -44,13 +44,21 @@ fi
 
 # Auto-provision PG if pg_ctl/initdb are available (local dev).
 # In CI this is a no-op — DATABASE_URL is already set globally.
-if [ -z "${DATABASE_URL:-}" ] && [ -z "${METAMACH_PG_SOCKET_DIR:-}" ]; then
-    if command -v pg_ctl >/dev/null 2>&1 && command -v initdb >/dev/null 2>&1; then
+sock_dir="${METAMACH_PG_SOCKET_DIR:-$HOME/.local/state/herdr/plugins/metamach.janus/pg_socket}"
+if [ -z "${DATABASE_URL:-}" ]; then
+    if [ -d "$sock_dir" ]; then
+        encoded_sock=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$sock_dir', safe=''))")
+        export DATABASE_URL="postgres://metamach_admin@${encoded_sock}/metamach_db"
+        export METAMACH_PG_SOCKET_DIR="$sock_dir"
+        export PGHOST="$sock_dir"
+        echo "=== PG socket found at $sock_dir ==="
+    elif command -v pg_ctl >/dev/null 2>&1 && command -v initdb >/dev/null 2>&1; then
         echo "=== PG not running — attempting make db-init ==="
         if make -s -C "$(git rev-parse --show-toplevel)" db-init 2>/dev/null; then
-            export DATABASE_URL="postgres://metamach_admin@/metamach_db"
-            export METAMACH_PG_SOCKET_DIR="$HOME/.local/state/herdr/plugins/metamach.janus/pg_socket"
-            export PGHOST="$METAMACH_PG_SOCKET_DIR"
+            encoded_sock=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$sock_dir', safe=''))")
+            export DATABASE_URL="postgres://metamach_admin@${encoded_sock}/metamach_db"
+            export METAMACH_PG_SOCKET_DIR="$sock_dir"
+            export PGHOST="$sock_dir"
             echo "=== PG ready ==="
         else
             echo "=== PG init failed — PG-gated tests will skip ==="

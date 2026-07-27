@@ -282,11 +282,10 @@ impl AbsurdDb {
                 .map(|b| b.name)
                 .collect(),
         };
-        let mut all = Vec::new();
-        for name in names {
+        let futures = names.into_iter().map(|name| async move {
             let pool = match self.blueprint_pool(&name).await {
                 Ok(Some(p)) => p,
-                _ => continue,
+                _ => return Vec::new(),
             };
             let rows: Vec<MetaRow> = match sqlx::query_as(
                 "SELECT task_id, step_name, status, exit_code, stdout_tail, started_at, \
@@ -299,15 +298,16 @@ impl AbsurdDb {
             .await
             {
                 Ok(r) => r,
-                Err(_) => continue,
+                Err(_) => return Vec::new(),
             };
             if rows.is_empty() {
-                continue;
+                return Vec::new();
             }
             let mut by_task: HashMap<Uuid, Vec<MetaRow>> = HashMap::new();
             for r in rows {
                 by_task.entry(r.task_id).or_default().push(r);
             }
+            let mut tasks = Vec::new();
             for (task_id, mut steps) in by_task {
                 let blueprint_name = steps
                     .first()
@@ -324,8 +324,6 @@ impl AbsurdDb {
                     .rev()
                     .find(|s| matches!(s.status.as_str(), "STARTING" | "RUNNING"))
                     .map(|s| s.step_name.clone());
-                // The current step's tmux session - the daemon's second-pass
-                // `has_session` check reads this to set `tmux_alive` (Contract 3.3).
                 let session_name = steps
                     .iter()
                     .rev()
@@ -333,7 +331,7 @@ impl AbsurdDb {
                     .and_then(|s| s.session_name.clone());
                 let started_at = steps.iter().filter_map(|s| s.started_at).min();
                 let elapsed = started_at.map(|s| (Utc::now() - s).num_seconds().max(0));
-                all.push(ActiveTask {
+                tasks.push(ActiveTask {
                     task_id,
                     blueprint_id: blueprint_name,
                     workflow_name,
@@ -341,7 +339,7 @@ impl AbsurdDb {
                     started_at: started_at.map(|s| s.to_rfc3339()),
                     elapsed_seconds: elapsed,
                     current_step,
-                    tmux_alive: false, // flipped by the daemon's second pass (§0.5).
+                    tmux_alive: false,
                     session_name,
                     suspended_reason: if suspended {
                         Some("awaiting HITL".to_string())
@@ -359,7 +357,10 @@ impl AbsurdDb {
                         .collect(),
                 });
             }
-        }
+            tasks
+        });
+        let results = futures_util::future::join_all(futures).await;
+        let all = results.into_iter().flatten().collect();
         Ok(all)
     }
 

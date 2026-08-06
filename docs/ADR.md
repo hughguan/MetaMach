@@ -448,15 +448,15 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
-## ADR-031: Unification of Workflow and Pipeline DSLs (0.6.0)
+## ADR-031: Unification of Workflow and Pipeline DSLs (0.5.1)
 
 | Field | Value |
 |---|---|
 | **Context** | MetaMach 0.5.0 forcibly separated Workflow (sequential `[[steps]]` with Absurd PG checkpoints) and Pipeline (multi-node DAG with Kahn topological scheduling). For 80% of routine linear tasks, users were forced to understand both abstractions or write single-node pipeline boilerplate. AI agents frequently confused `.janus/pipelines/` vs `.janus/workflows/` boundaries. |
 | **Options Considered** | (1) Keep separate Workflow and Pipeline DSLs (status quo), (2) Merge DSL at configuration layer into unified `Workflow` with Linear and DAG modes, while preserving distinct physical execution engines. |
 | **Decision** | **Adopted** — Abolish independent Pipeline DSL files; unify all workflow declarations under `.janus/workflows/` as `Workflow`. Support **Linear Mode** (sequential steps, direct `handle_dispatch → spawn_workflow` execution, skipping Kahn sort) and **DAG Mode** (multi-node dependency graph with `needs`, Kahn level-parallel execution via `handle_dispatch_pipeline`). Support **Hybrid Node Composition** (nodes can reference standalone workflows via `workflow = "<name>"` or inline `steps = [...]` via an in-process register). Maintain ADR-021 durability boundary (ephemeral DAG orchestration, durable per-node Absurd PG tasks). |
-| **Rationale** | Reduces cognitive load for developers and AI agents to a single `Workflow` concept. Linear mode (80% case) bypasses Kahn DAG sorting entirely for zero performance overhead. Fully backward-compatible: `load_unified_workflow` uses a try-parse deserializer supporting `[workflow]` header format and legacy `[pipeline]` bridging. SemVer migration across 0.6.0 (warnings & dual-track) -> 0.7.0 (default scaffolding) -> 0.8.0 (hard removal). Amends ADR-021 and ADR-029. |
-| **Status** | 📋 Approved — 0.6.0 candidate (Amends ADR-021 & ADR-029). |
+| **Rationale** | Reduces cognitive load for developers and AI agents to a single `Workflow` concept. Linear mode (80% case) bypasses Kahn DAG sorting entirely for zero performance overhead. Fully backward-compatible: `load_unified_workflow` uses a try-parse deserializer supporting `[workflow]` header format and legacy `[pipeline]` bridging. SemVer migration across 0.5.1 (warnings & dual-track) -> 0.5.2 (default scaffolding) -> 0.5.3 (hard removal). Amends ADR-021 and ADR-029. |
+| **Status** | 📋 Approved — 0.5.1 candidate (Amends ADR-021 & ADR-029). |
 
 ---
 

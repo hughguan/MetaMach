@@ -59,7 +59,7 @@ enum CliCommand {
         #[arg(short, long)]
         blueprint: Option<String>,
     },
-    /// Dispatch blueprint execution (blueprint default, workflow, or pipeline DAG).
+    /// Dispatch blueprint execution (blueprint default or workflow override).
     Dispatch {
         /// Blueprint name to dispatch (defaults to current directory name).
         #[arg(short, long)]
@@ -67,9 +67,6 @@ enum CliCommand {
         /// Optional workflow name override.
         #[arg(short, long, group = "target")]
         workflow: Option<String>,
-        /// Optional pipeline DAG name override (Deprecated: use --workflow).
-        #[arg(short, long, group = "target")]
-        pipeline: Option<String>,
         /// Dry-run mode: validate and print workflow execution plan without dispatching.
         #[arg(long)]
         dry_run: bool,
@@ -194,12 +191,11 @@ fn main() -> Result<()> {
         CliCommand::Dispatch {
             blueprint,
             workflow,
-            pipeline,
             dry_run,
             inline,
         } => {
             let bp = resolve_blueprint_name(blueprint)?;
-            dispatch(bp, workflow, pipeline, dry_run, inline)
+            dispatch(bp, workflow, dry_run, inline)
         }
         CliCommand::Stop { blueprint, task_id } => {
             let bp = if blueprint.is_some() || task_id.is_none() {
@@ -289,20 +285,13 @@ fn lifecycle_cmd(req: Request) -> Result<()> {
 fn dispatch(
     blueprint: String,
     workflow: Option<String>,
-    pipeline: Option<String>,
     dry_run: bool,
     inline: Option<String>,
 ) -> Result<()> {
     let repo_root = janus::paths::repo_root();
 
-    if let Some(_p) = &pipeline {
-        eprintln!("Warning: --pipeline flag is deprecated; use --workflow or positional argument");
-    }
-
     if dry_run {
-        let name = if let Some(p) = pipeline {
-            p
-        } else if let Some(w) = workflow {
+        let name = if let Some(w) = workflow {
             w
         } else if let Some(ref cmd) = inline {
             println!("Linear Workflow Dry-Run (Inline Command):");
@@ -313,7 +302,7 @@ fn dispatch(
             janus::recipe::read_blueprint_name(&repo_root)
                 .ok()
                 .and_then(|name| janus::recipe::validate(&name, &repo_root).ok())
-                .map(|r| r.default_pipeline.unwrap_or(r.default_workflow))
+                .map(|r| r.default_workflow)
                 .unwrap_or_else(|| "dev-flow".to_string())
         };
 
@@ -377,7 +366,6 @@ fn dispatch(
     let resp = uds::request(&Request::Dispatch {
         blueprint: blueprint.clone(),
         workflow,
-        pipeline,
         inline_command: inline,
     })?;
     match resp {

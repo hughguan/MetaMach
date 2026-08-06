@@ -41,14 +41,14 @@ pub struct ExecutionPlan {
 }
 
 impl PipelineConfig {
-    /// Load and validate a pipeline from `pipelines/<name>.toml`.
+    /// Load and validate a pipeline workflow from `.janus/workflows/<name>.toml`.
     pub fn load(name: &str, repo_root: &Path) -> Result<Self> {
-        let path = [".janus/pipelines", "templates/pipelines", "pipelines"]
+        let path = [".janus/workflows", "templates/workflows", "workflows"]
             .iter()
             .map(|d| repo_root.join(d).join(format!("{name}.toml")))
             .find(|p| p.exists())
             .with_context(|| {
-                format!("pipeline '{name}' not found in .janus/pipelines/, templates/pipelines/, or pipelines/")
+                format!("workflow '{name}' not found in .janus/workflows/, templates/workflows/, or workflows/")
             })?;
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("read pipeline {}", path.display()))?;

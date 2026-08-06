@@ -386,7 +386,6 @@ async fn handle_request(
         Request::Dispatch {
             blueprint,
             workflow,
-            pipeline,
             inline_command,
         } => {
             if let Some(cmd) = inline_command {
@@ -412,17 +411,14 @@ async fn handle_request(
                     },
                 }
             } else {
-                let name = if let Some(p) = pipeline {
-                    warn!("--pipeline option is deprecated; use --workflow or positional argument");
-                    p
-                } else if let Some(w) = workflow {
+                let name = if let Some(w) = workflow {
                     w
                 } else {
                     match recipe::read_blueprint_name(repo_root)
                         .ok()
                         .and_then(|name| recipe::validate(&name, repo_root).ok())
                     {
-                        Some(r) => r.default_pipeline.unwrap_or(r.default_workflow),
+                        Some(r) => r.default_workflow,
                         None => "dev-flow".to_string(),
                     }
                 };

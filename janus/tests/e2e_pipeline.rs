@@ -135,7 +135,6 @@ fn e2e_onboard_dispatch_returns_task_id() {
             &Request::Dispatch {
                 blueprint: "smoke_e2e".into(),
                 workflow: None,
-                pipeline: None,
                 inline_command: None,
             },
             Duration::from_secs(15),
@@ -214,7 +213,6 @@ command = "echo step3-done"
             &Request::Dispatch {
                 blueprint: "produce_e2e".into(),
                 workflow: None,
-                pipeline: None,
                 inline_command: None,
             },
             Duration::from_secs(15),
@@ -301,7 +299,6 @@ fn e2e_tool_guard_blocks_blacklisted() {
         &Request::Dispatch {
             blueprint: "guard_e2e".into(),
             workflow: None,
-            pipeline: None,
             inline_command: None,
         },
         Duration::from_secs(15),
@@ -342,11 +339,11 @@ fn e2e_pipeline_dag_dispatch() {
     )
     .unwrap();
 
-    let pl_dir = repo.path().join(".janus/pipelines");
-    std::fs::create_dir_all(&pl_dir).unwrap();
+    let wf_dag = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dag).unwrap();
     std::fs::write(
-        pl_dir.join("build_dag.toml"),
-        "[pipeline]\nname = \"build_dag\"\n\n[[nodes]]\nid = \"n1\"\nworkflow = \"step1\"\n",
+        wf_dag.join("build_dag.toml"),
+        "[workflow]\nname = \"build_dag\"\n\n[[nodes]]\nid = \"n1\"\nworkflow = \"step1\"\n",
     )
     .unwrap();
 
@@ -363,8 +360,7 @@ fn e2e_pipeline_dag_dispatch() {
         .uds(
             &Request::Dispatch {
                 blueprint: "dag_e2e".into(),
-                workflow: None,
-                pipeline: Some("build_dag".into()),
+                workflow: Some("build_dag".into()),
                 inline_command: None,
             },
             Duration::from_secs(15),
@@ -417,7 +413,6 @@ fn e2e_stop_and_continue() {
             &Request::Dispatch {
                 blueprint: "ctrl_e2e".into(),
                 workflow: None,
-                pipeline: None,
                 inline_command: None,
             },
             Duration::from_secs(15),

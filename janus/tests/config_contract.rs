@@ -318,7 +318,6 @@ fn e2e_smoke_onboard_dispatch_progress() {
     let req = janus::protocol::Request::Dispatch {
         blueprint: bp_name.clone(),
         workflow: None,
-        pipeline: None,
         inline_command: None,
     };
     let resp =

@@ -36,17 +36,14 @@ pub enum Request {
     Onboard { name: String },
     /// `janus offboard --blueprint <name>` (Task 4.2).
     Offboard { name: String },
-    /// Dispatch a blueprint's execution onto the absurd engine.
-    /// Supports 3 tiers:
-    /// 1. Blueprint default (uses default_pipeline if present, else default_workflow)
-    /// 2. Workflow override (`workflow: Some(...)`)
-    /// 3. Pipeline DAG override (`pipeline: Some(...)`)
+    /// Dispatch a blueprint's workflow execution onto the absurd engine.
+    /// Supports 2 modes:
+    /// 1. Workflow override (`workflow: Some(...)`, linear or DAG) or blueprint default
+    /// 2. Inline transient command (`inline_command: Some(...)`)
     Dispatch {
         blueprint: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         workflow: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pipeline: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         inline_command: Option<String>,
     },

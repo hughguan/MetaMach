@@ -55,8 +55,7 @@ fn request_tags_are_snake_case() {
     assert!(
         serde_json::to_string(&Request::Dispatch {
             blueprint: "demo".into(),
-            workflow: None,
-            pipeline: Some("req2spec".into()),
+            workflow: Some("req2spec".into()),
             inline_command: None,
         })
         .unwrap()

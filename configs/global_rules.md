@@ -1,6 +1,6 @@
 # MetaMach Factory - Global Developer Rules
 
-> Injected into every Agent's System Prompt at Onboard (ARCH §2.2, Feature-Spec §2.5).
+> Injected into every Agent's System Prompt at Onboard (ARCH §2.2, SPEC.md Part 1 Contract 4.1).
 > These are the factory-wide safety lines; blueprint-specific knowledge is layered
 > on top from `blueprints/<name>/openwiki/`.
 

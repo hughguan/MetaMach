@@ -65,7 +65,7 @@ fn kill_removes_session() {
 
 #[test]
 fn remain_on_exit_survives_process_exit() {
-    // UAT (Project-Plan Task 2.4): a session whose command exits must stay alive
+    // UAT (PLAN.md Task 2.4): a session whose command exits must stay alive
     // (remain-on-exit on, set per-session by TmuxBackend).
     if !tmux_available() {
         eprintln!("skip: tmux not installed");

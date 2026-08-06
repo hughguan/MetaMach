@@ -1,4 +1,4 @@
-//! Parse `configs/agents.toml` (Feature-Spec Contract 3.5) into rule structs.
+//! Parse `configs/agents.toml` (SPEC.md Part 1 §1 Contract 3.5) into rule structs.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

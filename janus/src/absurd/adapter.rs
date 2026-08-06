@@ -1,4 +1,4 @@
-//! Absurd durable-engine adapter (M4 Task 4.1 Phase 0a; `docs/Absurd-Integration.md` §7.3).
+//! Absurd durable-engine adapter (M4 Task 4.1 Phase 0a; `docs/contracts/absurd.md` §2).
 //!
 //! [`DurableEngine`] is MetaMach's trait over absurd's pull-mode stored-proc API.
 //! [`AbsurdPgAdapter`] is the production impl (sqlx -> `SELECT absurd.<fn>(...)`);

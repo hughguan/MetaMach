@@ -1,7 +1,7 @@
-//! `herdr-janus` - MetaMach Herdr shadow client (Project-Plan M2 Tasks 2.2/2.3).
+//! `herdr-janus` - MetaMach Herdr shadow client (PLAN.md Milestone 2 Tasks 2.2/2.3).
 //!
 //! Rendered inside the Herdr `overlay` pane. On wake it probes `janus.sock`;
-//! if absent it lazy-starts `janus-daemon` detached (Feature-Spec §2.1), then
+//! if absent it lazy-starts `janus-daemon` detached (SPEC.md Part 1 §1), then
 //! fetches live data. Two views toggled with `Tab`:
 //!   - **Dispatch** - ACTIVE blueprints (selectable; dispatch lands in M4).
 //!   - **Progress** - in-flight workflow tasks (Contract 3.3), polled at ~1s.

@@ -1,4 +1,4 @@
-//! `janush` - proxy shell (Project-Plan M3 Task 3.1; Feature-Spec §2.2).
+//! `janush` - proxy shell (PLAN.md Milestone 3 Task 3.1; SPEC.md Part 1 §2).
 //!
 //! Injected by tmux as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`).
 //! It never executes a command directly: it forwards the argv to `janus-daemon`
@@ -7,7 +7,7 @@
 //!   REWRITE -> exec `/bin/sh -c "<rewritten command>"`
 //!   BLOCK   -> exit non-zero WITHOUT executing (fail-closed)
 //! If the Daemon is unreachable or the 30s window elapses, `janush`
-//! fail-closes as BLOCK (never lets the command through - Feature-Spec §2.2).
+//! fail-closes as BLOCK (never lets the command through - SPEC.md Part 1 §2).
 
 use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
@@ -18,7 +18,7 @@ use janus::paths;
 use janus::protocol::{Request, Response};
 use janus::uds;
 
-/// Synchronous blocking window before fail-closed BLOCK (Feature-Spec §2.2).
+/// Synchronous blocking window before fail-closed BLOCK (SPEC.md Part 1 §2).
 const VERDICT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Exit code for a blocked / fail-closed command (126 = "permission denied").
 const EXIT_BLOCKED: i32 = 126;

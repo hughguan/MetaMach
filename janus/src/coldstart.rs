@@ -1,5 +1,5 @@
-//! Cold-start self-healing (Feature-Spec §2.3, ARCH §6 invariant 4;
-//! Project-Plan Task 4.1).
+//! Cold-start self-healing (SPEC.md Part 1 Contract 4.1, ARCH §6 invariant 4;
+//! PLAN.md Task 4.1).
 //!
 //! On startup the Daemon scans Absurd Postgres for non-terminal tasks
 //! (`STARTING`/`RUNNING`/`SUSPENDED`). For each `STARTING`/`RUNNING` task (one

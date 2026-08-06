@@ -1,9 +1,9 @@
-//! Blueprint recipe + workflow validation (Feature-Spec Contracts 3.6 / 3.7).
+//! Blueprint recipe + workflow validation (SPEC.md Part 1 §1 Contracts 3.6 / 3.7).
 //!
 //! `janus init` reads `.janus/blueprint.toml`, validates it against
 //! Contract 3.6, then reads + validates `workflows/<default_workflow>.toml`
 //! (Contract 3.7). Validation failure returns a clear error with NO database
-//! write (Feature-Spec §2.5 Onboard step 1).
+//! write (SPEC.md Part 1 Contract 4.1).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -120,7 +120,7 @@ pub struct ValidatedRecipe {
 /// Read + validate `.janus/blueprint.toml` and its bound workflow.
 /// `repo_root` is the Immutable ROOT where `.janus/`, `templates/`, and `workflows/` live
 /// (`HERDR_PLUGIN_ROOT` in production; CWD when standalone).
-/// Validate a blueprint name per Contract 3.6 / Feature-Spec §2.5: 1-60 chars
+/// Validate a blueprint name per Contract 3.6 / SPEC.md Part 1 Contract 4.1: 1-60 chars
 /// of alphanumeric + underscore (the charset `sanitize_ident` preserves, and a
 /// valid PG ident once prefixed with `metamach_blueprint_`). Rejecting here -
 /// before any path join - also prevents path traversal (`..`/`/`) on the read
@@ -540,7 +540,7 @@ host = "remote"
 
     #[test]
     fn rejects_invalid_blueprint_names() {
-        // UTC-05-04b / Feature-Spec §2.5: names must be 1-60 chars, alphanumeric
+        // UTC-05-04b / SPEC.md Part 1 Contract 4.1: names must be 1-60 chars, alphanumeric
         // + underscore. Validation runs before any file/DB access, so no recipe
         // file is needed for the rejected cases.
         let d = tempdir().unwrap();

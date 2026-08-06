@@ -3,7 +3,7 @@
 -- Applied at `make bootstrap` / first janus-daemon startup to the catalog DB.
 -- This DB is MetaMach-owned; the absurd engine is NOT installed here (absurd
 -- lives in each per-blueprint DB - see 002_blueprint.sql / Contract 3.1b).
--- See docs/Feature-Spec.md Contract 3.1.
+-- See docs/SPEC.md Part 1 §1.
 
 -- Blueprint tenant registry (Onboard writes / Offboard sets OFFBOARDED).
 CREATE TABLE IF NOT EXISTS blueprints (

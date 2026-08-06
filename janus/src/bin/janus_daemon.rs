@@ -1,6 +1,6 @@
-//! `janus-daemon` - the resident control-plane brain (Project-Plan M2 Task 2.1).
+//! `janus-daemon` - the resident control-plane brain (PLAN.md Milestone 2 Task 2.1).
 //!
-//! Sole owner of state and the Absurd Postgres pool (Feature-Spec §2.1, ARCH §3).
+//! Sole owner of state and the Absurd Postgres pool (SPEC.md Part 1 §1, ARCH §3).
 //! Binds a UDS listener at `janus.sock`, enforces a singleton PID lock with stale
 //! detection, and serves Blueprint / Progress queries to `herdr-janus` and the
 //! `janus` CLI. Runs in the foreground when executed directly; lazy-started
@@ -287,7 +287,7 @@ async fn handle_request(
             };
 
             // Non-destructive HITL suspension + gateway dispatch for dangerous
-            // blocks (Feature-Spec §2.4). Fired in the background so the BLOCK
+            // blocks (SPEC.md Part 1 §2). Fired in the background so the BLOCK
             // verdict returns to janush immediately (fail-closed, no PTY kill).
             if matches!(
                 verdict.cause.as_deref(),
@@ -331,7 +331,7 @@ async fn handle_request(
                 cognitive_context,
             }
         }
-        // M4 Task 4.3: Onboard (Feature-Spec §2.5).
+        // M4 Task 4.3: Onboard (SPEC.md Part 1 Contract 4.1).
         Request::Onboard { name } => match lifecycle::onboard(&db, &name, repo_root).await {
             Ok(r) => {
                 info!(
@@ -346,7 +346,7 @@ async fn handle_request(
                 message: e.to_string(),
             },
         },
-        // M4 Task 4.2: Offboard (Feature-Spec §2.5).
+        // M4 Task 4.2: Offboard (SPEC.md Part 1 Contract 4.1).
         Request::Offboard { name } => {
             let cfg_path = repo_root.join("configs").join("offboard.toml");
             let cfg = match lifecycle::OffboardConfig::load(&cfg_path) {
@@ -658,7 +658,7 @@ impl VerdictSink for DbVerdictSink {
     }
 }
 
-/// Singleton PID lock with stale detection (Test-Spec UTC-01-01).
+/// Singleton PID lock with stale detection (SPEC.md Part 2 UTC-01-01).
 fn acquire_pid_lock(pid_path: &Path) -> Result<()> {
     if let Ok(content) = fs::read_to_string(pid_path)
         && let Ok(pid) = content.trim().parse::<i32>()

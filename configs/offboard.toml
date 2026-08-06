@@ -1,10 +1,10 @@
-# Offboard LLM smelting config (Feature-Spec §2.5 "Offboard LLM Integration Spec").
+# Offboard LLM smelting config (SPEC.md Part 1 Contract 4.1 "Offboard LLM Integration Spec").
 #
 # The smelting LLM is a configurable external dependency. The API key never
 # touches disk - only the environment-variable NAME is stored here; the Daemon
 # reads the actual key from `api_key_env` at Offboard time. When the LLM is
 # unavailable (no key, rate-limited, air-gapped, >timeout), Offboard does NOT
-# block - it falls back to a raw JSON snapshot (Feature-Spec §2.5 degradation).
+# block - it falls back to a raw JSON snapshot (SPEC.md Part 1 Contract 4.1 degradation).
 #
 # Symlinked into ${HERDR_PLUGIN_CONFIG_DIR} by `make symlinks`.
 

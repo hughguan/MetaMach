@@ -2,7 +2,7 @@
 //!
 //! All runtime state (socket, PID lock, fallback.db, PG socket dir) lives under
 //! `HERDR_PLUGIN_STATE_DIR` (injected by Herdr 0.7.3 = `~/.local/state/herdr/
-//! plugins/metamach.janus`; see herdr-v1-contract §5/§6). When run standalone
+//! plugins/metamach.janus`; see `docs/contracts/herdr.md`). When run standalone
 //! (no Herdr), we default to that same path so the Daemon and clients agree.
 
 use std::path::PathBuf;
@@ -57,7 +57,7 @@ pub fn pg_socket_dir() -> PathBuf {
 
 /// Mutable Config directory (`HERDR_PLUGIN_CONFIG_DIR`, injected by Herdr 0.7.3
 /// = `~/.config/herdr/plugins/config/metamach.janus`; the extra `/config/`
-/// segment is per herdr-v1-contract §6). Hosts `agents.toml`.
+/// segment is per `docs/contracts/herdr.md`). Hosts `agents.toml`.
 pub fn config_dir() -> PathBuf {
     match std::env::var("HERDR_PLUGIN_CONFIG_DIR") {
         Ok(s) if !s.is_empty() => PathBuf::from(s),

@@ -1,4 +1,4 @@
-//! 0.4.0 HITL gateway integration tests (Test-Spec UTC-10-02, UTC-10-04).
+//! 0.4.0 HITL gateway integration tests (SPEC.md Part 2 UTC-10-02, UTC-10-04).
 //!
 //! Spins up the gateway's loopback HTTP callback listener on an ephemeral port
 //! and POSTs Teams-style approval callbacks to exercise the ingress path:

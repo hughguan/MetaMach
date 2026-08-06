@@ -1,4 +1,4 @@
-//! Absurd DB layer (Feature-Spec §2.1, §4; Contract 3.1/3.1b/3.3/3.8).
+//! Absurd DB layer (SPEC.md Part 1 §1, §4; Contract 3.1/3.1b/3.3/3.8).
 //!
 //! Owns the sqlx Postgres connection pools. The Daemon opens the **catalog** DB
 //! (`metamach_db`) in degraded mode immediately (fallback.db only) and spawns a
@@ -365,7 +365,7 @@ impl AbsurdDb {
     }
 
     /// Append a Step transition to the fallback ring buffer (used during PG
-    /// outage; replayed into Postgres on recovery - Feature-Spec §4). The
+    /// outage; replayed into Postgres on recovery - SPEC.md Part 1 §4). The
     /// `blueprint_name` routes the event to the correct per-blueprint DB on
     /// replay (Contract 3.8).
     pub fn record_fallback_event(
@@ -447,7 +447,7 @@ impl AbsurdDb {
         Ok(replayed)
     }
 
-    /// Mark a Step `SUSPENDED` (non-destructive HITL - Feature-Spec §2.4) in the
+    /// Mark a Step `SUSPENDED` (non-destructive HITL - SPEC.md Part 1 §2) in the
     /// blueprint's overlay. If the blueprint DB is unreachable, records a fallback
     /// event instead so the transition is not lost.
     pub async fn suspend_step(
@@ -666,7 +666,7 @@ impl AbsurdDb {
         Ok(row.and_then(|(w,)| w))
     }
 
-    /// Task 4.3: idempotent tenant registration (Feature-Spec §2.5.3). Catalog DB
+    /// Task 4.3: idempotent tenant registration (SPEC.md Part 1 §3). Catalog DB
     /// only - the per-blueprint DB + absurd queue are created by `janus init`
     /// (M4 Task 4.3). Returns `true` if an existing row was reactivated.
     pub async fn register_blueprint(
@@ -945,7 +945,7 @@ struct MetaRow {
 }
 
 // 0.4.0: `truncate_16k` moved to `protocol` and re-exported above; the
-// authoritative 16 KiB enforcement point is still `AbsurdDb` (Feature-Spec §4).
+// authoritative 16 KiB enforcement point is still `AbsurdDb` (SPEC.md Part 1 §4).
 
 #[cfg(test)]
 mod tests {

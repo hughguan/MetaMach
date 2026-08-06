@@ -1,4 +1,4 @@
-//! HITL webhook card adapters (Feature-Spec §2.4). The abstract
+//! HITL webhook card adapters (SPEC.md Part 1 §2). The abstract
 //! [`WebhookPayload`] now lives in [`crate::protocol`] (0.4.0 §5.4, enriched for
 //! the Hermes Run API). HITL dispatch itself moved to
 //! [`crate::gateway::Gateway::dispatch`] in 0.4.0; this module keeps only the

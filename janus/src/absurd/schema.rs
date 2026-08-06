@@ -1,4 +1,4 @@
-//! Absurd schema bootstrap (M4 Task 4.1 Phase 0a; `docs/Absurd-Integration.md` §1).
+//! Absurd schema bootstrap (M4 Task 4.1 Phase 0a; `docs/contracts/absurd.md` §1).
 //!
 //! `absurd.sql` is vendored at `janus/sql/absurd.sql` (v0.4.0, upstream commit
 //! `9b77b35`). This loads it into a per-blueprint DB on `janus init` (via
@@ -19,7 +19,7 @@ use tracing::info;
 /// The absurd schema version this binary expects. `absurd.sql` v0.4.0's
 /// `get_schema_version()` returns `"main"`. [`init_absurd_schema`] refuses to
 /// proceed if the DB carries a different version - prevents silent skew when
-/// the vendored `absurd.sql` is upgraded (see `docs/Absurd-Integration.md` §7.1).
+/// the vendored `absurd.sql` is upgraded (see `docs/contracts/absurd.md` §4).
 const EXPECTED_ABSURD_VERSION: &str = "main";
 
 /// Load the vendored `absurd.sql` into `pool`'s database and verify the schema

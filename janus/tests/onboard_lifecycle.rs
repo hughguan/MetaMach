@@ -5,7 +5,7 @@
 //! via the `postgres:16` service; runtime-skipped when PG is unavailable
 //! configured via `make db-init`.
 //!
-//! Covers Test-Spec suites 2.5 (lifecycle) and 2.4 (HITL): UTC-05-01, UTC-05-02,
+//! Covers SPEC.md Part 2 suites 2.5 (lifecycle) and 2.4 (HITL): UTC-05-01, UTC-05-02,
 //! UTC-05-04, UTC-05-04b, UTC-04-01.
 
 use std::path::Path;

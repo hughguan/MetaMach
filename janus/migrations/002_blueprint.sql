@@ -12,7 +12,7 @@
 -- (M0.5 spike F1). This migration adds only the thin MetaMach overlay carrying
 -- fields absurd has no concept of (target_sha, exit_code, stdout_tail,
 -- started_at) plus denormalized status + workflow_name for dashboard reads (Contract 3.3). Authoritative task state is absurd's checkpoint state JSONB.
--- See docs/Feature-Spec.md Contract 3.1b.
+-- See docs/SPEC.md Part 1 §1.
 --
 -- One absurd queue per blueprint/workflow is created by `janus onboard` via
 -- absurd.create_queue('<blueprint>.<workflow>'); not done here so this migration

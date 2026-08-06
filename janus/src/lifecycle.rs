@@ -1,5 +1,5 @@
-//! Blueprint lifecycle: Onboard + Offboard (Feature-Spec §2.5, Contracts 3.6/3.7;
-//! Project-Plan Tasks 4.2/4.3).
+//! Blueprint lifecycle: Onboard + Offboard (SPEC.md Part 1 Contract 4.1;
+//! PLAN.md Tasks 4.2/4.3).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -12,7 +12,7 @@ use crate::absurd::{AbsurdDb, StepTrace};
 use crate::cognitive;
 use crate::recipe;
 
-// --- Offboard LLM config (configs/offboard.toml, Feature-Spec §2.5) ----------
+// --- Offboard LLM config (configs/offboard.toml, SPEC.md Part 1 Contract 4.1) ----------
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct OffboardConfig {
@@ -74,7 +74,7 @@ impl OffboardConfig {
 
 // --- Onboard (Task 4.3) -----------------------------------------------------
 
-/// Result of a successful Onboard (Feature-Spec §2.5.5/§2.5.6).
+/// Result of a successful Onboard (SPEC.md Part 1 Contract 4.1).
 #[derive(Debug, Clone)]
 pub struct OnboardResult {
     pub message: String,
@@ -137,7 +137,7 @@ pub async fn onboard(db: &AbsurdDb, name: &str, repo_root: &Path) -> Result<Onbo
     })
 }
 
-/// Best-effort pre-ignition checks (Feature-Spec §2.5.2). tmux + remote SSH are
+/// Best-effort pre-ignition checks (SPEC.md Part 1 Contract 4.1). tmux + remote SSH are
 /// WARN-only (offline Onboard first, fill target later). PG is hard-required
 /// (checked by the caller).
 async fn pre_ignition_checks(recipe: &recipe::ValidatedRecipe) {
@@ -183,7 +183,7 @@ async fn ssh_probe(host: &str) -> bool {
 }
 
 /// Parse `.janus/openwiki/production_report.md` and extract incident
-/// lines for `## Previous Incidents` few-shot injection (Feature-Spec §2.5.5,
+/// lines for `## Previous Incidents` few-shot injection (SPEC.md Part 1 Contract 4.1,
 /// UTC-05-05). Returns an empty vec if no prior report exists.
 pub fn load_previous_incidents(repo_root: &Path, _name: &str) -> Vec<String> {
     let path: PathBuf = repo_root.join(".janus/openwiki/production_report.md");
@@ -323,7 +323,7 @@ async fn smelt_async(traces: &[StepTrace], name: &str, cfg: &OffboardConfig) -> 
 }
 
 /// Build the LLM input + summarize. On any LLM failure (no key, offline,
-/// timeout), fall back to a raw JSON snapshot (Feature-Spec §2.5 degradation).
+/// timeout), fall back to a raw JSON snapshot (SPEC.md Part 1 Contract 4.1 degradation).
 fn smelt(traces: &[StepTrace], name: &str, cfg: &OffboardConfig) -> (String, bool) {
     let input = build_llm_input(traces, cfg);
     match llm_summarize(&input, name, cfg) {
@@ -363,7 +363,7 @@ fn truncate_bytes(s: &str, cap: usize) -> &str {
 }
 
 /// Call the configured LLM endpoint (OpenAI-style chat completions). Returns the
-/// assistant's Markdown with the four required blocks (Feature-Spec §2.5).
+/// assistant's Markdown with the four required blocks (SPEC.md Part 1 Contract 4.1).
 fn llm_summarize(input: &str, name: &str, cfg: &OffboardConfig) -> Result<String> {
     let api_key = std::env::var(&cfg.llm.api_key_env)
         .map_err(|_| anyhow::anyhow!("LLM api key env var {} not set", cfg.llm.api_key_env))?;
@@ -397,11 +397,11 @@ fn llm_summarize(input: &str, name: &str, cfg: &OffboardConfig) -> Result<String
     Ok(md)
 }
 
-/// Degradation fallback: a raw JSON snapshot of the traces (Feature-Spec §2.5).
+/// Degradation fallback: a raw JSON snapshot of the traces (SPEC.md Part 1 Contract 4.1).
 fn raw_json_snapshot(traces: &[StepTrace], name: &str) -> String {
     let snapshot = serde_json::json!({
         "blueprint": name,
-        "note": "LLM unavailable - raw trace snapshot (Feature-Spec §2.5 degradation)",
+        "note": "LLM unavailable - raw trace snapshot (SPEC.md Part 1 Contract 4.1 degradation)",
         "traces": traces.iter().map(|t| serde_json::json!({
             "task_id": t.task_id,
             "step_name": t.step_name,
@@ -414,7 +414,7 @@ fn raw_json_snapshot(traces: &[StepTrace], name: &str) -> String {
 }
 
 /// Best-effort `git add` + `git commit` (+ `push`) of the production report
-/// (Feature-Spec §2.5.4). Returns the commit short hash on success; None if git
+/// (SPEC.md Part 1 Contract 4.1). Returns the commit short hash on success; None if git
 /// is unavailable or there's nothing to commit.
 fn git_commit_report(repo_root: &Path, name: &str, report: &Path) -> Option<String> {
     let rel = report

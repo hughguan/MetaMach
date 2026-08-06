@@ -4,7 +4,7 @@
 //! transitions, crash recovery, concurrent isolation, and optimistic locking.
 //! They require PostgreSQL AND tmux; runtime-skipped when unavailable.
 //!
-//! Covers Test-Spec suites 2.3 (tmux workflow) and 2.4 (HITL): UTC-03-01,
+//! Covers SPEC.md Part 2 suites 2.3 (tmux workflow) and 2.4 (HITL): UTC-03-01,
 //! UTC-03-01b, UTC-03-03, UTC-03-04, UTC-03-05, UTC-03-06, UTC-04-01.
 
 use std::collections::HashMap;

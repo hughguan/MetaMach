@@ -1,8 +1,8 @@
-//! Tool Guard rule engine (Feature-Spec §2.2; Contracts 3.4/3.5; Project-Plan
-//! M3 Task 3.2).
+//! Tool Guard rule engine (SPEC.md Part 1 §2; Contracts 3.4/3.5; PLAN.md
+//! Milestone 3 Task 3.2).
 //!
 //! The Daemon consults this engine for every command `janush` forwards.
-//! Decision priority (Feature-Spec §3.5 note):
+//! Decision priority (SPEC.md Part 1 §2 note):
 //!   1. `bash_blacklist` hit         -> BLOCK  (SUSPENDED + HITL card)
 //!   2. `require_approval` hit       -> BLOCK  (SUSPENDED + HITL card)
 //!   3. capability not permitted     -> BLOCK  (denied, no HITL)

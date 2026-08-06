@@ -1,7 +1,7 @@
 //! UDS wire protocol for `janus.sock` (newline-delimited JSON).
 //!
 //! The Daemon owns the DB; clients send [`Request`]s and receive [`Response`]s.
-//! Progress responses conform to Feature-Spec Contract 3.3.
+//! Progress responses conform to SPEC.md Part 1 §1 Contract 3.3.
 
 use std::collections::HashMap;
 
@@ -158,7 +158,7 @@ pub struct StepStatus {
 // without a `absurd <-> protocol` cycle (`absurd` already imports `protocol`).
 
 /// Physical size budget for Step stdout_tail / result_cache / HITL scene
-/// (Feature-Spec §4 fault matrix, UTC-05-01). The authoritative enforcement
+/// (SPEC.md Part 1 §4 fault matrix, UTC-05-01). The authoritative enforcement
 /// point is `janus::absurd` (before the DB write); the HITL scene honors the
 /// same budget.
 pub const SIZE_BUDGET: usize = 16 * 1024;
@@ -200,7 +200,7 @@ pub fn hitl_timeout_secs() -> i64 {
         .unwrap_or(HITL_TIMEOUT_SECS)
 }
 
-/// Abstract HITL card (Feature-Spec §2.4; ARCH-0.4.0 §5.4 enriched). The Daemon
+/// Abstract HITL card (SPEC.md Part 1 §2; ARCH-0.4.0 §5.4 enriched). The Daemon
 /// constructs this; the gateway + each adapter translate it into a native format.
 /// `scene` is the 0.3.0 field (kept as a legacy alias); `stdout_tail` is the 0.4.0
 /// canonical Hermes-named field - the two are always equal at construction.

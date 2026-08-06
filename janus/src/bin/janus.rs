@@ -38,7 +38,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CliCommand {
-    /// Print a live workflow progress snapshot (Feature-Spec Contract 3.3).
+    /// Print a live workflow progress snapshot (SPEC.md Part 1 §1 Contract 3.3).
     Status {
         /// Filter to a single blueprint name.
         #[arg(long)]
@@ -49,7 +49,7 @@ enum CliCommand {
     },
     /// Launch the resident janus-daemon in the foreground.
     Daemon,
-    /// Smelt execution traces + prune DB cache (Feature-Spec §2.5, Task 4.2).
+    /// Smelt execution traces + prune DB cache (SPEC.md Part 1 Contract 4.1, PLAN.md Task 4.2).
     Offboard {
         /// Blueprint name to offboard (defaults to current directory name).
         #[arg(short, long)]

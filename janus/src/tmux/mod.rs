@@ -129,7 +129,7 @@ impl TmuxBackend {
     /// A backend that drives tmux on a remote `host` over SSH (ADR-017). Every tmux
     /// CLI call is prefixed with `ssh -o BatchMode=yes -o ConnectTimeout=5 -o
     /// StrictHostKeyChecking=accept-new [-l user] <host>` (key-based only -
-    /// Deployment-Spec §4.2). The remote host needs `tmux` on PATH (the bare `tmux`
+    /// SPEC.md Part 4). The remote host needs `tmux` on PATH (the bare `tmux`
     /// is resolved by the remote shell). The reverse tunnel for janush <-> daemon
     /// is managed by the caller (the `BackendFactory`), not here.
     pub fn with_ssh(host: String, user: Option<String>) -> Self {

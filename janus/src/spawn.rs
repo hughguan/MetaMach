@@ -1,5 +1,5 @@
 //! Lazy-start self-healing: spawn `janus-daemon` detached from the controlling
-//! terminal (Feature-Spec §2.1).
+//! terminal (SPEC.md Part 1 §1).
 //!
 //! Uses `std::process::Command::spawn()` + `pre_exec(setsid)` (not raw
 //! `fork()`+`exec()`), with stdio redirected to /dev/null. On spawn failure the
@@ -38,7 +38,7 @@ pub fn resolve_daemon_exe() -> Result<PathBuf> {
     bail!("janus-daemon binary not found; run `make compile` or set JANUS_DAEMON_BIN");
 }
 
-/// Resolve the `janush` proxy-shell binary path (Feature-Spec §2.2). The workflow
+/// Resolve the `janush` proxy-shell binary path (SPEC.md Part 1 §2). The workflow
 /// engine (M4 Phase 0b) invokes `janush -c "<step.command>"` as the tmux session
 /// workload so each Agent command is synchronously reconciled with the Daemon's
 /// Tool Guard before exec.
@@ -81,7 +81,7 @@ pub fn spawn_daemon_detached() -> Result<()> {
     {
         use std::os::unix::process::CommandExt;
         // Detach from the controlling terminal so the Daemon outlives the
-        // shadow client that launched it (Feature-Spec §2.1).
+        // shadow client that launched it (SPEC.md Part 1 §1).
         unsafe {
             cmd.pre_exec(|| {
                 // Best-effort setsid; failure here is non-fatal.

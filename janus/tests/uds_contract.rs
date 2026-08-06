@@ -5,7 +5,7 @@
 //! degraded mode, which still serves Ping/GuardCheck (the HITL suspend + gateway
 //! dispatch are fire-and-forget; their PG failures are warned, not fatal).
 //!
-//! Covers Test-Spec UTC-01-01 (daemon binds socket + pid) and the Contract
+//! Covers SPEC.md Part 2 UTC-01-01 (daemon binds socket + pid) and the Contract
 //! 3.2/3.4 payload round-trip across the module boundary.
 
 use std::collections::HashMap;

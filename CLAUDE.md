@@ -68,10 +68,10 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 | `contracts/` | Dependency contracts (`herdr.md`, `absurd.md`) | External plugin and database engine API contracts |
 
 Cross-doc identifiers to keep consistent when editing:
-- **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (Feature-Spec Contract 3.1); `fallback_events` SQLite ring buffer (Contract 3.8).
+- **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (SPEC.md Part 1 §1); `fallback_events` SQLite ring buffer (Contract 3.8).
 - **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
 - **CLI:** unified `janus` CLI with subcommands `janus init` / `offboard` / `start` / `status` / `plan` / `daemon` / `tmux` (all require the Daemon running — they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
 - **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) — not "Unified DB/PG". Project is branded **MetaMach 0.5.0**. tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
-- **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see `Review-Spec.md` REV-SEC-02, `Test-Spec.md` UTC-02-02).
+- **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see SPEC.md Part 2 UTC-02-02).
 
-When changing a spec, check the related docs — e.g., a schema change in Feature-Spec Contract 3.1 typically affects Test-Spec UTC cases, Review-Spec REV items, and Project-Plan milestone tasks. The contracts, test IDs, and milestone units are the cross-referencing fabric.
+When changing a spec, check the related docs — e.g., a schema change in SPEC.md Part 1 §1 typically affects SPEC.md Part 2 UTC cases and PLAN.md milestone tasks. The contracts, test IDs, and milestone units are the cross-referencing fabric.

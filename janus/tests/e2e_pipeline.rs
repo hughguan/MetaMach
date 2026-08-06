@@ -58,8 +58,8 @@ impl Daemon {
             .env("JANUS_JANUSH_BIN", env!("CARGO_BIN_EXE_janush"))
             .env("RUST_LOG", "warn")
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("spawn janus-daemon");
         let sock = state_dir.join("janus.sock");
@@ -323,11 +323,15 @@ fn e2e_pipeline_dag_dispatch() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
+    let bp_name = format!(
+        "dag_e2e_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
     let bp_dir = repo.path().join(".janus");
     std::fs::create_dir_all(&bp_dir).unwrap();
     std::fs::write(
         bp_dir.join("blueprint.toml"),
-        "[blueprint]\nname = \"dag_e2e\"\ndefault_workflow = \"step1\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+        format!("[blueprint]\nname = \"{bp_name}\"\ndefault_workflow = \"step1\"\n\n[openwiki]\nscope = [\"e2e\"]\n"),
     )
     .unwrap();
 
@@ -359,7 +363,7 @@ fn e2e_pipeline_dag_dispatch() {
     d.wait_ready();
     d.uds(
         &Request::Onboard {
-            name: "dag_e2e".into(),
+            name: bp_name.clone(),
         },
         Duration::from_secs(15),
     )
@@ -367,7 +371,7 @@ fn e2e_pipeline_dag_dispatch() {
     let resp = d
         .uds(
             &Request::Dispatch {
-                blueprint: "dag_e2e".into(),
+                blueprint: bp_name,
                 workflow: Some("build_dag".into()),
                 inline_command: None,
             },
@@ -405,11 +409,15 @@ fn e2e_pipeline_dag_failing_node_aborts_subsequent_levels() {
     let agents = state.path().join("agents.toml");
     std::fs::write(&agents, AGENTS_TOML).unwrap();
 
+    let bp_name = format!(
+        "dag_fail_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
     let bp_dir = repo.path().join(".janus");
     std::fs::create_dir_all(&bp_dir).unwrap();
     std::fs::write(
         bp_dir.join("blueprint.toml"),
-        "[blueprint]\nname = \"dag_fail_e2e\"\ndefault_workflow = \"fail_wf\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+        format!("[blueprint]\nname = \"{bp_name}\"\ndefault_workflow = \"fail_wf\"\n\n[openwiki]\nscope = [\"e2e\"]\n"),
     )
     .unwrap();
 
@@ -440,7 +448,7 @@ fn e2e_pipeline_dag_failing_node_aborts_subsequent_levels() {
     d.wait_ready();
     d.uds(
         &Request::Onboard {
-            name: "dag_fail_e2e".into(),
+            name: bp_name.clone(),
         },
         Duration::from_secs(15),
     )
@@ -449,7 +457,7 @@ fn e2e_pipeline_dag_failing_node_aborts_subsequent_levels() {
     let resp = d
         .uds(
             &Request::Dispatch {
-                blueprint: "dag_fail_e2e".into(),
+                blueprint: bp_name,
                 workflow: Some("fail_dag".into()),
                 inline_command: None,
             },

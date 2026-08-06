@@ -911,7 +911,6 @@ async fn handle_dispatch_pipeline(
                 }
             }
 
-            // Await all tasks in this level and verify terminal success before advancing
             for (tid, handle) in level_handles {
                 match handle.await {
                     Ok(Ok(_)) => {

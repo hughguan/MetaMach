@@ -6,6 +6,7 @@
 //! `janus` CLI. Runs in the foreground when executed directly; lazy-started
 //! detached by `herdr-janus` (stdio -> /dev/null, setsid).
 
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -386,31 +387,76 @@ async fn handle_request(
             blueprint,
             workflow,
             pipeline,
+            inline_command,
         } => {
-            let p_target = pipeline.or_else(|| {
-                recipe::validate(&blueprint, repo_root)
-                    .ok()
-                    .and_then(|r| r.default_pipeline)
-            });
-            if let Some(p_name) = p_target {
-                match handle_dispatch_pipeline(
-                    db.clone(),
-                    repo_root.to_path_buf(),
-                    blueprint,
-                    p_name,
-                )
-                .await
-                {
+            if let Some(cmd) = inline_command {
+                let short_id = &Uuid::new_v4().to_string()[..8];
+                let wf_name = format!("inline_{short_id}");
+                let wf = recipe::Workflow {
+                    workflow: recipe::WorkflowSection {
+                        name: wf_name.clone(),
+                        description: Some("Transient inline command execution".into()),
+                    },
+                    steps: vec![recipe::WorkflowStep {
+                        name: "run".into(),
+                        agent: "builder".into(),
+                        command: Some(cmd),
+                        host: None,
+                        toolset: None,
+                    }],
+                };
+                match dispatch_workflow(db.clone(), repo_root.to_path_buf(), blueprint, wf).await {
                     Ok(task_id) => Response::Dispatch { task_id },
                     Err(e) => Response::Error {
                         message: e.to_string(),
                     },
                 }
             } else {
-                match handle_dispatch(db.clone(), repo_root.to_path_buf(), blueprint, workflow)
-                    .await
-                {
-                    Ok(task_id) => Response::Dispatch { task_id },
+                let name = if let Some(p) = pipeline {
+                    warn!("--pipeline option is deprecated; use --workflow or positional argument");
+                    p
+                } else if let Some(w) = workflow {
+                    w
+                } else {
+                    match recipe::read_blueprint_name(repo_root)
+                        .ok()
+                        .and_then(|name| recipe::validate(&name, repo_root).ok())
+                    {
+                        Some(r) => r.default_pipeline.unwrap_or(r.default_workflow),
+                        None => "dev-flow".to_string(),
+                    }
+                };
+
+                match recipe::load_unified_workflow(&name, repo_root) {
+                    Ok(recipe::UnifiedWorkflow::Linear(wf)) => {
+                        match dispatch_workflow(db.clone(), repo_root.to_path_buf(), blueprint, wf)
+                            .await
+                        {
+                            Ok(task_id) => Response::Dispatch { task_id },
+                            Err(e) => Response::Error {
+                                message: e.to_string(),
+                            },
+                        }
+                    }
+                    Ok(recipe::UnifiedWorkflow::Dag {
+                        config,
+                        inline_register,
+                    }) => {
+                        match handle_dispatch_pipeline(
+                            db.clone(),
+                            repo_root.to_path_buf(),
+                            blueprint,
+                            &config,
+                            &inline_register,
+                        )
+                        .await
+                        {
+                            Ok(task_id) => Response::Dispatch { task_id },
+                            Err(e) => Response::Error {
+                                message: e.to_string(),
+                            },
+                        }
+                    }
                     Err(e) => Response::Error {
                         message: e.to_string(),
                     },
@@ -424,35 +470,21 @@ async fn handle_request(
     }
 }
 
-/// M4 Task 4.1 Phase 0b: dispatch a blueprint's workflow onto the absurd engine
-/// (Contract 3.11). Validates the recipe, ensures the blueprint DB + absurd
-/// schema exist, calls `spawn_workflow` synchronously to mint the task_id (so the
-/// UDS response carries it), then spawns `run_workflow` detached to claim +
-/// execute the steps. Step-loop errors are logged - the dispatch itself
-/// succeeded, so the response is still `Dispatch { task_id }`.
-async fn handle_dispatch(
+/// Helper function that dispatches a pre-loaded [`recipe::Workflow`] onto Absurd PG.
+async fn dispatch_workflow(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
     blueprint: String,
-    workflow: Option<String>,
+    wf: recipe::Workflow,
 ) -> Result<Uuid> {
     if !db.pg_online().await {
         bail!("Absurd Postgres not reachable - cannot dispatch (start it with `make db-up`)");
     }
-    // Pre-flight: resolve the janush binary BEFORE any side effect. spawn_workflow
-    // below commits an absurd task row (pending, max_attempts: 1 - no auto-retry),
-    // so a late failure here would orphan it permanently. Resolving first keeps
-    // the dispatch all-or-nothing up to the spawn.
     let janush = resolve_janush_exe().context("resolve janush binary")?;
-    // Validate the recipe (same path as onboard; NO db write on failure).
     let mut recipe = recipe::validate(&blueprint, &repo_root)?;
-    let workflow_name = workflow.unwrap_or_else(|| recipe.default_workflow.clone());
-    // Load the requested workflow (override only when it differs from default).
-    if workflow_name != recipe.default_workflow {
-        recipe.workflow = recipe::load_workflow(&workflow_name, &repo_root)?;
-    }
-    // Ensure the blueprint DB + absurd schema exist (idempotent; onboard may not
-    // have run, or the pool may be stale).
+    let workflow_name = wf.workflow.name.clone();
+    recipe.workflow = wf;
+
     db.ensure_blueprint_db(&blueprint).await?;
     let pool = db
         .blueprint_pool(&blueprint)
@@ -460,14 +492,9 @@ async fn handle_dispatch(
         .with_context(|| format!("blueprint DB unreachable for {blueprint}"))?;
     let engine = AbsurdPgAdapter::new(pool);
 
-    // Phase 1: enqueue synchronously so the response carries the real task_id.
     let task_id = workflow::spawn_workflow(&engine, &recipe, &workflow_name).await?;
     info!(blueprint = %blueprint, %task_id, workflow = %workflow_name, "workflow dispatched");
 
-    // Phase 2: claim + execute, detached. The Arcs + owned recipe make the
-    // future 'static for tokio::spawn. (`janush` was resolved pre-spawn above.)
-    // The TmuxFactory builds local + remote (reverse-tunnel) backends per step
-    // (ADR-017); SSH user from the blueprint's `[remote] user`.
     let factory = TmuxFactory::new(recipe.remote_user.clone());
     let recipe = Arc::new(recipe);
     let bp = blueprint.clone();
@@ -482,6 +509,20 @@ async fn handle_dispatch(
         }
     });
     Ok(task_id)
+}
+
+/// Dispatch a blueprint's workflow by name onto the absurd engine (Contract 3.11).
+#[allow(dead_code)]
+async fn handle_dispatch(
+    db: Arc<AbsurdDb>,
+    repo_root: PathBuf,
+    blueprint: String,
+    workflow: Option<String>,
+) -> Result<Uuid> {
+    let recipe = recipe::load_recipe(&blueprint, &repo_root)?;
+    let workflow_name = workflow.unwrap_or(recipe.blueprint.default_workflow);
+    let wf = recipe::load_workflow(&workflow_name, &repo_root)?;
+    dispatch_workflow(db, repo_root, blueprint, wf).await
 }
 
 /// 0.4.0 Contract 4.1: run the blueprint's cognitive provider's
@@ -732,24 +773,24 @@ async fn handle_dispatch_pipeline(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
     blueprint: String,
-    pipeline_name: String,
+    config: &PipelineConfig,
+    inline_register: &HashMap<String, recipe::Workflow>,
 ) -> Result<Uuid> {
     if !db.pg_online().await {
         bail!("Absurd Postgres not reachable - cannot dispatch pipeline");
     }
-    let config = PipelineConfig::load(&pipeline_name, &repo_root)?;
     let plan = config.plan()?;
 
     let mut first_task_id = None;
     for level in plan.levels {
         for node in level {
-            let tid = handle_dispatch(
-                db.clone(),
-                repo_root.clone(),
-                blueprint.clone(),
-                Some(node.workflow.clone()),
-            )
-            .await?;
+            let wf = if let Some(inline_wf) = inline_register.get(&node.workflow) {
+                inline_wf.clone()
+            } else {
+                recipe::load_workflow(&node.workflow, &repo_root)?
+            };
+            let tid =
+                dispatch_workflow(db.clone(), repo_root.clone(), blueprint.clone(), wf).await?;
             if first_task_id.is_none() {
                 first_task_id = Some(tid);
             }

@@ -334,6 +334,7 @@ fn utc_03_01b_dispatch_step_transitions() {
                 blueprint: name.clone(),
                 workflow: None,
                 pipeline: None,
+                inline_command: None,
             },
             Duration::from_secs(15),
         )
@@ -564,6 +565,7 @@ command = "sleep 6"
                 blueprint: name.clone(),
                 workflow: None,
                 pipeline: None,
+                inline_command: None,
             },
             Duration::from_secs(15),
         )
@@ -734,6 +736,7 @@ command = "echo hi"
                 blueprint: name.clone(),
                 workflow: None,
                 pipeline: None,
+                inline_command: None,
             },
             Duration::from_secs(15),
         )

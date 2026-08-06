@@ -57,6 +57,7 @@ fn request_tags_are_snake_case() {
             blueprint: "demo".into(),
             workflow: None,
             pipeline: Some("req2spec".into()),
+            inline_command: None,
         })
         .unwrap()
         .contains(r#""type":"dispatch""#)

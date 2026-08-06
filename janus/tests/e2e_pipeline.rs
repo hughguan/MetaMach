@@ -136,6 +136,7 @@ fn e2e_onboard_dispatch_returns_task_id() {
                 blueprint: "smoke_e2e".into(),
                 workflow: None,
                 pipeline: None,
+                inline_command: None,
             },
             Duration::from_secs(15),
         )
@@ -214,6 +215,7 @@ command = "echo step3-done"
                 blueprint: "produce_e2e".into(),
                 workflow: None,
                 pipeline: None,
+                inline_command: None,
             },
             Duration::from_secs(15),
         )
@@ -300,6 +302,7 @@ fn e2e_tool_guard_blocks_blacklisted() {
             blueprint: "guard_e2e".into(),
             workflow: None,
             pipeline: None,
+            inline_command: None,
         },
         Duration::from_secs(15),
     )
@@ -362,6 +365,7 @@ fn e2e_pipeline_dag_dispatch() {
                 blueprint: "dag_e2e".into(),
                 workflow: None,
                 pipeline: Some("build_dag".into()),
+                inline_command: None,
             },
             Duration::from_secs(15),
         )
@@ -414,6 +418,7 @@ fn e2e_stop_and_continue() {
                 blueprint: "ctrl_e2e".into(),
                 workflow: None,
                 pipeline: None,
+                inline_command: None,
             },
             Duration::from_secs(15),
         )

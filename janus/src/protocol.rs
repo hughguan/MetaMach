@@ -47,6 +47,8 @@ pub enum Request {
         workflow: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pipeline: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        inline_command: Option<String>,
     },
     /// Halt active workflow/step execution for a blueprint or task_id.
     Stop {

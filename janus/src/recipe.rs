@@ -5,10 +5,14 @@
 //! (Contract 3.7). Validation failure returns a clear error with NO database
 //! write (Feature-Spec §2.5 Onboard step 1).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
+
+use crate::pipeline::{PipelineConfig, PipelineMeta, PipelineNode};
 
 /// Parsed `.janus/blueprint.toml` (Contract 3.6).
 #[derive(Debug, Clone, Deserialize)]
@@ -135,6 +139,25 @@ fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Helper function to validate workflow steps (non-empty list, required name and agent).
+pub fn validate_workflow_steps(steps: &[WorkflowStep], wf_name: &str) -> Result<()> {
+    if steps.is_empty() {
+        bail!("workflow {wf_name} has no steps");
+    }
+    for (i, s) in steps.iter().enumerate() {
+        if s.name.trim().is_empty() {
+            bail!("workflow {wf_name} step {i}: name is required");
+        }
+        if s.agent.trim().is_empty() {
+            bail!(
+                "workflow {wf_name} step {i} ({}): agent is required",
+                s.name
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Read + validate a workflow file (Contract 3.7). Tries `templates/workflows/<name>.toml`
 /// first (0.5.0+ template layout), then `workflows/<name>.toml` (legacy).
 pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
@@ -149,17 +172,7 @@ pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
         .with_context(|| format!("read workflow {}", wf_path.display()))?;
     let workflow: Workflow =
         toml::from_str(&wf_text).with_context(|| format!("parse {}", wf_path.display()))?;
-    if workflow.steps.is_empty() {
-        bail!("workflow {name} has no steps");
-    }
-    for (i, s) in workflow.steps.iter().enumerate() {
-        if s.name.trim().is_empty() {
-            bail!("workflow {name} step {i}: name is required");
-        }
-        if s.agent.trim().is_empty() {
-            bail!("workflow {name} step {i} ({}): agent is required", s.name);
-        }
-    }
+    validate_workflow_steps(&workflow.steps, name)?;
     if workflow.workflow.name != name {
         bail!(
             "workflow name {:?} != requested workflow {:?}",
@@ -168,6 +181,207 @@ pub fn load_workflow(name: &str, repo_root: &Path) -> Result<Workflow> {
         );
     }
     Ok(workflow)
+}
+
+/// Unified workflow result representing either a linear step-by-step workflow
+/// or a multi-node DAG workflow (ADR-031).
+#[derive(Debug, Clone)]
+pub enum UnifiedWorkflow {
+    /// Linear sequential workflow (80% path)
+    Linear(Workflow),
+    /// DAG multi-node workflow (20% path) with execution plan config and inline workflow register
+    Dag {
+        config: PipelineConfig,
+        inline_register: HashMap<String, Workflow>,
+    },
+}
+
+/// Internal TOML deserialization target for DAG mode workflow files.
+#[derive(Debug, Clone, Deserialize)]
+struct DagWorkflowFile {
+    pub workflow: WorkflowSection,
+    #[serde(default)]
+    pub nodes: Vec<DagNodeDef>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DagNodeDef {
+    pub id: String,
+    #[serde(default)]
+    pub needs: Vec<String>,
+    #[serde(default)]
+    pub workflow: Option<String>,
+    #[serde(default)]
+    pub steps: Option<Vec<WorkflowStep>>,
+}
+
+/// Internal TOML deserialization target for legacy `[pipeline]` format.
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyPipelineFile {
+    pub pipeline: PipelineMeta,
+    #[serde(default)]
+    pub nodes: Vec<PipelineNode>,
+}
+
+/// Helper to convert a legacy [pipeline] TOML file into UnifiedWorkflow::Dag.
+fn convert_legacy_pipeline(legacy: LegacyPipelineFile) -> Result<UnifiedWorkflow> {
+    let config = PipelineConfig {
+        pipeline: legacy.pipeline,
+        nodes: legacy.nodes,
+    };
+    config.validate()?;
+    Ok(UnifiedWorkflow::Dag {
+        config,
+        inline_register: HashMap::new(),
+    })
+}
+
+/// Helper to parse a DAG workflow file into UnifiedWorkflow::Dag.
+fn parse_dag_workflow(dag: DagWorkflowFile) -> Result<UnifiedWorkflow> {
+    let mut pipeline_nodes = Vec::new();
+    let mut inline_register = HashMap::new();
+
+    for node in dag.nodes {
+        match (node.workflow, node.steps) {
+            (Some(wf_name), None) => {
+                if wf_name.trim().is_empty() {
+                    bail!("node '{}': workflow name cannot be empty", node.id);
+                }
+                pipeline_nodes.push(PipelineNode {
+                    id: node.id,
+                    workflow: wf_name,
+                    needs: node.needs,
+                });
+            }
+            (None, Some(steps)) => {
+                let synthetic_name = format!("__inline_{}", node.id);
+                validate_workflow_steps(&steps, &synthetic_name)?;
+                let synthetic_wf = Workflow {
+                    workflow: WorkflowSection {
+                        name: synthetic_name.clone(),
+                        description: Some(format!("Inline steps for DAG node '{}'", node.id)),
+                    },
+                    steps,
+                };
+                inline_register.insert(synthetic_name.clone(), synthetic_wf);
+                pipeline_nodes.push(PipelineNode {
+                    id: node.id,
+                    workflow: synthetic_name,
+                    needs: node.needs,
+                });
+            }
+            (Some(_), Some(_)) => {
+                bail!(
+                    "node '{}': cannot specify both 'workflow' and 'steps'",
+                    node.id
+                );
+            }
+            (None, None) => {
+                bail!(
+                    "node '{}': must specify either 'workflow' or 'steps'",
+                    node.id
+                );
+            }
+        }
+    }
+
+    let config = PipelineConfig {
+        pipeline: PipelineMeta {
+            name: dag.workflow.name,
+            description: dag.workflow.description,
+        },
+        nodes: pipeline_nodes,
+    };
+    config.validate()?;
+
+    Ok(UnifiedWorkflow::Dag {
+        config,
+        inline_register,
+    })
+}
+
+/// Unified loader for workflows and pipelines (ADR-031 Phase 1).
+///
+/// Searches `.janus/workflows/`, `templates/workflows/`, `workflows/`,
+/// `.janus/pipelines/`, `templates/pipelines/`, `pipelines/` for `<name>.toml`.
+///
+/// Automatically determines mode:
+/// - Single-line linear mode (`[workflow]` + `[[steps]]`) -> `UnifiedWorkflow::Linear`
+/// - Unified DAG mode (`[workflow]` + `[[nodes]]`) -> `UnifiedWorkflow::Dag`
+/// - Legacy pipeline mode (`[pipeline]` + `[[nodes]]`) -> `UnifiedWorkflow::Dag` (with deprecation warning)
+pub fn load_unified_workflow(name: &str, repo_root: &Path) -> Result<UnifiedWorkflow> {
+    let candidate_paths = [
+        repo_root
+            .join(".janus/workflows")
+            .join(format!("{name}.toml")),
+        repo_root
+            .join("templates/workflows")
+            .join(format!("{name}.toml")),
+        repo_root.join("workflows").join(format!("{name}.toml")),
+        repo_root
+            .join(".janus/pipelines")
+            .join(format!("{name}.toml")),
+        repo_root
+            .join("templates/pipelines")
+            .join(format!("{name}.toml")),
+        repo_root.join("pipelines").join(format!("{name}.toml")),
+    ];
+
+    let path = candidate_paths
+        .iter()
+        .find(|p| p.exists())
+        .with_context(|| {
+            format!("workflow or pipeline '{name}' not found in workflows or pipelines directories")
+        })?;
+
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("read workflow {}", path.display()))?;
+
+    // 1. Try parsing unified DAG format ([workflow] + [[nodes]])
+    if let Ok(dag) = toml::from_str::<DagWorkflowFile>(&text)
+        && !dag.nodes.is_empty()
+    {
+        if dag.workflow.name != name {
+            bail!(
+                "workflow name {:?} != requested name {:?}",
+                dag.workflow.name,
+                name
+            );
+        }
+        return parse_dag_workflow(dag);
+    }
+
+    // 2. Try parsing legacy pipeline format ([pipeline] + [[nodes]])
+    if let Ok(legacy) = toml::from_str::<LegacyPipelineFile>(&text)
+        && !legacy.nodes.is_empty()
+    {
+        warn!(
+            "Pipeline format in {} is deprecated; migrate to unified Workflow DAG mode",
+            path.display()
+        );
+        if legacy.pipeline.name != name {
+            bail!(
+                "pipeline name {:?} != requested name {:?}",
+                legacy.pipeline.name,
+                name
+            );
+        }
+        return convert_legacy_pipeline(legacy);
+    }
+
+    // 3. Fallback: parse standard linear workflow ([workflow] + [[steps]])
+    let wf: Workflow =
+        toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    validate_workflow_steps(&wf.steps, name)?;
+    if wf.workflow.name != name {
+        bail!(
+            "workflow name {:?} != requested workflow {:?}",
+            wf.workflow.name,
+            name
+        );
+    }
+
+    Ok(UnifiedWorkflow::Linear(wf))
 }
 
 pub fn read_blueprint_name(repo_root: &Path) -> Result<String> {
@@ -417,5 +631,160 @@ host = "remote"
         write_valid(d.path());
         let r = load_recipe("joyrobots", d.path()).unwrap();
         assert_eq!(r.blueprint.name, "joyrobots");
+    }
+
+    #[test]
+    fn test_load_unified_workflow_linear() {
+        let d = tempdir().unwrap();
+        let wf_dir = d.path().join(".janus/workflows");
+        fs::create_dir_all(&wf_dir).unwrap();
+        fs::write(
+            wf_dir.join("build.toml"),
+            "[workflow]\nname = \"build\"\n[[steps]]\nname = \"compile\"\nagent = \"builder\"\ncommand = \"cargo build\"\n",
+        )
+        .unwrap();
+
+        let unified = load_unified_workflow("build", d.path()).unwrap();
+        match unified {
+            UnifiedWorkflow::Linear(wf) => {
+                assert_eq!(wf.workflow.name, "build");
+                assert_eq!(wf.steps.len(), 1);
+                assert_eq!(wf.steps[0].name, "compile");
+            }
+            UnifiedWorkflow::Dag { .. } => panic!("expected Linear workflow"),
+        }
+    }
+
+    #[test]
+    fn test_load_unified_workflow_dag_with_inline_and_refs() {
+        let d = tempdir().unwrap();
+        let wf_dir = d.path().join(".janus/workflows");
+        fs::create_dir_all(&wf_dir).unwrap();
+
+        fs::write(
+            wf_dir.join("compile_step.toml"),
+            "[workflow]\nname = \"compile_step\"\n[[steps]]\nname = \"cc\"\nagent = \"builder\"\ncommand = \"cargo build\"\n",
+        )
+        .unwrap();
+
+        fs::write(
+            wf_dir.join("pipeline_dag.toml"),
+            r#"
+[workflow]
+name = "pipeline_dag"
+description = "DAG workflow with inline and external node"
+
+[[nodes]]
+id = "node1"
+workflow = "compile_step"
+
+[[nodes]]
+id = "node2"
+needs = ["node1"]
+steps = [
+    { name = "test", agent = "tester", command = "cargo test" }
+]
+"#,
+        )
+        .unwrap();
+
+        let unified = load_unified_workflow("pipeline_dag", d.path()).unwrap();
+        match unified {
+            UnifiedWorkflow::Dag {
+                config,
+                inline_register,
+            } => {
+                assert_eq!(config.pipeline.name, "pipeline_dag");
+                assert_eq!(config.nodes.len(), 2);
+                assert_eq!(config.nodes[0].id, "node1");
+                assert_eq!(config.nodes[0].workflow, "compile_step");
+                assert_eq!(config.nodes[1].id, "node2");
+                assert_eq!(config.nodes[1].workflow, "__inline_node2");
+
+                let inline_wf = inline_register
+                    .get("__inline_node2")
+                    .expect("inline wf registered");
+                assert_eq!(inline_wf.steps.len(), 1);
+                assert_eq!(inline_wf.steps[0].name, "test");
+            }
+            UnifiedWorkflow::Linear(_) => panic!("expected Dag workflow"),
+        }
+    }
+
+    #[test]
+    fn test_load_unified_workflow_legacy_pipeline_bridging() {
+        let d = tempdir().unwrap();
+        let pipe_dir = d.path().join(".janus/pipelines");
+        fs::create_dir_all(&pipe_dir).unwrap();
+
+        fs::write(
+            pipe_dir.join("legacy_pipe.toml"),
+            r#"
+[pipeline]
+name = "legacy_pipe"
+description = "Legacy pipeline format"
+
+[[nodes]]
+id = "n1"
+workflow = "wf1"
+"#,
+        )
+        .unwrap();
+
+        let unified = load_unified_workflow("legacy_pipe", d.path()).unwrap();
+        match unified {
+            UnifiedWorkflow::Dag {
+                config,
+                inline_register,
+            } => {
+                assert_eq!(config.pipeline.name, "legacy_pipe");
+                assert_eq!(config.nodes.len(), 1);
+                assert_eq!(config.nodes[0].id, "n1");
+                assert_eq!(config.nodes[0].workflow, "wf1");
+                assert!(inline_register.is_empty());
+            }
+            UnifiedWorkflow::Linear(_) => panic!("expected Dag workflow from legacy pipeline"),
+        }
+    }
+
+    #[test]
+    fn test_load_unified_workflow_node_mutex_validation() {
+        let d = tempdir().unwrap();
+        let wf_dir = d.path().join(".janus/workflows");
+        fs::create_dir_all(&wf_dir).unwrap();
+
+        // Specified both workflow and steps
+        fs::write(
+            wf_dir.join("both.toml"),
+            r#"
+[workflow]
+name = "both"
+
+[[nodes]]
+id = "invalid_node"
+workflow = "wf1"
+steps = [
+    { name = "s1", agent = "builder" }
+]
+"#,
+        )
+        .unwrap();
+
+        assert!(load_unified_workflow("both", d.path()).is_err());
+
+        // Specified neither workflow nor steps
+        fs::write(
+            wf_dir.join("neither.toml"),
+            r#"
+[workflow]
+name = "neither"
+
+[[nodes]]
+id = "invalid_node"
+"#,
+        )
+        .unwrap();
+
+        assert!(load_unified_workflow("neither", d.path()).is_err());
     }
 }

@@ -67,9 +67,15 @@ enum CliCommand {
         /// Optional workflow name override.
         #[arg(short, long, group = "target")]
         workflow: Option<String>,
-        /// Optional pipeline DAG name override.
+        /// Optional pipeline DAG name override (Deprecated: use --workflow).
         #[arg(short, long, group = "target")]
         pipeline: Option<String>,
+        /// Dry-run mode: validate and print workflow execution plan without dispatching.
+        #[arg(long)]
+        dry_run: bool,
+        /// Inline command mode: execute a single shell command as a transient workflow step.
+        #[arg(long, group = "target")]
+        inline: Option<String>,
     },
     /// Stop active step session(s) for a blueprint or task.
     Stop {
@@ -189,9 +195,11 @@ fn main() -> Result<()> {
             blueprint,
             workflow,
             pipeline,
+            dry_run,
+            inline,
         } => {
             let bp = resolve_blueprint_name(blueprint)?;
-            dispatch(bp, workflow, pipeline)
+            dispatch(bp, workflow, pipeline, dry_run, inline)
         }
         CliCommand::Stop { blueprint, task_id } => {
             let bp = if blueprint.is_some() || task_id.is_none() {
@@ -278,7 +286,91 @@ fn lifecycle_cmd(req: Request) -> Result<()> {
     }
 }
 
-fn dispatch(blueprint: String, workflow: Option<String>, pipeline: Option<String>) -> Result<()> {
+fn dispatch(
+    blueprint: String,
+    workflow: Option<String>,
+    pipeline: Option<String>,
+    dry_run: bool,
+    inline: Option<String>,
+) -> Result<()> {
+    let repo_root = janus::paths::repo_root();
+
+    if let Some(_p) = &pipeline {
+        eprintln!("Warning: --pipeline flag is deprecated; use --workflow or positional argument");
+    }
+
+    if dry_run {
+        let name = if let Some(p) = pipeline {
+            p
+        } else if let Some(w) = workflow {
+            w
+        } else if let Some(ref cmd) = inline {
+            println!("Linear Workflow Dry-Run (Inline Command):");
+            println!("  Blueprint: {blueprint}");
+            println!("  Step 1 (run) [builder] -> {cmd}");
+            return Ok(());
+        } else {
+            janus::recipe::read_blueprint_name(&repo_root)
+                .ok()
+                .and_then(|name| janus::recipe::validate(&name, &repo_root).ok())
+                .map(|r| r.default_pipeline.unwrap_or(r.default_workflow))
+                .unwrap_or_else(|| "dev-flow".to_string())
+        };
+
+        match janus::recipe::load_unified_workflow(&name, &repo_root)? {
+            janus::recipe::UnifiedWorkflow::Linear(wf) => {
+                println!("Linear Workflow Dry-Run: {}", wf.workflow.name);
+                println!("  Blueprint: {blueprint}");
+                if let Some(ref desc) = wf.workflow.description {
+                    println!("  Description: {desc}");
+                }
+                println!("  Steps ({}):", wf.steps.len());
+                for (idx, step) in wf.steps.iter().enumerate() {
+                    let cmd = step.command.as_deref().unwrap_or("-");
+                    println!("    {}. {} [{}] -> {}", idx + 1, step.name, step.agent, cmd);
+                }
+            }
+            janus::recipe::UnifiedWorkflow::Dag {
+                config,
+                inline_register,
+            } => {
+                println!(
+                    "DAG Workflow Execution Plan Dry-Run: {}",
+                    config.pipeline.name
+                );
+                println!("  Blueprint: {blueprint}");
+                if let Some(ref desc) = config.pipeline.description {
+                    println!("  Description: {desc}");
+                }
+                let plan = config.plan()?;
+                println!("  Levels ({} total):", plan.levels.len());
+                for (lvl_idx, level) in plan.levels.iter().enumerate() {
+                    println!("    Level {}:", lvl_idx + 1);
+                    for node in level {
+                        if let Some(inline_wf) = inline_register.get(&node.workflow) {
+                            println!("      - Node '{}' (inline steps):", node.id);
+                            for s in &inline_wf.steps {
+                                let cmd = s.command.as_deref().unwrap_or("-");
+                                println!("          * {} [{}] -> {}", s.name, s.agent, cmd);
+                            }
+                        } else {
+                            let deps = if node.needs.is_empty() {
+                                "".to_string()
+                            } else {
+                                format!(" (needs: {})", node.needs.join(", "))
+                            };
+                            println!(
+                                "      - Node '{}' -> workflow '{}'{}",
+                                node.id, node.workflow, deps
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
     if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
         bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
     }
@@ -286,6 +378,7 @@ fn dispatch(blueprint: String, workflow: Option<String>, pipeline: Option<String
         blueprint: blueprint.clone(),
         workflow,
         pipeline,
+        inline_command: inline,
     })?;
     match resp {
         Response::Dispatch { task_id } => {

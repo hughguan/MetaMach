@@ -44,7 +44,7 @@ my-project/
 
 ## Spec Source of Truth
 
-- **`docs/` (English) is the sole version-controlled spec source.** Authoritative structure: 5 fundamental specs (`PRD.md`, `ARCH.md`, `ADR.md`, `SPEC.md`, `PLAN.md`) plus dependency contracts under `docs/contracts/` (`herdr.md`, `absurd.md`).
+- **`docs/` (English) is the sole version-controlled spec source.** Authoritative structure: 5 fundamental specs (`PRD.md`, `ARCH.md`, `ADR.md`, `SPEC.md`, `PLAN.md`) plus dependency contracts under `docs/contracts/` (`herdr.md`, `absurd.md`, `tmux.md`).
 - `docs/CH/` is **gitignored** and not authoritative. When English and Chinese disagree, English wins. Sync direction is always **from `docs/` to `docs/CH/`**, never the reverse.
 
 ## Build, Test & Development Commands

@@ -1,4 +1,4 @@
-//! `janus::tmux` - physical execution engine (0.3.0 §2.4).
+//! `janus::tmux` - physical execution engine (`docs/contracts/tmux.md`).
 //!
 //! Internalized from the external herdr-tether plugin: the core tmux session
 //! lifecycle (create / attach / kill / inspect) against an isolated tmux server

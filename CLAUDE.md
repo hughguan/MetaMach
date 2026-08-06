@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The **English specs directly under `docs/` are the sole version-controlled spec source**:
 
 - 5 fundamental core specs: `docs/PRD.md`, `docs/ARCH.md`, `docs/ADR.md`, `docs/SPEC.md`, `docs/PLAN.md`
-- Dependency contracts under `docs/contracts/`: `docs/contracts/herdr.md`, `docs/contracts/absurd.md`
+- Dependency contracts under `docs/contracts/`: `docs/contracts/herdr.md`, `docs/contracts/absurd.md`, `docs/contracts/tmux.md`
 - `docs/CH/` (Chinese translations) and `docs/bak/` (historical audit/design backups) are not authoritative. When English specs and translations disagree, English `docs/` wins.
 
 ## Repository status

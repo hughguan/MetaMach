@@ -63,7 +63,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `run_preflight()`, three probe outcomes.
 - **ADR-028 E2E Pipeline Tests (0.4.9.4)**: CI mock-agent path + manual LLM
   validation path.
-- `janus pipeline plan` + `janus pipeline validate` (ADR-023 scaffolding).
+- `janus pipeline plan` + `janus pipeline validate` (ADR-023 scaffolding) —
+  **removed in 0.5.0**, superseded by top-level `janus plan` (see ADR-031).
 - Template restructuring: `workflows/` → `templates/workflows/`,
   `pipelines/` → `templates/pipelines/`, `templates/agents/`.
 - 3 pipeline templates + 12 workflow templates + 3 agent role templates.

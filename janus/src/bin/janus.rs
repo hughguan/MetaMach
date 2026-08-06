@@ -102,7 +102,7 @@ enum CliCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Generate a Pipeline TOML from a natural-language description (ADR-022).
+    /// Generate a Workflow definition from a natural-language description (ADR-022).
     Plan {
         /// Blueprint name (defaults to current directory name).
         #[arg(short, long)]

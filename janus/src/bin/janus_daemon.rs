@@ -761,7 +761,7 @@ fn install_subscriber<S: tracing::Subscriber + Send + Sync + 'static>(subscriber
     }
 }
 
-/// Dispatches a pipeline DAG level-by-level onto the absurd engine.
+/// Dispatches a workflow DAG level-by-level onto the absurd engine.
 /// Execution model: level-sequential dispatch to the absurd queue (safe baseline).
 /// Nodes within a level are enqueued to absurd, where worker leases claim and
 /// execute their workflows detached.

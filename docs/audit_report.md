@@ -127,71 +127,49 @@ The following items from the intermediate Gemini-flash editing pass have been co
 ## Section C — Post-ADR-031 Re-Audit (2026-08-06, Final)
 
 > **Scope:** Full re-audit after ADR-031 Phases 1–3 + lifecycle CLI simplifications +
-> audit-finding remediation pass. All P0/P1 from the initial Section C audit are closed.
+> three remediation passes. All P0/P1 and all 10 P3 items closed.
 >
-> **Method:** Code walkthrough of all changed modules; CLI `--help` surface verification;
-> greps across docs/specs/source for residual `pipeline` / `onboard` / `dispatch`;
-> `cargo test` / `clippy` / `fmt` gates.
+> **Method:** Code walkthrough, CLI `--help` surface, greps for residual `pipeline` /
+> `onboard` / `dispatch`, `cargo test` / `clippy` / `fmt`.
 > **Test Count:** 177 (all green, 0 failures, 0 ignored)
 > **ADRs:** 31
-> **LOC:** ~12,051 (`janus/src`)
 
-### Rating: 9.0 / 10
+### Rating: 9.5 / 10
 
-All P0/P1 blockers from the initial audit are closed. The rating recovers from 8.5 to 9.0.
-The 0.5-point gap to the prior 9.5 is surface-level cosmetic debt: stale `janus onboard`
-comments, a `plan` help string that still says "Pipeline TOML", and CHANGELOG references
-to removed commands. Zero functional or architectural impact.
-
-| Dimension | Prior Audit | Current | Delta | Notes |
-|---|---|---|---|---|
-| Architecture | 9.5 | **9.5** | — | Shape-driven dispatch intact; DAG/Linear paths correctly separated |
-| Code Quality | 8.5 | **9.0** | +0.5 | P0 init bug fixed; dead `default_pipeline` removed; pipeline CLI purged |
-| Documentation | 7.5 | **8.5** | +1.0 | All 7 specs swept for onboard/dispatch/pipeline; README counts synced |
-| Testing | 9.5 | **9.5** | — | 177 green; init E2E test added; DAG cycle test migrated |
-| Security | 9.0 | **9.0** | — | No regression |
-| DX / CLI | 8.0 | **9.0** | +1.0 | `pipeline` subcommand removed; `init` merged with onboard; `start` verb |
-| CI / Tooling | 9.5 | **9.5** | — | fmt/clippy/test green |
-| **Overall** | **8.5** | **9.0** | **+0.5** | Ready for release after P3 cosmetics |
-
----
-
-### Closed Audit Findings
-
-| ID | Finding | Resolution |
-|---|---|---|
-| C-P0-1 | `init` crash on fresh projects (missing `create_dir_all`) | ✅ Fixed + unit test `test_janus_init_fresh_project_creates_dir_and_files` |
-| C-P1-1 | Residual `janus pipeline` CLI subcommand | ✅ `Pipeline` variant, `PipelineCmd` enum, and `pipeline()` function all removed |
-| C-P1-2 | `plan` wrote unloadable `[pipeline]` TOML to `pipelines/` | ✅ LLM prompt updated to "Workflow architect" / `[workflow]` + `[[nodes]]`; output to `.janus/workflows/`; `validate_pipeline()` removed |
-| C-P1-3 | 7 authoritative specs taught removed CLI verbs | ✅ `/janus onboard → janus init/`, `/janus dispatch → janus start/` across all specs |
-| C-P1-4 | Dead `default_pipeline` on `BlueprintSection` / `ValidatedRecipe` | ✅ Removed from types, tests, and `validate()` |
-| C-P1-5 | ADR-031 status still "0.5.1 candidate" | ✅ Resolved — code matches spec; status update deferred to release tagging |
-| C-P1-6 | Version/count drift across surface docs | ✅ `herdr-plugin` 0.4.9→0.5.0; README ADR 29→31; test counts unified |
-| C-P2-3 | Missing `.janus/openwiki/` scaffold | ✅ `create_dir_all(openwiki_dir)` added |
-| C-P2-8 | No CLI-level `init` test | ✅ `test_janus_init_fresh_project_creates_dir_and_files` added |
-| C-P3-1 | `herdr-plugin.toml` version 0.4.9 | ✅ Bumped to 0.5.0 |
-| C-P3-3 | `validate_pipeline` duplicated `--dry-run` | ✅ Removed; cycle test migrated to `load_unified_workflow` |
-| — | Default `req2spec` un-runnable for new users | ✅ New self-contained `smoke.toml`; `default_workflow = "smoke"` restored |
-| — | `repo_root()` failed from child directories | ✅ Parent-cwd fallback added in `paths.rs` |
-
----
-
-### Remaining P3 Cosmetics
-
-These do not affect functionality. Fix before the next major doc sweep.
-
-| ID | Location | Issue | Fix |
+| Dimension | Initial | Current | Notes |
 |---|---|---|---|
-| R-P3-1 | `janus.rs:103` | `plan` help string still says "Generate a Pipeline TOML" | s/Pipeline TOML/Workflow definition/ |
-| R-P3-2 | `janus.rs:6` | Module doc comment still says `janus onboard --blueprint <name>` | s/janus onboard/janus init/ |
-| R-P3-3 | `janus.rs:237` | `lifecycle_cmd` comment says `janus onboard` | s/onboard/init/ |
-| R-P3-4 | `recipe.rs:3` | Module doc says `janus onboard` | s/janus onboard/janus init/ |
-| R-P3-5 | `absurd/mod.rs` (×2), `absurd/schema.rs` (×2) | Comments say `janus onboard` | s/janus onboard/janus init/ |
-| R-P3-6 | `herdr_janus.rs:318` | Error message says `janus onboard --blueprint <name>` | s/janus onboard --blueprint <name>/janus init/ |
-| R-P3-7 | `Cargo.toml:6` | Description says "pipeline DAG" | s/pipeline DAG/workflow DAG (ADR-031)/ |
-| R-P3-8 | `CHANGELOG.md:14-15` | Refers to removed `janus pipeline plan` / `validate` | Rewrite for `janus plan` top-level |
-| R-P3-9 | `CHANGELOG.md:27` | Standalone entry: "alias for janus pipeline plan" | Rewrite for `janus plan` top-level |
-| R-P3-10 | `CHANGELOG.md:66` | "janus pipeline plan + janus pipeline validate" | Rewrite |
+| Architecture | 9.5 | **9.5** | Shape-driven dispatch intact |
+| Code Quality | 8.5 | **9.5** | P0 init bug fixed; dead code removed; pipeline CLI purged |
+| Documentation | 7.5 | **9.5** | Specs + source comments + CHANGELOG fully swept |
+| Testing | 9.5 | **9.5** | 177 green; init E2E added |
+| Security | 9.0 | **9.0** | No regression |
+| DX / CLI | 8.0 | **9.5** | `pipeline` removed; `init` merged; `start` verb; `smoke.toml` default |
+| CI / Tooling | 9.5 | **9.5** | fmt/clippy/test green |
+| **Overall** | **8.5** | **9.5** | All audit findings closed |
+
+---
+
+### All Prior Findings — Disposition
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| C-P0-1 | P0 | `init` crash on fresh projects | ✅ Fixed + unit test |
+| C-P1-1 | P1 | Residual `janus pipeline` CLI subcommand | ✅ Removed |
+| C-P1-2 | P1 | `plan` wrote unloadable `[pipeline]` TOML | ✅ Migrated to `[workflow]` |
+| C-P1-3 | P1 | 7 specs taught removed CLI verbs | ✅ Swept |
+| C-P1-4 | P1 | Dead `default_pipeline` field | ✅ Removed |
+| C-P1-5 | P1 | ADR-031 status still "candidate" | ✅ Resolved |
+| C-P1-6 | P1 | Version/count drift | ✅ `herdr-plugin` 0.4.9→0.5.0, counts synced |
+| C-P2-3 | P2 | Missing `openwiki/` scaffold | ✅ Added |
+| C-P2-8 | P2 | No CLI init test | ✅ Added |
+| C-P3-1 | P3 | `herdr-plugin.toml` version 0.4.9 | ✅ Bumped |
+| C-P3-3 | P3 | `validate_pipeline` duplicate | ✅ Removed |
+| Smoke | — | `req2spec` un-runnable default | ✅ `smoke.toml` restored |
+| Paths | — | `repo_root()` child-dir fallback | ✅ Added |
+| R-P3-1 | P3 | `plan` help says "Pipeline TOML" | ✅ → "Generate a Workflow definition" |
+| R-P3-1b | P3 | daemon comment says "pipeline DAG" | ✅ → "workflow DAG" |
+| R-P3-2..9 | P3 | 8 comment/CHANGELOG strings | ✅ All swept |
+| R-P3-10 | P3 | CHANGELOG ref to removed cmd | ✅ Marked removed in 0.5.0, superseded by `janus plan` |
 
 ---
 
@@ -202,28 +180,19 @@ These do not affect functionality. Fix before the next major doc sweep.
 | `cargo test --workspace` | **177 passed**, 0 failed, 0 ignored |
 | `cargo clippy -D warnings` | Clean |
 | `cargo fmt --check` | Clean |
-| CLI `--help` surface | 10 subcommands; no `pipeline`, no `onboard`, no `dispatch` leaked |
+| CLI `--help` surface | No `pipeline`, `onboard`, or `dispatch` subcommand |
+| Residual `Pipeline TOML` / `pipeline plan` / `pipeline DAG` in source | None |
 | ADR-031 unit tests | Linear / DAG+inline / legacy-reject / mutex / init-scaffold |
-| E2E DAG test | Uses `.janus/workflows/` + `[workflow]` + `workflow:` field |
-| Production `unwrap()` count | 3 (cognitive test assertions, herdr-janus TUI test draw — both `#[cfg(test)]`) |
-
----
-
-### Architecture Status
-
-ADR-031 Phase 3 is fully landed: no `.janus/pipelines/` search path, no `LegacyPipelineFile`,
-no `Request::Dispatch.pipeline` field. The internal DAG engine (`pipeline.rs` / `PipelineConfig` /
-`PipelineNode`) lives on under `UnifiedWorkflow::Dag` — correct per ADR-031 (engine name ≠ user concept).
-
-CLI verbs: `init | plan | start | stop | continue | offboard | status | daemon | tmux`
-User lifecycle: `init → plan → dry-run → start → monitor → offboard`
+| Production `unwrap()` count | 3 — all in `#[cfg(test)]` boundaries |
 
 ---
 
 ### Verdict
 
-**9.0/10 — Production-ready. All architectural and functional audit findings resolved.**
+**9.5/10 — Production-grade. All audit findings resolved. Ready for release tagging.**
 
-The 0.5-point holdback from the prior 9.5 ceiling reflects 10 cosmetic string drift issues
-(R-P3-1 through R-P3-10) — all in comments, help strings, and CHANGELOG historical entries.
-Zero code behavior impact. Fix in a single pass before the next release tag.
+Every finding from the original 0.5.0 audit and the post-ADR-031 re-audit is closed:
+architecture, code quality, documentation, testing, and DX are aligned on the unified
+Workflow DSL + 6-verb lifecycle (`init → plan → dry-run → start → monitor → offboard`).
+The 0.5-point remainder to a perfect 10 reflects deferred follow-ups (e.g., `cargo deny`,
+ADR-031 action-item checkboxes) — not blockers.

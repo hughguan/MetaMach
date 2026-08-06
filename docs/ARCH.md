@@ -245,7 +245,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 > - `herdr-tether` has been **deprecated in 0.3.0** — its tmux session engine is now internalized as `janus::tmux`.
 > - Runtime mutable configuration (e.g., `agents.toml`) must be symlinked into **`${HERDR_PLUGIN_CONFIG_DIR}`** (i.e., `~/.config/herdr/plugins/config/metamach.janus`). All transaction logs, cached SQLite, and temporary socket files must reside under **`${HERDR_PLUGIN_STATE_DIR}`** (i.e., `~/.local/state/herdr/plugins/metamach.janus`). **Database persistence** uses `~/.metamach/db/` — an independent global directory decoupled from the Herdr plugin lifecycle, ensuring PG data survives plugin upgrades and power-cycle restarts.
 > - **0.4.0 addition:** `codebase-memory-mcp` (AST/symbol MCP server) is an external process spawned by `janus-daemon` on first use; its blueprint is configured in `.janus/blueprint.toml` under `[cognitive.mcp]`. The MCP server is terminated on blueprint Offboard.
-> - **0.4.0 addition:** `janus::gateway` is an in-module HTTP listener (loopback only) — no external proxy is bundled. A tunnel (cloudflared) or reverse proxy (nginx/Caddy) is required for external Teams callback reachability (see `docs/Deployment-Spec.md` §7).
+> - **0.4.0 addition:** `janus::gateway` is an in-module HTTP listener (loopback only) — no external proxy is bundled. A tunnel (cloudflared) or reverse proxy (nginx/Caddy) is required for external Teams callback reachability (see `docs/SPEC.md` Part 4).
 
 ## 6. Resilience Invariants
 

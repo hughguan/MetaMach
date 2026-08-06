@@ -5,7 +5,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
   <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
-  <img alt="Tests: 174" src="https://img.shields.io/badge/tests-174%20(CI%20green)-22c55e.svg">
+  <img alt="Tests: 178" src="https://img.shields.io/badge/tests-178%20(CI%20green)-22c55e.svg">
   <img alt="Version: 0.5.0" src="https://img.shields.io/badge/version-0.5.0-6366f1.svg">
 </p>
 
@@ -65,12 +65,13 @@
 
 ```
 metamach/
-├── docs/                        # English specs (source of truth)
-│   ├── ARCH.md                  #   Architecture (0.5.0 converged)
+├── docs/                        # English specs (5 core fundamental specs + contracts)
+│   ├── PRD.md                   #   Product Requirements Document
+│   ├── ARCH.md                  #   High-level Architecture
 │   ├── ADR.md                   #   31 Architecture Decision Records
-│   ├── PRD.md, Feature-Spec.md  #   Product & feature specs
-│   ├── Test-Spec.md             #   Test specifications
-│   └── Deployment-Spec.md       #   Deployment guide
+│   ├── SPEC.md                  #   Target Specifications, Test Catalog & Deployment
+│   ├── PLAN.md                  #   Execution Plan & Milestone History
+│   └── contracts/               #   Dependency Contracts (herdr.md, absurd.md)
 ├── janus/                       # Rust workspace (~2,800 LOC)
 │   ├── Cargo.toml
 │   ├── herdr-plugin.toml        #   Herdr 0.7.3 plugin manifest

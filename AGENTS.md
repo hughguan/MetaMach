@@ -44,7 +44,7 @@ my-project/
 
 ## Spec Source of Truth
 
-- **`docs/` (English) is the sole version-controlled spec source.** Authoritative files: `ARCH.md`, `PRD.md`, `Feature-Spec.md`, `Project-Plan.md`, `Review-Spec.md`, `Test-Spec.md`, `Deployment-Spec.md`, plus `ADR.md` (31 Architecture Decision Records).
+- **`docs/` (English) is the sole version-controlled spec source.** Authoritative structure: 5 fundamental specs (`PRD.md`, `ARCH.md`, `ADR.md`, `SPEC.md`, `PLAN.md`) plus dependency contracts under `docs/contracts/` (`herdr.md`, `absurd.md`).
 - `docs/CH/` is **gitignored** and not authoritative. When English and Chinese disagree, English wins. Sync direction is always **from `docs/` to `docs/CH/`**, never the reverse.
 
 ## Build, Test & Development Commands
@@ -75,7 +75,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 - Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 178 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
-- Test names are prefixed with UTC IDs mapped to `Test-Spec.md` (e.g., `utc_03_03_cold_start_reconcile`).
+- Test names are prefixed with UTC IDs mapped to `SPEC.md` (e.g., `utc_03_03_cold_start_reconcile`).
 
 ## Commit & Pull Request Guidelines
 
@@ -102,4 +102,4 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 
 ## External Dependencies
 
-`openwiki` (RAG knowledge engine) is a separate repo whose per-blueprint content is consumed under `.janus/openwiki/`. The physical execution engine formerly known as `herdr-tether` has been **internalized as `janus::tmux`** and is no longer external. Herdr 0.7.3 is the external plugin host (M0-validated contract in `docs/herdr-v1-contract.md`).
+`openwiki` (RAG knowledge engine) is a separate repo whose per-blueprint content is consumed under `.janus/openwiki/`. The physical execution engine formerly known as `herdr-tether` has been **internalized as `janus::tmux`** and is no longer external. Herdr 0.7.3 is the external plugin host (contract in `docs/contracts/herdr.md`).

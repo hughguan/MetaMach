@@ -443,7 +443,7 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Context** | Proposed migrating MetaMach's task runner from GNU `Makefile` to `just`/`justfile` to improve command syntax, positional parameter handling, and error reporting. |
 | **Options Considered** | (1) Replace `Makefile` entirely with `justfile`, (2) Retain `Makefile` as primary zero-dependency entrypoint and optionally add a `justfile` proxy adapter, (3) Maintain `Makefile` exclusively (status quo). |
 | **Decision** | **Rejected** Option (1). **Adopted** Option (3) (with optional Option 2 proxy adapter allowed for local dev). `Makefile` remains the authoritative task runner. |
-| **Rationale** | `make` is ubiquitous on Linux and macOS, preserving MetaMach's "Zero-Dependency Out-of-the-Box" bootstrap contract (PRD §Zero-Dependency; Deployment-Spec §5.1; ADR-001/015). Requiring `just` adds an unneeded prerequisite for first-time onboarding. `Makefile` is already fully implemented (189 lines, 16 targets), 100% test-backed, and deeply integrated into `AGENTS.md`, `CLAUDE.md`, `README.md`, and `scripts/pre-push`. |
+| **Rationale** | `make` is ubiquitous on Linux and macOS, preserving MetaMach's "Zero-Dependency Out-of-the-Box" bootstrap contract (PRD §Zero-Dependency; SPEC.md Part 4; ADR-001/015). Requiring `just` adds an unneeded prerequisite for first-time onboarding. `Makefile` is already fully implemented (189 lines, 16 targets), 100% test-backed, and deeply integrated into `AGENTS.md`, `CLAUDE.md`, `README.md`, and `scripts/pre-push`. |
 | **Status** | ❌ Rejected — `Makefile` retained as sole primary entrypoint. |
 
 ---

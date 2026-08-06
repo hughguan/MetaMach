@@ -37,7 +37,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Consolidated audit report**: DeepSeek V4 Pro + Claude Opus 4.6, 9.0/10.
 
 ### Changed
-- All spec files synced to 0.5.0 version stamps (ARCH, Feature-Spec, Deployment-Spec,
+- **Documentation Restructuring**: Restructured and converged core specifications into 5 fundamental docs (`PRD.md`, `ARCH.md`, `ADR.md`, `SPEC.md`, `PLAN.md`) and dependency contracts under `docs/contracts/` (`herdr.md`, `absurd.md`). Moved short-term audit and design artifacts into `docs/bak/`.
+- All spec files synced to 0.5.0 version stamps.
   Review-Spec, Test-Spec, Absurd-Integration, Herdr-Integration).
 - CI job renamed `Test (Linux)` / `Test (macOS)`, single-element matrix removed.
 - Pre-push hook: sequential test execution with PG auto-provisioning.

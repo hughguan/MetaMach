@@ -11,8 +11,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - **ADR-022 Time-Driven Sleep**: quota exhaustion detection (`is_quota_exhausted`),
   `StepOutcome::QuotaExhausted`, `JANUS_QUOTA_SLEEP_SECONDS`.
-- **ADR-023 Agent Planner**: `janus pipeline plan` (LLM → TOML → validate →
-  write), `janus pipeline validate`. LLM advisory; validation is the final gate.
+- **ADR-023 Agent Planner**: `janus plan` (LLM → TOML → validate →
+  write). LLM advisory; validation is the final gate.
 - **ADR-024 Environmental Snapshot**: `JANUS_ENV_TIMESTAMP` +
   `JANUS_ENV_TTY_DEVICES`, migration `004_env_snapshot.sql`.
 - **ADR-025 Dual-Path Log Pipeline**: raw PTY → `/tmp/metamach/logs/`,

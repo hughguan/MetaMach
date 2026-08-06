@@ -1,6 +1,6 @@
 //! Blueprint recipe + workflow validation (Feature-Spec Contracts 3.6 / 3.7).
 //!
-//! `janus onboard` reads `.janus/blueprint.toml`, validates it against
+//! `janus init` reads `.janus/blueprint.toml`, validates it against
 //! Contract 3.6, then reads + validates `workflows/<default_workflow>.toml`
 //! (Contract 3.7). Validation failure returns a clear error with NO database
 //! write (Feature-Spec §2.5 Onboard step 1).

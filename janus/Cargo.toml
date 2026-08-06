@@ -3,7 +3,7 @@ name = "janus"
 version = "0.5.0"
 edition = "2024"
 rust-version = "1.88"
-description = "MetaMach 0.5.0 Janus core: daemon, Herdr shadow TUI, proxy shell, tmux engine, HITL gateway, cognitive SPI, workflow engine, pipeline DAG"
+description = "MetaMach 0.5.0 Janus core: daemon, Herdr shadow TUI, proxy shell, tmux engine, HITL gateway, cognitive SPI, unified workflow DAG engine"
 license = "MIT"
 publish = false
 

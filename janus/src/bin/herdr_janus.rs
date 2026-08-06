@@ -315,7 +315,7 @@ fn render_dispatch(f: &mut ratatui::Frame, area: Rect, app: &App) {
         .title("Dispatch (\u{2191}/\u{2193} select · Tab progress · r retry)");
     if app.blueprints.is_empty() {
         let msg = if app.daemon_online {
-            "No ACTIVE blueprints. Onboard one: `janus onboard --blueprint <name>`"
+            "No ACTIVE blueprints. Run 'janus init' in a blueprint directory."
         } else {
             "Daemon offline \u{2014} press r to retry / ensure `janus daemon` is running"
         };

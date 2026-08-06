@@ -174,9 +174,9 @@ impl AbsurdDb {
     const BLUEPRINT_MIGRATION_004: &str = include_str!("../../migrations/004_env_snapshot.sql");
 
     /// Create `metamach_blueprint_<name>` (if absent) + apply the per-blueprint
-    /// overlay migrations (002 + 003). Called by `janus onboard` so offboard/
+    /// overlay migrations (002 + 003). Called by `janus init` so offboard/
     /// progress can read the blueprint's `metamach_step_meta`. Idempotent: a
-    /// re-onboard re-applies the IF NOT EXISTS / ADD COLUMN IF NOT EXISTS
+    /// re-init re-applies the IF NOT EXISTS / ADD COLUMN IF NOT EXISTS
     /// migrations (no-op on an existing DB).
     pub async fn ensure_blueprint_db(&self, name: &str) -> Result<()> {
         let Some(catalog) = self.catalog_pool().await else {
@@ -667,7 +667,7 @@ impl AbsurdDb {
     }
 
     /// Task 4.3: idempotent tenant registration (Feature-Spec §2.5.3). Catalog DB
-    /// only - the per-blueprint DB + absurd queue are created by `janus onboard`
+    /// only - the per-blueprint DB + absurd queue are created by `janus init`
     /// (M4 Task 4.3). Returns `true` if an existing row was reactivated.
     pub async fn register_blueprint(
         &self,

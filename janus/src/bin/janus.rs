@@ -1,13 +1,15 @@
 //! `janus` - unified CLI (ARCH §3). A UDS client of `janus-daemon`.
 //!
 //! Subcommands:
+//!   `janus init [path]` - scaffold .janus/, validate, and register blueprint with daemon.
+//!   `janus start [--workflow <name>]` - execute workflow (Linear or DAG mode).
 //!   `janus status [--blueprint <name>] [--json]` - Contract 3.3 progress snapshot.
-//!   `janus daemon` - launch the resident `janus-daemon` in the foreground.
-//!   `janus onboard --blueprint <name>` - register/reactivate a blueprint (Task 4.3).
+//!   `janus stop / continue` - halt or resume tasks.
 //!   `janus offboard --blueprint <name>` - smelt + prune a blueprint (Task 4.2).
+//!   `janus daemon` - launch the resident `janus-daemon` in the foreground.
 //!   `janus tmux open|attach|list` - manage tmux physical sessions (Task 2.4).
 //!
-//! `status`/`onboard`/`offboard` require the Daemon reachable (lazy-started if
+//! `init`/`start`/`status`/`offboard` require the Daemon reachable (lazy-started if
 //! absent); `tmux` talks to the isolated tmux server directly, no Daemon needed.
 
 use std::path::{Path, PathBuf};
@@ -234,7 +236,7 @@ fn print_status_text(tasks: &[ActiveTask]) {
     }
 }
 
-/// `janus onboard` / `janus offboard`: send the request, print the Daemon's ack.
+/// Lifecycle UDS helper (offboard): send the request, print the Daemon's ack.
 fn lifecycle_cmd(req: Request) -> Result<()> {
     if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
         bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");

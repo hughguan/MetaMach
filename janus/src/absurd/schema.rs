@@ -1,15 +1,15 @@
 //! Absurd schema bootstrap (M4 Task 4.1 Phase 0a; `docs/Absurd-Integration.md` §1).
 //!
 //! `absurd.sql` is vendored at `janus/sql/absurd.sql` (v0.4.0, upstream commit
-//! `9b77b35`). This loads it into a per-blueprint DB on `janus onboard` (via
+//! `9b77b35`). This loads it into a per-blueprint DB on `janus init` (via
 //! [`AbsurdDb::ensure_blueprint_db`], *before* the 002/003 MetaMach overlays) so
 //! absurd's `spawn_task`/`claim_task`/`complete_run`/`set_task_checkpoint_state`/
 //! `await_event`/`emit_event`/`create_queue` stored procedures exist. Idempotent:
 //! `absurd.sql` is written with `create [or replace] ... if not exists`, so
-//! re-applying it (re-onboard, cold-start) is a no-op.
+//! re-applying it (re-init, cold-start) is a no-op.
 //!
 //! This IS the "absurdctl init" the `002_blueprint.sql` header references - the
-//! 002 comment "Applied on janus onboard AFTER absurdctl init" becomes literally
+//! 002 comment "Applied on janus init AFTER absurdctl init" becomes literally
 //! true once [`init_absurd_schema`] runs first.
 
 use anyhow::{Context, Result, bail};

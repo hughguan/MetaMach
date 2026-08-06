@@ -1,4 +1,4 @@
-# MetaMach 0.5.0 - Factory master switch (Deployment-Spec §5.1)
+# MetaMach 0.5.0 - Factory master switch (docs/SPEC.md Part 4)
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
 # All four binaries (janus, janus-daemon, herdr-janus, janush) are built by
@@ -8,7 +8,7 @@
 
 # 1. Environment variables (NEVER hardcode a default password).
 #    HERDR_PLUGIN_ROOT defaults to the repo checkout (the plugin source dir per
-#    herdr-v1-contract §6); Herdr injects the real value when opening a pane.
+#    docs/contracts/herdr.md §3); Herdr injects the real value when opening a pane.
 HERDR_PLUGIN_ROOT ?= $(CURDIR)
 HERDR_PLUGIN_STATE_DIR ?= $(HOME)/.local/state/herdr/plugins/metamach.janus
 HERDR_PLUGIN_CONFIG_DIR ?= $(HOME)/.config/herdr/plugins/config/metamach.janus

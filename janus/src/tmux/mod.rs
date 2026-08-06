@@ -7,7 +7,7 @@
 //! In-process signal linkage to Tool Guard (<1ms) replaces the prior external
 //! UDS IPC path. Cross-host SSH transport and checkpoint-driven restart land with
 //! M4 workflow execution; this module delivers the local session core + the
-//! `janus tmux open|attach|list` CLI (Project-Plan Task 2.4).
+//! `janus tmux open|attach|list` CLI (PLAN.md Task 2.4).
 
 pub mod lifecycle;
 

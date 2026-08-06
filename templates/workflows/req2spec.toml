@@ -1,7 +1,7 @@
 # req2spec — Requirements to Specs (3-agent cross-review)
 # ARCHITECT → BUILDER + TESTER review → ARCHITECT address → loop → BUILDER + TESTER produce specs → cross-review → TESTER commit
 
-[pipeline]
+[workflow]
 name = "req2spec"
 description = "Transform product requirements into architecture design, feature spec, and test spec via ARCHITECT/BUILDER/TESTER cross-review loops"
 

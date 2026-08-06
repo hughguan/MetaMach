@@ -2,7 +2,7 @@
 # BUILDER implements → TESTER validates → ARCHITECT reviews → loop → TESTER commits+tags
 # Between milestones: HITL gate for next kickoff
 
-[pipeline]
+[workflow]
 name = "spec2software"
 description = "Implement software from specs with BUILDER/TESTER/ARCHITECT review loops and milestone HITL gates"
 

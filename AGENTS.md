@@ -4,9 +4,8 @@
 
 MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.5.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates. 174 tests, CI-green. Current layout:
 
-```
-metamach/
-├── docs/                # ✅ English specs (source of truth) + ADR.md (29 decisions)
+`` metamach/
+├── docs/                # ✅ English specs (source of truth) + ADR.md (31 decisions)
 ├── docs/CH/             # ❌ gitignored - Chinese translations & audit artifacts
 ├── janus/               # ✅ Rust workspace (4 binaries + shared lib, ~11,000 LOC)
 │   ├── src/bin/         #   janus, janus-daemon, herdr-janus, janush
@@ -22,8 +21,7 @@ metamach/
 ├── templates/           # ✅ `janus init` scaffolds from here
 │   ├── blueprint.toml   #   Default project recipe
 │   ├── agents/          #   Architect, Builder, Tester role templates
-│   ├── workflows/       #   12 workflow templates
-│   └── pipelines/       #   req2spec, spec2software, adr-process DAGs
+│   └── workflows/       #   14 workflow templates (linear + DAG)
 ├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
 ├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
@@ -36,18 +34,17 @@ metamach/
 **Per-project layout** (after `janus init` in a target project):
 ```
 my-project/
-├── .janus/              # All MetaMach config for this project (ADR-029)
+├── .janus/              # All MetaMach config for this project (ADR-029/ADR-031)
 │   ├── blueprint.toml   #   [blueprint] name, default_workflow, [remote], [openwiki]
 │   ├── agents/          #   Project-specific agent role overrides
-│   ├── workflows/       #   Workflow definitions (step sequences)
-│   ├── pipelines/       #   DAG pipeline definitions (nodes + needs edges)
+│   ├── workflows/       #   Unified workflow definitions (linear + DAG)
 │   └── openwiki/        #   RAG knowledge scope; production_report.md on offboard
 └── src/                 # Your project source
 ```
 
 ## Spec Source of Truth
 
-- **`docs/` (English) is the sole version-controlled spec source.** Authoritative files: `ARCH.md`, `PRD.md`, `Feature-Spec.md`, `Project-Plan.md`, `Review-Spec.md`, `Test-Spec.md`, `Deployment-Spec.md`, plus `ADR.md` (29 Architecture Decision Records).
+- **`docs/` (English) is the sole version-controlled spec source.** Authoritative files: `ARCH.md`, `PRD.md`, `Feature-Spec.md`, `Project-Plan.md`, `Review-Spec.md`, `Test-Spec.md`, `Deployment-Spec.md`, plus `ADR.md` (31 Architecture Decision Records).
 - `docs/CH/` is **gitignored** and not authoritative. When English and Chinese disagree, English wins. Sync direction is always **from `docs/` to `docs/CH/`**, never the reverse.
 
 ## Build, Test & Development Commands

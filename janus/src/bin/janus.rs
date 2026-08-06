@@ -519,20 +519,12 @@ fn init_project(path: &Path) -> Result<()> {
         println!("   workflows/ → .janus/workflows/");
     }
 
-    // Copy pipeline templates.
-    let pl_src = templates_root.join("pipelines");
-    if pl_src.is_dir() {
-        let pl_dst = janus_dir.join("pipelines");
-        copy_dir(&pl_src, &pl_dst)?;
-        println!("   pipelines/ → .janus/pipelines/");
-    }
-
     println!();
     println!("✅ Project initialized at {}", root.display());
     println!();
     println!("Next steps:");
     println!("  1. Edit .janus/agents/ to configure your LLM providers");
-    println!("  2. Edit .janus/pipelines/ to define your DAG workflow");
+    println!("  2. Edit .janus/workflows/ to define your workflow");
     println!("  3. Add .janus/ to git:  git add .janus/ && git commit");
     println!("  4. Run:  janus onboard --blueprint <name>");
     Ok(())

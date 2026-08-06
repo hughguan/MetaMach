@@ -782,26 +782,35 @@ fn install_subscriber<S: tracing::Subscriber + Send + Sync + 'static>(subscriber
 
 /// Helper function to check if all steps for a task in `metamach_step_meta` reached `COMPLETED` with exit code 0.
 async fn is_task_successful(db: &AbsurdDb, blueprint: &str, task_id: Uuid) -> bool {
-    let Ok(Some(pool)) = db.blueprint_pool(blueprint).await else {
-        return false;
-    };
-    let rows: Result<Vec<(String, Option<i32>)>, _> =
-        sqlx::query_as("SELECT status, exit_code FROM metamach_step_meta WHERE task_id = $1")
+    for _ in 0..5 {
+        if let Ok(Some(pool)) = db.blueprint_pool(blueprint).await {
+            let rows: Result<Vec<(String, Option<i32>)>, _> = sqlx::query_as(
+                "SELECT status, exit_code FROM metamach_step_meta WHERE task_id = $1",
+            )
             .bind(task_id)
             .fetch_all(&pool)
             .await;
 
-    match rows {
-        Ok(steps) => {
-            if steps.is_empty() {
-                return false;
+            if let Ok(steps) = rows
+                && !steps.is_empty()
+            {
+                let all_done = steps.iter().all(|(status, exit_code)| {
+                    status == "COMPLETED" && exit_code.unwrap_or(0) == 0
+                });
+                if all_done {
+                    return true;
+                }
+                let any_failed = steps
+                    .iter()
+                    .any(|(status, exit_code)| status == "FAILED" || exit_code.unwrap_or(0) != 0);
+                if any_failed {
+                    return false;
+                }
             }
-            steps
-                .iter()
-                .all(|(status, exit_code)| status == "COMPLETED" && exit_code.unwrap_or(0) == 0)
         }
-        Err(_) => false,
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
+    false
 }
 
 /// Dispatches a workflow DAG level-by-level onto the absurd engine with level barriers.

@@ -39,7 +39,7 @@ MetaMach is specifically built for embedded engineering, firmware flashing (e.g.
 
 A Blueprint is the smallest business unit of factory production (e.g., `joyrobots` education robot or `gatemetric` BMX attitude evaluation system).
 
-- **One-Click Onboard:** The sole entrypoint for the Factory Director to introduce a new product line on Day 0. Executing `janus onboard --blueprint <name>` (or selecting "Onboard New Product" via the Popup console) triggers the system to take over with the standard onboarding process:
+- **One-Click Onboard:** The sole entrypoint for the Factory Director to introduce a new product line on Day 0. Executing `janus init` (or selecting "Onboard New Product" via the Popup console) triggers the system to take over with the standard onboarding process:
 
     1. **Recipe Validation:** Read `.janus/blueprint.toml`, validate product name, default workflow (`default_workflow`), remote SSH target, and OpenWiki knowledge graph index scope; confirm `.janus/workflows/<default_workflow>.toml` exists.
     2. **Pre-Ignition Self-Check:** Probe Absurd DB reachability and tmux engine readiness; for cross-host blueprints (e.g., `gatemetric`), best-effort probe remote SSH target reachability (unreachable = warn only, does not block Onboard).
@@ -94,7 +94,7 @@ After Offboard, the system automatically generates a `production_report.md` cont
 | **Visual Dispatch & Progress** | One-key popup: view products, dispatch workflows, real-time step status. | Popup renders ≤100ms; step status refresh ≤2s; `SUSPENDED` highlight ≤1s. | **High (P0)** |
 | **Multi-Endpoint HITL** | Factory Director remotely approves via mobile (Teams/TG) or desktop TUI; pipeline seamlessly resumes. | Webhook POST completes locally ≤500ms; suspended terminal scene resumes ≤1s after tap or `metamach-resume`. | **High (P0)** |
 | **Durable Session Resurrection** | tmux session survives network drop, terminal close, or laptop sleep. | Session alive after all disconnect scenarios; re-attach restores scene ≤1s. | **High (P0)** |
-| **Onboard Registration** | One-click register new product, load dedicated knowledge graph (incl. historical experience inheritance). | After `janus onboard`, Popup menu instantly shows the new product and can immediately dispatch; repeated Onboard is idempotent with no side effects. | **High (P0)** |
+| **Onboard Registration** | One-click register new product, load dedicated knowledge graph (incl. historical experience inheritance). | After `janus init`, Popup menu instantly shows the new product and can immediately dispatch; repeated Onboard is idempotent with no side effects. | **High (P0)** |
 | **Offboard Trace Purge & Audit** | R&D complete, one-click archive. Generate quality report, purge operational data, write full audit trail. | After Offboard triggers, `production_report.md` auto-generated; `absurd_audit_log` has one row per task; per-blueprint database retained for forensic review. | **Medium (P1)** |
 
 ## 4. Factory Director Daily User Journey
@@ -104,7 +104,7 @@ After Offboard, the system automatically generates a `production_report.md` cont
 > The Factory Director faces a freshly powered-on, zero-product-line empty workshop. The first task is not dispatching, but "onboarding" a new product line.
 
 1. **Prepare Recipe:** The Factory Director places product source and a `.janus/blueprint.toml` in the project root (declaring default workflow `firmware-deploy`, remote SSH compilation target, OpenWiki knowledge graph index scope).
-2. **One-Click Onboard:** Execute `janus onboard --blueprint gatemetric` (or select "Onboard New Product" in Popup).
+2. **One-Click Onboard:** Execute `janus init` (or select "Onboard New Product" in Popup).
 3. **System Auto-Takeover:** System validates recipe → self-checks DB & tmux → creates dedicated database `metamach_blueprint_gatemetric` → registers `ACTIVE` tenant in global catalog → binds `firmware-deploy` workflow → loads dedicated knowledge graph (if prior `production_report.md` exists, auto-recycled as immune antibodies).
 4. **Instantly Available:** Terminal prints Onboard success; `gatemetric` immediately appears in Popup dispatch menu. The workshop transitions from zero products to production-ready state.
 
@@ -118,7 +118,7 @@ After Offboard, the system automatically generates a `production_report.md` cont
     - **Path B (Desktop — director already at terminal):** Director receives the same card directly in TUI, immediately `attach`-es to the error pane, fixes in-place, types `metamach-resume` (or clicks **`[Resume]`**) to recover; pipeline seamlessly hands off.
     Both paths **never blindly re-execute the intercepted original command**; they fix in-place then dispatch the next step, avoiding overwriting the manual fix.
 5. **14:00 — Auto-Evolution & Line Sealing:** Cross-compilation and remote deployment flashing pass smoothly. Director executes `janus offboard --blueprint gatemetric` at the console. The system purges operational data from the blueprint's dedicated database (DELETE, not DROP), writes a full audit trail to the global `absurd_audit_log`, and auto-deposits a `production_report.md` under the OpenWiki directory documenting this pin conflict and its resolution.
-6. **Future:** The next time the director executes `janus onboard` for `gatemetric`, the system prioritizes indexing that `production_report.md` and injects the pin conflict avoidance pattern as `## Previous Incidents` few-shot into the next-generation Agent's System Prompt, making it immune to the same class of errors from the moment it enters.
+6. **Future:** The next time the director executes `janus init` for `gatemetric`, the system prioritizes indexing that `production_report.md` and injects the pin conflict avoidance pattern as `## Previous Incidents` few-shot into the next-generation Agent's System Prompt, making it immune to the same class of errors from the moment it enters.
 
 ## 5. Delivery Standards & Quality Red Lines
 

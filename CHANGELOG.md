@@ -22,10 +22,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **ADR-028 E2E Pipeline Tests**: CI mock-agent tests + manual LLM validation.
 - **ADR-029 Project-based templates**: `.janus/` as sole config directory.
 - **ADR-030 CI & Pre-Push Hook**: fail-closed enforcement, docs-only skip.
-- **3-tier dispatch**: `janus dispatch` supports blueprint default, `--workflow`,
-  or `--pipeline` DAG. Blueprint name defaults to current directory.
-- **Pipeline DAG dispatch**: daemon executes DAG nodes via `handle_dispatch_pipeline`,
-  level-sequential dispatch to absurd worker leases.
+- **ADR-031 Unified Workflow DSL**: Unification of Workflow and Pipeline DSLs into a single `Workflow` abstraction under `.janus/workflows/`. Supports both Linear mode (direct single-step execution) and DAG mode (level-parallel execution). Hard removed legacy `.janus/pipelines/` search paths and `janus pipeline` subcommand.
+- **Simplified 5-Phase Lifecycle CLI**: Integrated recipe validation and daemon tenant registration directly into `janus init` (with `--dry-run` support). Renamed `janus dispatch` to `janus start` for intuitive developer UX.
+- **Unified Workflow dispatch**: daemon executes both Linear and DAG workflows via shape-driven dispatch (`handle_dispatch`).
 - **janus stop / continue**: stop active tasks (kill tmux sessions + mark STOPPED),
   continue via cold-start reconciliation.
 - **`janus plan`** (top-level): alias for `janus pipeline plan`.

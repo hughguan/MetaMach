@@ -2,11 +2,11 @@
 # Customize per project: name, default_workflow, openwiki scope, remote host.
 
 [blueprint]
-name = "my-project"
+name = "my_project"
 default_workflow = "smoke"
 
 [openwiki]
-scope = ["my-project"]
+scope = ["my_project"]
 
 # Uncomment for remote compile target:
 # [remote]

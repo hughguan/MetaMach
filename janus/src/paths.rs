@@ -106,8 +106,17 @@ pub fn agents_toml_paths() -> Vec<PathBuf> {
 /// `configs/`, and `target/release/`. Onboard/Offboard resolve recipes + the
 /// offboard LLM config relative to this.
 pub fn repo_root() -> PathBuf {
-    match std::env::var("HERDR_PLUGIN_ROOT") {
-        Ok(s) if !s.is_empty() => PathBuf::from(s),
-        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    if let Ok(s) = std::env::var("HERDR_PLUGIN_ROOT")
+        && !s.is_empty()
+    {
+        return PathBuf::from(s);
     }
+    let cur = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if !cur.join("templates").exists()
+        && let Some(parent) = cur.parent()
+        && parent.join("templates").exists()
+    {
+        return parent.to_path_buf();
+    }
+    cur
 }

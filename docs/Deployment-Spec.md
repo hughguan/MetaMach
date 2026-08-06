@@ -65,7 +65,7 @@ One PG, Multi-DB topology. A single native Postgres 15+ instance runs on the hos
 2. **Start server:** Launch `pg_ctl -D ~/.metamach/db/ -l ~/.metamach/db/pg.log start` with `listen_addresses=''` (Unix socket only, no TCP).
 3. **Create admin role:** `CREATE ROLE metamach_admin WITH LOGIN PASSWORD '<random>'` (password persisted to `~/.metamach/db/.pgpass`, chmod 600).
 4. **Run migrations:** Execute all `.sql` files from `janus/migrations/` in order.
-5. **Blueprint onboarding:** `CREATE DATABASE metamach_blueprint_<name>` on each `janus onboard`.
+5. **Blueprint onboarding:** `CREATE DATABASE metamach_blueprint_<name>` on each `janus init`.
 
 > **Connection string:** `postgresql://metamach_admin:<password>@/metamach_db?host=~/.metamach/db` — Unix socket only, no TCP exposure.
 
@@ -270,7 +270,7 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
 1. Confirm project configuration is in place, e.g., `.janus/blueprint.toml` contains `[blueprint]` name, `default_workflow`, optional `[remote]` target, and `[openwiki].scope`.
 2. Execute the onboard command:
     ```bash
-    janus onboard --blueprint gatemetric
+    janus init
     ```
 3. Verify tenant registration and dispatchability:
     ```bash
@@ -281,7 +281,7 @@ test -f "$SENTINEL_DIR/sentinel" && echo "✅ Sentinel survived; command was int
     janus status
     ```
 
-- **Pass:** The `blueprints` table shows one `gatemetric` / `ACTIVE` row; `janus status` outputs current in-flight tasks (should be empty at this point, but the command itself returns success, proving the `progress` primitive and Daemon connection are normal); inside Herdr, `prefix+j` wakes the Popup and the dispatch menu already shows `gatemetric` ready for immediate dispatch. Repeated execution of `janus onboard` produces no duplicate row (idempotent).
+- **Pass:** The `blueprints` table shows one `gatemetric` / `ACTIVE` row; `janus status` outputs current in-flight tasks (should be empty at this point, but the command itself returns success, proving the `progress` primitive and Daemon connection are normal); inside Herdr, `prefix+j` wakes the Popup and the dispatch menu already shows `gatemetric` ready for immediate dispatch. Repeated execution of `janus init` produces no duplicate row (idempotent).
 
 ## 7. HITL Gateway Ingress (0.4.0)
 

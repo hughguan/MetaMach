@@ -64,7 +64,7 @@ Following Herdr 0.7.3 plugin specifications and the system's independent residen
 - **Description:** Provide a complete product lifecycle engine: Onboard (CREATE DATABASE + tenant registration), Offboard (DELETE + audit archive + LLM smelting), and re-Onboard with experience inheritance.
 
 - **Technical Spec:**
-    - **Onboard Registration Mechanism:** When the Factory Director executes `janus onboard --blueprint <name>`, the Daemon takes over with the following sequence:
+    - **Onboard Registration Mechanism:** When the Factory Director executes `janus init`, the Daemon takes over with the following sequence:
         1. **Recipe Validation:** Read `.janus/blueprint.toml`, validate required fields. Confirm workflow exists in `.janus/workflows/` or `templates/workflows/`. Validation failure returns a clear error without writing to the database.
         2. **Pre-Ignition Self-Check:** Probe Absurd Postgres connectivity and tmux engine readiness. If `[remote]` is declared, perform a best-effort `BatchMode` connectivity probe (`-o ConnectTimeout=5`); unreachable only logs `WARN`, does not block Onboard.
         3. **Per-Blueprint Database Creation:** Execute `CREATE DATABASE metamach_blueprint_<name>` to allocate an independent logical database for the new blueprint (One PG, Multi-DB topology). Blueprint name is validated (max 60 chars, alphanumeric + underscore). On `42P04` (duplicate database), treat as idempotent — the database already exists from a prior Onboard. Since `CREATE DATABASE` cannot run inside a transaction block, the Daemon orchestrates compensation: if a later step fails, it executes `DROP DATABASE metamach_blueprint_<name>` as cleanup.

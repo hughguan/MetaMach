@@ -30,8 +30,6 @@ pub struct BlueprintSection {
     pub name: String,
     #[serde(default = "default_wf_name")]
     pub default_workflow: String,
-    #[serde(default)]
-    pub default_pipeline: Option<String>,
 }
 
 fn default_wf_name() -> String {
@@ -109,7 +107,6 @@ pub struct WorkflowStep {
 pub struct ValidatedRecipe {
     pub name: String,
     pub default_workflow: String,
-    pub default_pipeline: Option<String>,
     pub remote_host: Option<String>,
     /// SSH login user for the remote host (M4 Phase 2, `[remote] user`); `None`
     /// -> SSH default. Separate from `remote_host` (which is the host only).
@@ -373,15 +370,24 @@ pub fn validate(name: &str, repo_root: &Path) -> Result<ValidatedRecipe> {
         );
     }
 
-    // Workflow file must exist + conform (Contract 3.7).
-    let workflow = load_workflow(&recipe.blueprint.default_workflow, repo_root)?;
+    // Workflow file must exist + conform (Contract 3.7 / ADR-031).
+    let unified = load_unified_workflow(&recipe.blueprint.default_workflow, repo_root)?;
+    let workflow = match unified {
+        UnifiedWorkflow::Linear(wf) => wf,
+        UnifiedWorkflow::Dag { config, .. } => Workflow {
+            workflow: WorkflowSection {
+                name: config.pipeline.name,
+                description: config.pipeline.description,
+            },
+            steps: vec![],
+        },
+    };
 
     let remote_host = recipe.remote_host().map(str::to_string);
     let remote_user = recipe.remote.as_ref().and_then(|r| r.user.clone());
     Ok(ValidatedRecipe {
         name: recipe.blueprint.name,
         default_workflow: recipe.blueprint.default_workflow,
-        default_pipeline: recipe.blueprint.default_pipeline,
         remote_host,
         remote_user,
         openwiki_scope: recipe.openwiki.scope,

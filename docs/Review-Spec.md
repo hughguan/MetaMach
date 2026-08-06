@@ -133,9 +133,9 @@ This review aims to prove: **The Offboard process provides a complete audit trai
         3. When the next-generation Agent enters and scans that knowledge graph, its System Prompt must successfully carry that immune information, and in subsequent code generation proactively avoid pin conflicts, passing compilation on the first attempt.
 
 - **Metric 4.3: Blueprint Onboard & Tenant Registration Audit**
-    - _Requirement:_ Prove that `janus onboard` can safely and idempotently convert a blueprint directory into an `ACTIVE` dispatchable product line and correctly recycle historical experience.
+    - _Requirement:_ Prove that `janus init` can safely and idempotently convert a blueprint directory into an `ACTIVE` dispatchable product line and correctly recycle historical experience.
     - _Pass Criteria:_
-        1. After executing `janus onboard --blueprint <name>`, the `blueprints` table must have exactly one `ACTIVE` row for that blueprint, and the Popup dispatch menu must instantly become visible.
+        1. After executing `janus init`, the `blueprints` table must have exactly one `ACTIVE` row for that blueprint, and the Popup dispatch menu must instantly become visible.
         2. Onboard calls `CREATE DATABASE metamach_blueprint_<name>` for the new blueprint; on `42P04` (duplicate), treats as idempotent.
         3. Consecutively repeated Onboard must not produce duplicate rows (`ON CONFLICT` idempotent) and must not corrupt existing Task/Step data.
         4. Re-onboarding an already `OFFBOARDED` blueprint must return it to `ACTIVE` status, and if a prior `production_report.md` exists, its critical failure patterns must appear as `## Previous Incidents` few-shot in the next-generation Agent's System Prompt.
@@ -160,7 +160,7 @@ The Factory Director and Architect must physically verify and sign off each item
 | **REV-DIS-02** | Multi-DB Tenant Isolation | Onboard two blueprints; verify `CREATE DATABASE metamach_blueprint_<name>` for each; verify task/step data in separate databases; Offboard does NOT call DROP DATABASE. | `[ ]` Verified | **High (Orange)** |
 | **REV-DIS-03** | SQLite Fallback & Log Replay | Stop PG; verify degraded mode writes to `fallback.db`; restart PG; verify Log Replay merges all events; verify ring buffer FIFO eviction under overflow. | `[ ]` Verified | **High (Orange)** |
 | **REV-EVO-01** | Offboard Trace Purge & Audit Archive | Execute `janus offboard`; verify `absurd_steps`/`absurd_tasks` rows fully DELETEd (not NULL-ified); `absurd_audit_log` has one row per task; per-blueprint DB retained; `production_report.md` generated. | `[ ]` Verified | **Medium (Yellow)** |
-| **REV-EVO-02** | Blueprint Onboard & Tenant Registration | Execute `janus onboard`; verify `blueprints` table has exactly one `ACTIVE` row, idempotent with no duplicates, `CREATE DATABASE` called, and re-Onboard recycles `production_report.md` into System Prompt. | `[ ]` Verified | **High (Orange)** |
+| **REV-EVO-02** | Blueprint Onboard & Tenant Registration | Execute `janus init`; verify `blueprints` table has exactly one `ACTIVE` row, idempotent with no duplicates, `CREATE DATABASE` called, and re-Onboard recycles `production_report.md` into System Prompt. | `[ ]` Verified | **High (Orange)** |
 | **REV-OPS-01** | Workflow Progress Visibility | Dispatch multi-step workflow; open progress dashboard; verify step states refresh ≤2s, `SUSPENDED` highlights ≤1s, and `janus status` output consistent with dashboard (same source). | `[ ]` Verified | **High (Orange)** |
 
 | **REV-GW-01** | Gateway HTTP Callback Ingress | POST valid + invalid (no-HMAC, wrong-HMAC, duplicate) callbacks to `127.0.0.1:8443/v1/runs/{id}/actions`; verify 200/401/409 responses. | `[ ]` Verified | **Critical (Red)** |

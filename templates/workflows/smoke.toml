@@ -1,0 +1,14 @@
+# Smoke workflow - self-contained initial sanity check (ADR-031)
+[workflow]
+name = "smoke"
+description = "Self-contained initial blueprint sanity check"
+
+[[steps]]
+name = "verify_environment"
+agent = "architect"
+command = "echo '✅ Blueprint environment verified'"
+
+[[steps]]
+name = "health_check"
+agent = "builder"
+command = "echo '✅ Pre-flight execution check green'"

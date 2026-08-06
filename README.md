@@ -67,7 +67,7 @@
 metamach/
 ├── docs/                        # English specs (source of truth)
 │   ├── ARCH.md                  #   Architecture (0.5.0 converged)
-│   ├── ADR.md                   #   29 Architecture Decision Records
+│   ├── ADR.md                   #   31 Architecture Decision Records
 │   ├── PRD.md, Feature-Spec.md  #   Product & feature specs
 │   ├── Test-Spec.md             #   Test specifications
 │   └── Deployment-Spec.md       #   Deployment guide
@@ -79,7 +79,7 @@ metamach/
 │   │   │   ├── janus_daemon.rs  #   Control-plane daemon
 │   │   │   ├── herdr_janus.rs   #   Herdr shadow TUI client
 │   │   │   ├── janush.rs        #   Proxy shell (Tool Guard)
-│   │   │   └── janus.rs         #   CLI: init, onboard, start
+│   │   │   └── janus.rs         #   CLI: init, start, status, stop, continue, offboard
 │   │   ├── absurd/              #   Postgres adapter + SQLite fallback
 │   │   ├── tmux/                #   PTY session engine
 │   │   ├── tool_guard/          #   Rule engine + webhook dispatch
@@ -339,9 +339,9 @@ trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 
 ## CI & Testing
 
-- **171 tests**: 168 default + 3 Herdr-gated — all pass, 0 ignored
+- **174 tests**: all pass, 0 ignored
 - **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (174 tests)
-- **E2E tests**: onboard → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
+- **E2E tests**: init → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests
 

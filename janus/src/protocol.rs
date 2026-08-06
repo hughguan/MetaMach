@@ -32,7 +32,7 @@ pub enum Request {
         argv: Vec<String>,
         env_snapshot: HashMap<String, String>,
     },
-    /// `janus onboard --blueprint <name>` (Task 4.3).
+    /// `janus init` (Task 4.3).
     Onboard { name: String },
     /// `janus offboard --blueprint <name>` (Task 4.2).
     Offboard { name: String },
@@ -105,7 +105,7 @@ pub enum Response {
     },
 }
 
-/// A dispatchable blueprint (Dispatch view + `janus onboard` target).
+/// A dispatchable blueprint (Dispatch view + `janus init` target).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlueprintInfo {
     pub name: String,

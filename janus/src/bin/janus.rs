@@ -91,11 +91,6 @@ enum CliCommand {
         #[command(subcommand)]
         cmd: TmuxCmd,
     },
-    /// Pipeline DAG operations (ADR-021, 0.4.9).
-    Pipeline {
-        #[command(subcommand)]
-        cmd: PipelineCmd,
-    },
     /// Initialize a project: scaffold .janus/, validate, and register with the daemon.
     Init {
         /// Project directory (defaults to current directory).
@@ -138,25 +133,6 @@ enum TmuxCmd {
     },
     /// List live tmux sessions on the isolated tmux server.
     List,
-}
-
-/// `janus pipeline` subcommands (ADR-021/ADR-022).
-#[derive(Subcommand)]
-enum PipelineCmd {
-    /// Generate a Pipeline TOML from a natural-language description (ADR-022).
-    Plan {
-        /// Blueprint name (defaults to current directory name).
-        #[arg(short, long)]
-        blueprint: Option<String>,
-        /// Natural-language description of the desired pipeline.
-        #[arg(long)]
-        description: String,
-    },
-    /// Validate a pipeline TOML file without executing it.
-    Validate {
-        /// Path to the pipeline TOML file.
-        path: PathBuf,
-    },
 }
 
 fn resolve_blueprint_name(bp_opt: Option<String>) -> Result<String> {
@@ -207,7 +183,6 @@ fn main() -> Result<()> {
             continue_cmd(bp, task_id)
         }
         CliCommand::Tmux { cmd } => tmux(cmd),
-        CliCommand::Pipeline { cmd } => pipeline(cmd),
         CliCommand::Init { path, dry_run } => init_project(&path, dry_run),
         CliCommand::Plan {
             blueprint,
@@ -460,6 +435,7 @@ fn init_project(path: &Path, dry_run: bool) -> Result<()> {
             janus_dir.display()
         );
     } else {
+        std::fs::create_dir_all(&janus_dir)?;
         let templates_root = repo_root.join("templates");
         if !templates_root.exists() {
             anyhow::bail!(
@@ -477,11 +453,12 @@ fn init_project(path: &Path, dry_run: bool) -> Result<()> {
             let name = root
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "my-project".to_string());
+                .unwrap_or_else(|| "my_project".to_string())
+                .replace('-', "_");
             std::fs::write(
                 janus_dir.join("blueprint.toml"),
                 format!(
-                    "[blueprint]\nname = \"{name}\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"{name}\"]\n"
+                    "[blueprint]\nname = \"{name}\"\ndefault_workflow = \"req2spec\"\n\n[openwiki]\nscope = [\"{name}\"]\n"
                 ),
             )?;
             println!("   blueprint.toml → .janus/blueprint.toml (auto-generated)");
@@ -502,6 +479,10 @@ fn init_project(path: &Path, dry_run: bool) -> Result<()> {
             copy_dir(&wf_src, &wf_dst)?;
             println!("   workflows/ → .janus/workflows/");
         }
+
+        // Create openwiki directory for production whitepapers.
+        let openwiki_dir = janus_dir.join("openwiki");
+        std::fs::create_dir_all(&openwiki_dir)?;
     }
 
     // Read blueprint name for validation + registration.
@@ -559,20 +540,6 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
 
 // ── Pipeline commands (ADR-021/ADR-022) ─────────────────────────────────
 
-fn pipeline(cmd: PipelineCmd) -> Result<()> {
-    let repo_root = janus::paths::repo_root();
-    match cmd {
-        PipelineCmd::Plan {
-            blueprint,
-            description,
-        } => {
-            let bp = resolve_blueprint_name(blueprint)?;
-            plan_pipeline(&bp, &description, &repo_root)
-        }
-        PipelineCmd::Validate { path } => validate_pipeline(&path),
-    }
-}
-
 fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> {
     // Discover available workflows.
     let catalog = discover_workflows(repo_root)?;
@@ -590,9 +557,9 @@ fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> 
         .join("\n");
 
     let prompt = format!(
-        "You are a MetaMach Pipeline architect. Given the following Workflow \
-         library and a natural-language description, generate a valid Pipeline \
-         TOML file.\n\n## Available Workflows\n{catalog_text}\n\n## Request\n\
+        "You are a MetaMach Workflow architect. Given the following Workflow \
+         library and a natural-language description, generate a valid Unified Workflow DAG \
+         TOML file using [workflow] header (name, description) and [[nodes]] array (id, workflow or steps = [...], needs).\n\n## Available Workflows\n{catalog_text}\n\n## Request\n\
          {description}\n\nOutput ONLY the TOML, no explanation."
     );
 
@@ -608,12 +575,12 @@ fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> 
         "model": model,
         "max_tokens": 2048,
         "messages": [
-            {"role": "system", "content": "You are a Pipeline architect. Output valid TOML only."},
+            {"role": "system", "content": "You are a Workflow architect. Output valid Unified Workflow TOML only."},
             {"role": "user", "content": prompt},
         ]
     });
 
-    eprintln!("Generating pipeline for '{name}'...");
+    eprintln!("Generating workflow for '{name}'...");
     let resp = ureq::post(&endpoint)
         .set("Authorization", &format!("Bearer {api_key}"))
         .set("Content-Type", "application/json")
@@ -627,28 +594,18 @@ fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> 
         .as_str()
         .context("LLM response missing content")?;
 
-    // Validate the generated TOML.
-    let config: PipelineConfig = toml::from_str(toml_text).context("LLM generated invalid TOML")?;
-    config
-        .validate()
-        .context("LLM generated invalid pipeline")?;
-
-    let pipelines_dir = repo_root.join("pipelines");
-    let _ = std::fs::create_dir_all(&pipelines_dir);
-    let path = pipelines_dir.join(format!("{name}.toml"));
-    std::fs::write(&path, toml_text)?;
-    println!("Pipeline written to {}", path.display());
-    Ok(())
-}
-
-fn validate_pipeline(path: &Path) -> Result<()> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    // Validate the generated TOML as a Unified Workflow.
     let config: PipelineConfig =
-        toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        toml::from_str(toml_text).context("LLM generated invalid workflow TOML")?;
     config
         .validate()
-        .with_context(|| format!("validate {}", path.display()))?;
-    println!("Pipeline {} is valid.", path.display());
+        .context("LLM generated invalid workflow DAG")?;
+
+    let workflows_dir = repo_root.join(".janus/workflows");
+    std::fs::create_dir_all(&workflows_dir)?;
+    let path = workflows_dir.join(format!("{name}.toml"));
+    std::fs::write(&path, toml_text)?;
+    println!("Workflow written to {}", path.display());
     Ok(())
 }
 
@@ -744,10 +701,13 @@ mod tests {
     #[test]
     fn validate_pipeline_rejects_cycle() {
         let dir = tempfile::tempdir().unwrap();
-        let toml = "[pipeline]\nname = \"cycle\"\n\n[[nodes]]\nid = \"a\"\nworkflow = \"wf_a\"\nneeds = [\"b\"]\n\n[[nodes]]\nid = \"b\"\nworkflow = \"wf_b\"\nneeds = [\"a\"]\n";
-        let path = dir.path().join("cycle.toml");
-        std::fs::write(&path, toml).unwrap();
-        let err = validate_pipeline(&path).unwrap_err();
+        let wf_dir = dir.path().join(".janus/workflows");
+        std::fs::create_dir_all(&wf_dir).unwrap();
+
+        let toml = "[workflow]\nname = \"cycle\"\n\n[[nodes]]\nid = \"a\"\nworkflow = \"wf_a\"\nneeds = [\"b\"]\n\n[[nodes]]\nid = \"b\"\nworkflow = \"wf_b\"\nneeds = [\"a\"]\n";
+        std::fs::write(wf_dir.join("cycle.toml"), toml).unwrap();
+
+        let err = janus::recipe::load_unified_workflow("cycle", dir.path()).unwrap_err();
         assert!(
             err.to_string().contains("cycle"),
             "expected cycle error, got: {err}"
@@ -757,10 +717,34 @@ mod tests {
     #[test]
     fn validate_pipeline_accepts_valid() {
         let dir = tempfile::tempdir().unwrap();
-        let toml = "[pipeline]\nname = \"ok\"\n\n[[nodes]]\nid = \"a\"\nworkflow = \"wf_a\"\n";
-        let path = dir.path().join("ok.toml");
-        std::fs::write(&path, toml).unwrap();
-        validate_pipeline(&path).expect("valid pipeline");
+        let wf_dir = dir.path().join(".janus/workflows");
+        std::fs::create_dir_all(&wf_dir).unwrap();
+
+        let toml = "[workflow]\nname = \"ok\"\n\n[[nodes]]\nid = \"a\"\nworkflow = \"wf_a\"\n";
+        std::fs::write(wf_dir.join("ok.toml"), toml).unwrap();
+
+        let unified =
+            janus::recipe::load_unified_workflow("ok", dir.path()).expect("valid workflow");
+        assert!(matches!(
+            unified,
+            janus::recipe::UnifiedWorkflow::Dag { .. }
+        ));
+    }
+
+    #[test]
+    fn test_janus_init_fresh_project_creates_dir_and_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let fresh_root = dir.path().join("fresh_app");
+        std::fs::create_dir_all(&fresh_root).unwrap();
+
+        // Run init_project with dry_run = true (skip daemon UDS call)
+        init_project(&fresh_root, true).expect("init_project on fresh dir should succeed");
+
+        assert!(fresh_root.join(".janus").is_dir());
+        assert!(fresh_root.join(".janus/blueprint.toml").is_file());
+        assert!(fresh_root.join(".janus/openwiki").is_dir());
+        assert!(fresh_root.join(".janus/agents").is_dir());
+        assert!(fresh_root.join(".janus/workflows").is_dir());
     }
 
     #[test]

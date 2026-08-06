@@ -27,7 +27,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Unified Workflow dispatch**: daemon executes both Linear and DAG workflows via shape-driven dispatch (`handle_dispatch`).
 - **janus stop / continue**: stop active tasks (kill tmux sessions + mark STOPPED),
   continue via cold-start reconciliation.
-- **`janus plan`** (top-level): alias for `janus pipeline plan`.
+- **`janus plan`** (top-level): LLM-assisted unified workflow generation (ADR-023).
 - **Herder in CI**: pre-built binary + `herdr server`, all 6 config_contract tests.
 - **macOS CI**: `macos-latest` job with compile + unit tests.
 - **Docs-only pre-push skip**: `git diff-tree HEAD` detects docs/md-only changes,

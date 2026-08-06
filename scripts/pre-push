@@ -23,7 +23,7 @@ else
     changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null || true)
 fi
 if [ -n "$changed_files" ]; then
-    non_doc=$(echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' | wc -l | tr -d ' ')
+    non_doc=$( (echo "$changed_files" | grep -v '^docs/' | grep -v '\.md$' | grep -v '^$' || true) | wc -l | tr -d ' ')
     if [ "$non_doc" -eq 0 ]; then
         skip_tests=true
         echo "=== Docs/md only — skipping test phases (matching CI paths-ignore) ==="

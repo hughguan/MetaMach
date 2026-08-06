@@ -7,13 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The **English specs directly under `docs/` are the sole version-controlled spec source**:
 
 - `docs/ARCH.md`, `docs/PRD.md`, `docs/Feature-Spec.md`, `docs/Project-Plan.md`, `docs/Review-Spec.md`, `docs/Test-Spec.md`, `docs/Deployment-Spec.md`
-- `docs/ADR.md` — 30 Architecture Decision Records covering all non-trivial decisions from 0.1.0 through 0.5.0.
+- `docs/ADR.md` — 31 Architecture Decision Records covering all non-trivial decisions from 0.1.0 through 0.5.0.
 - `docs/CH/` (Chinese translations + the `*-Review.md` audit deep-dives) is **gitignored** (see `.gitignore`) and is **not authoritative**. When the English specs and the Chinese translations disagree, the English `docs/` wins. Do not edit `docs/CH/` as the source of truth; if asked to translate/sync, port **from `docs/` to `docs/CH/`**, never the reverse.
 - The `docs/CH/*-Review.md` files are point-in-time audit artifacts with resolution logs - useful history, but not the spec.
 
 ## Repository status
 
-This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.5.0** (~11,000 LOC, 174 tests, CI-green). All milestones M0–M4 plus M5 integration tests are complete, including the 0.3.0 de-containerization consensus and the 0.4.0 gateway/ecosystem delta.
+This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.5.0** (~11,000 LOC, 178 tests, CI-green). All milestones M0–M4 plus M5 integration tests are complete, including the 0.3.0 de-containerization consensus and the 0.4.0 gateway/ecosystem delta.
 
 **Implemented and tested:**
 - **M0:** Herdr 0.7.3 plugin contract validated.
@@ -21,10 +21,10 @@ This is an **implemented Rust workspace plus specs** — not documentation-only.
 - **M2:** `janus-daemon` resident brain, UDS twin-process protocol, `progress` primitive, `janus::tmux` (internalized from `herdr-tether`), F1 multi-DB fan-out.
 - **M3:** `janush` proxy shell + Tool Guard rule engine (ALLOW/BLOCK/REWRITE, hot-reload, 30s fail-closed timeout).
 - **M4:** Init/Offboard lifecycle, LLM-smelt `production_report.md`, cold-start resume, `target_sha` optimistic locking, workflow engine (absurd pull-mode, checkpointing, retry-claim loop), HITL resume loop, cross-host SSH reverse tunnel transport (ADR-017).
-- **M5:** Integration test suite (8 files, 174 tests), PG-gated blocking CI gate.
+- **M5:** Integration test suite (8 files, 178 tests), PG-gated blocking CI gate.
 - **0.4.0:** HITL Gateway (Teams Adaptive Cards, HMAC-SHA256), Cognitive Provider SPI (MCP), loopback HTTP callback listener.
 - **0.4.5–0.4.9:** Pipeline DAG engine (Kahn's topological sort), stream filter (ANSI stripping), configurable agents, observer panel TUI, environmental snapshot, dual-path log pipeline, hardware pre-flight probes, E2E pipeline tests.
-- **0.5.0 (ADR-029):** Project-based templates — `janus init` scaffolds `.janus/` from `templates/`. Blueprint config moved from `blueprints/<name>/janus.toml` → `.janus/blueprint.toml`. 12 workflow templates, 3 pipeline DAG templates, 3 agent role templates.
+- **0.5.0 (ADR-029):** Project-based templates — `janus init` scaffolds `.janus/` from `templates/`. Blueprint config moved from `blueprints/<name>/janus.toml` → `.janus/blueprint.toml`. 15 workflow templates (linear + DAG), 3 agent role templates.
 
 The four binaries — `janus`, `janus-daemon`, `herdr-janus`, `janush` — all exist under `janus/src/bin/`. Zero `todo!`/`unimplemented!`/`FIXME`/`HACK` stubs in the codebase.
 
@@ -50,7 +50,7 @@ MetaMach 0.5.0 is a durable AI "software factory" OS. The core mental model (spr
 - **`janus::gateway` (HITL Gateway):** Teams Adaptive Card dispatch, non-blocking verdict thread, HMAC-SHA256 loopback HTTP callback listener. Unified `JANUS_HITL_TIMEOUT_SECS` deadline; late callbacks get `410 Gone`.
 - **`janus::cognitive` (Cognitive Provider SPI):** opt-in per-blueprint `[cognitive]` config, `McpProvider` (`codebase-memory-mcp` over stdio JSON-RPC; 2s advisory timeout), `NoopProvider` fail-open default.
 - **`janus::workflow` (Workflow engine):** drives blueprint steps via absurd pull-mode queue. Per-step tmux sessions under `janush`, exit-code capture, per-step checkpoints, lease renewal (10s), retry-claim loop (`max_attempts: 3`), HITL resume.
-- **`janus::pipeline` (Pipeline DAG engine):** `pipelines/<name>.toml` with `[nodes]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution.
+- **`janus::pipeline` (Pipeline DAG engine):** `.janus/workflows/<name>.toml` with `[nodes]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution.
 - **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Init.
 
 Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: **Init** (scaffold + validate + register) ↔ **Offboard** (LLM-smelt `production_report.md` -> `melt_blueprint_data` deletes large JSON rows).
@@ -62,7 +62,7 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 | Doc | Scope | Key anchors |
 |---|---|---|
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
-| `ADR.md` | 30 Architecture Decision Records (ADR-001 through ADR-030) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook |
+| `ADR.md` | 31 Architecture Decision Records (ADR-001 through ADR-031) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook, unified workflow DSL |
 | `PRD.md` | Product requirements, director journey, functional matrix | §3 matrix (priorities + measurable UAT); §4 Day-0 Init + user journey |
 | `Feature-Spec.md` | Feature specs + data contracts + fault matrix | **Contracts 3.1–3.11, 4.1–4.3**; §2.4 HITL; §2.5 Init/Offboard+LLM; §4 fault matrix |
 | `Project-Plan.md` | Milestones M0–M5 + check-in units + CI gates | All milestones implemented |

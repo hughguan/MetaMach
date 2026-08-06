@@ -466,13 +466,14 @@ async fn handle_request(
     }
 }
 
-/// Helper function that dispatches a pre-loaded [`recipe::Workflow`] onto Absurd PG.
-async fn dispatch_workflow(
+/// Helper function that dispatches a pre-loaded [`recipe::Workflow`] onto Absurd PG,
+/// returning the `task_id` and the `JoinHandle` of the background task.
+async fn dispatch_workflow_handle(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
     blueprint: String,
     wf: recipe::Workflow,
-) -> Result<Uuid> {
+) -> Result<(Uuid, tokio::task::JoinHandle<Result<Uuid>>)> {
     if !db.pg_online().await {
         bail!("Absurd Postgres not reachable - cannot dispatch (start it with `make db-up`)");
     }
@@ -493,17 +494,35 @@ async fn dispatch_workflow(
 
     let factory = TmuxFactory::new(recipe.remote_user.clone());
     let recipe = Arc::new(recipe);
-    let bp = blueprint.clone();
-    let wf = workflow_name.clone();
-    tokio::spawn(async move {
-        if let Err(e) = workflow::run_workflow(
-            &db, &engine, &factory, &recipe, &wf, &repo_root, task_id, &janush,
+    let wf_name = workflow_name.clone();
+    let db_clone = db.clone();
+    let repo_root_clone = repo_root.clone();
+
+    let handle = tokio::spawn(async move {
+        workflow::run_workflow(
+            &db_clone,
+            &engine,
+            &factory,
+            &recipe,
+            &wf_name,
+            &repo_root_clone,
+            task_id,
+            &janush,
         )
         .await
-        {
-            warn!(blueprint = %bp, %task_id, "workflow run failed: {e}");
-        }
     });
+
+    Ok((task_id, handle))
+}
+
+/// Helper function that dispatches a pre-loaded [`recipe::Workflow`] onto Absurd PG.
+async fn dispatch_workflow(
+    db: Arc<AbsurdDb>,
+    repo_root: PathBuf,
+    blueprint: String,
+    wf: recipe::Workflow,
+) -> Result<Uuid> {
+    let (task_id, _) = dispatch_workflow_handle(db, repo_root, blueprint, wf).await?;
     Ok(task_id)
 }
 
@@ -761,10 +780,33 @@ fn install_subscriber<S: tracing::Subscriber + Send + Sync + 'static>(subscriber
     }
 }
 
-/// Dispatches a workflow DAG level-by-level onto the absurd engine.
-/// Execution model: level-sequential dispatch to the absurd queue (safe baseline).
-/// Nodes within a level are enqueued to absurd, where worker leases claim and
-/// execute their workflows detached.
+/// Helper function to check if all steps for a task in `metamach_step_meta` reached `COMPLETED` with exit code 0.
+async fn is_task_successful(db: &AbsurdDb, blueprint: &str, task_id: Uuid) -> bool {
+    let Ok(Some(pool)) = db.blueprint_pool(blueprint).await else {
+        return false;
+    };
+    let rows: Result<Vec<(String, Option<i32>)>, _> =
+        sqlx::query_as("SELECT status, exit_code FROM metamach_step_meta WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_all(&pool)
+            .await;
+
+    match rows {
+        Ok(steps) => {
+            if steps.is_empty() {
+                return false;
+            }
+            steps
+                .iter()
+                .all(|(status, exit_code)| status == "COMPLETED" && exit_code.unwrap_or(0) == 0)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Dispatches a workflow DAG level-by-level onto the absurd engine with level barriers.
+/// Nodes within a level are executed concurrently, but Level N+1 waits until Level N
+/// tasks complete successfully before launching.
 async fn handle_dispatch_pipeline(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
@@ -776,23 +818,114 @@ async fn handle_dispatch_pipeline(
         bail!("Absurd Postgres not reachable - cannot dispatch pipeline");
     }
     let plan = config.plan()?;
+    if plan.levels.is_empty() || plan.levels[0].is_empty() {
+        bail!("pipeline plan has no execution levels");
+    }
 
+    // 1. Dispatch level 0 immediately to acquire the first task_id for non-blocking return.
+    let level0 = &plan.levels[0];
+    let mut level0_handles = Vec::new();
     let mut first_task_id = None;
-    for level in plan.levels {
-        for node in level {
-            let wf = if let Some(inline_wf) = inline_register.get(&node.workflow) {
-                inline_wf.clone()
-            } else {
-                recipe::load_workflow(&node.workflow, &repo_root)?
-            };
-            let tid =
-                dispatch_workflow(db.clone(), repo_root.clone(), blueprint.clone(), wf).await?;
-            if first_task_id.is_none() {
-                first_task_id = Some(tid);
+
+    for node in level0 {
+        let wf = if let Some(inline_wf) = inline_register.get(&node.workflow) {
+            inline_wf.clone()
+        } else {
+            recipe::load_workflow(&node.workflow, &repo_root)?
+        };
+        let (tid, handle) =
+            dispatch_workflow_handle(db.clone(), repo_root.clone(), blueprint.clone(), wf).await?;
+        if first_task_id.is_none() {
+            first_task_id = Some(tid);
+        }
+        level0_handles.push((tid, handle));
+    }
+    let first_tid = first_task_id.context("no level 0 task created")?;
+
+    // 2. Clone remaining levels to drive in a background task so UDS dispatch returns immediately.
+    let remaining_levels = plan.levels[1..].to_vec();
+    let inline_reg = inline_register.clone();
+    let db_clone = db.clone();
+    let repo_root_clone = repo_root.clone();
+    let bp_clone = blueprint.clone();
+
+    tokio::spawn(async move {
+        // Wait for level 0 tasks and verify success
+        for (tid, handle) in level0_handles {
+            match handle.await {
+                Ok(Ok(_)) => {
+                    if !is_task_successful(&db_clone, &bp_clone, tid).await {
+                        warn!(blueprint = %bp_clone, %tid, "DAG level 0 task failed; aborting remaining levels");
+                        return;
+                    }
+                }
+                Ok(Err(e)) => {
+                    warn!(blueprint = %bp_clone, %tid, "DAG level 0 task runtime error: {e}; aborting remaining levels");
+                    return;
+                }
+                Err(e) => {
+                    warn!(blueprint = %bp_clone, %tid, "DAG level 0 task panicked: {e}; aborting remaining levels");
+                    return;
+                }
             }
         }
-    }
-    Ok(first_task_id.unwrap_or_else(Uuid::new_v4))
+
+        // Execute remaining levels sequentially with level barriers
+        for (idx, level) in remaining_levels.into_iter().enumerate() {
+            let level_num = idx + 1;
+            let mut level_handles = Vec::new();
+            for node in &level {
+                let wf = if let Some(inline_wf) = inline_reg.get(&node.workflow) {
+                    inline_wf.clone()
+                } else {
+                    match recipe::load_workflow(&node.workflow, &repo_root_clone) {
+                        Ok(wf) => wf,
+                        Err(e) => {
+                            warn!(blueprint = %bp_clone, level = level_num, workflow = %node.workflow, "failed to load workflow: {e}");
+                            return;
+                        }
+                    }
+                };
+                match dispatch_workflow_handle(
+                    db_clone.clone(),
+                    repo_root_clone.clone(),
+                    bp_clone.clone(),
+                    wf,
+                )
+                .await
+                {
+                    Ok((tid, handle)) => level_handles.push((tid, handle)),
+                    Err(e) => {
+                        warn!(blueprint = %bp_clone, level = level_num, "failed to dispatch level workflow: {e}");
+                        return;
+                    }
+                }
+            }
+
+            // Await all tasks in this level and verify terminal success before advancing
+            for (tid, handle) in level_handles {
+                match handle.await {
+                    Ok(Ok(_)) => {
+                        if !is_task_successful(&db_clone, &bp_clone, tid).await {
+                            warn!(blueprint = %bp_clone, level = level_num, %tid, "DAG task failed; aborting remaining levels");
+                            return;
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        warn!(blueprint = %bp_clone, level = level_num, %tid, "DAG task runtime error: {e}; aborting remaining levels");
+                        return;
+                    }
+                    Err(e) => {
+                        warn!(blueprint = %bp_clone, level = level_num, %tid, "DAG task panicked: {e}; aborting remaining levels");
+                        return;
+                    }
+                }
+            }
+        }
+        info!(blueprint = %bp_clone, "DAG pipeline completed all levels successfully");
+    });
+
+    Ok(first_tid)
 }
 
 async fn handle_stop(

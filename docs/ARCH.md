@@ -207,8 +207,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 ├── templates/                    # `janus init` scaffolds from here
 │   ├── blueprint.toml            # Default project recipe template
 │   ├── agents/                   # Agent role templates (Architect, Builder, Tester)
-│   ├── workflows/                # Workflow templates (dev-flow, firmware-deploy, etc.)
-│   └── pipelines/                # Pipeline DAG templates (req2spec, spec2software)
+│   └── workflows/                # Unified workflow templates (linear + DAG)
 │
 │   # ====================================================================
 │   # 3. PER-PROJECT LAYOUT (after `janus init` in a target project)
@@ -216,8 +215,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │   # my-project/.janus/          # All MetaMach config for this project (ADR-029)
 │   #   ├── blueprint.toml        # [blueprint] name, default_workflow, [remote], [openwiki]
 │   #   ├── agents/               # Project-specific agent role overrides
-│   #   ├── workflows/            # Workflow definitions (step sequences)
-│   #   ├── pipelines/            # DAG pipeline definitions (nodes + needs edges)
+│   #   ├── workflows/            # Unified workflow definitions (linear + DAG)
 │   #   └── openwiki/             # RAG knowledge scope; production_report.md on offboard
 │
 │   # ====================================================================

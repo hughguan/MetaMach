@@ -368,7 +368,7 @@ server {
 
 | Job | Runner | Scope |
 |---|---|---|
-| `Test (Linux)` | `ubuntu-24.04` | Full: fmt + clippy + `cargo audit` + build + catalog migration + all 171 tests (PG, tmux, Herdr) |
+| `Test (Linux)` | `ubuntu-24.04` | Full: fmt + clippy + `cargo audit` + build + catalog migration + all 178 tests (PG, tmux, Herdr) |
 | `Test (macOS)` | `macos-latest` | Fast: fmt + clippy + build + unit tests only (no PG, no integration) |
 
 Linux provisions all three external dependencies:

@@ -2,7 +2,7 @@
 
 > **Date:** 2026-07-26
 > **Environment:** macOS + Linux (CI), Rust 1.88 (Edition 2024)
-> **Result:** ✅ **171 tests — 171 passed, 0 failed, 0 ignored**
+> **Result:** ✅ **178 tests — 178 passed, 0 failed, 0 ignored**
 
 ---
 
@@ -12,9 +12,9 @@
 |---|---|---|
 | Unit tests (lib) | 117 | Core logic: absurd, agent, cognitive, gateway, lifecycle, pipeline, protocol, recipe, tmux, tool_guard, workflow |
 | Binary tests | 8 | `herdr-janus` TUI (3) + `janus` CLI (5) |
-| Integration tests | 46 | UDS contract (9), gateway HTTP (2), onboard/offboard lifecycle (8), step workflow (7), tmux sessions (4), E2E pipeline (3), protocol contract (5), Herdr contract (6), SQL gateway (2) |
+| Integration tests | 47 | UDS contract (9), gateway HTTP (2), onboard/offboard lifecycle (8), step workflow (7), tmux sessions (4), E2E pipeline (6), protocol contract (5), Herdr contract (6), SQL gateway (2) |
 
-**Total: 171 (171 passed, 0 failed, 0 ignored)**
+**Total: 178 (178 passed, 0 failed, 0 ignored)**
 
 All tests run inline — no `#[ignore]` attributes remain. Herdr-gated tests runtime-skip when Herdr is unavailable.
 
@@ -325,7 +325,7 @@ cargo test --workspace --manifest-path janus/Cargo.toml
 git push  # pre-push hook handles everything
 ```
 
-**Runs:** All 171 tests. PG auto-provisioned via `make db-init`, tests run sequentially to avoid local PG connection exhaustion.
+**Runs:** All 178 tests. PG auto-provisioned via `make db-init`, tests run sequentially to avoid local PG connection exhaustion.
 
 ### With Herdr (macOS, Herdr installed via Homebrew)
 
@@ -339,7 +339,7 @@ Tests runtime-detect Herdr on PATH. If `herdr server` is running, the 3 Herdr in
 - cargo test --workspace --manifest-path janus/Cargo.toml
 ```
 
-**Runs:** All 171 tests — PG (Docker), tmux (apt-get), and Herdr (release binary + `herdr server`) are all provisioned. Tests run in parallel (Docker PG handles connection load).
+**Runs:** All 178 tests — PG (Docker), tmux (apt-get), and Herdr (release binary + `herdr server`) are all provisioned. Tests run in parallel (Docker PG handles connection load).
 
 ---
 

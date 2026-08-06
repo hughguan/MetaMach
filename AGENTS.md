@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.5.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates. 174 tests, CI-green. Current layout:
+MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.5.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates. 178 tests, CI-green. Current layout:
 
 `` metamach/
 ├── docs/                # ✅ English specs (source of truth) + ADR.md (31 decisions)
@@ -17,15 +17,15 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 │   ├── src/workflow/    #   Workflow engine + stream filter
 │   ├── src/{agent,coldstart,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
 │   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
-│   └── tests/           #   8 integration test files (174 tests total)
+│   └── tests/           #   8 integration test files (178 tests total)
 ├── templates/           # ✅ `janus init` scaffolds from here
 │   ├── blueprint.toml   #   Default project recipe
 │   ├── agents/          #   Architect, Builder, Tester role templates
-│   └── workflows/       #   14 workflow templates (linear + DAG)
+│   └── workflows/       #   15 workflow templates (linear + DAG)
 ├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
 ├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
-├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 174 tests)
+├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 178 tests)
 ├── Makefile             # ✅ bootstrap/db-init/db-backup/health/uninstall/...
 ├── CLAUDE.md            # AI agent guidance for Claude Code
 └── AGENTS.md            # This file
@@ -67,12 +67,12 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 - **Rust 2024 Edition** with `rustfmt` defaults. All code must pass `cargo fmt` and `cargo clippy -D warnings`.
 - Binaries use kebab-case: `janus-daemon`, `herdr-janus`, `janush`, `janus`.
-- Config files are TOML (`agents.toml`, `blueprint.toml`, `workflows/*.toml`, `pipelines/*.toml`).
+- Config files are TOML (`agents.toml`, `blueprint.toml`, `workflows/*.toml`).
 - The physical execution module is `janus::tmux` (internalized from the former external `herdr-tether`); its isolated tmux server is `tmux -L metamach-tmux`.
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 174 tests total).
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 178 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
 - Test names are prefixed with UTC IDs mapped to `Test-Spec.md` (e.g., `utc_03_03_cold_start_reconcile`).

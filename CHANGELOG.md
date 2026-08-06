@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.0] - Unreleased
 
-30 ADRs committed (001-030), 174 tests, CI-green across Linux + macOS.
+31 ADRs committed (001-031), 178 tests, CI-green across Linux + macOS.
 
 ### Added
 - **ADR-022 Time-Driven Sleep**: quota exhaustion detection (`is_quota_exhausted`),

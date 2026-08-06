@@ -94,18 +94,18 @@ metamach/
 │   │   ├── paths.rs             #   Path resolution (Herdr + standalone)
 │   │   └── protocol.rs          #   Shared UDS types (Contracts 3.x/4.x)
 │   ├── migrations/              #   SQL (001_catalog, 002_blueprint, ...)
-│   └── tests/                   #   Integration & E2E tests (171 total)
+│   └── tests/                   #   Integration & E2E tests (177 total)
 ├── templates/                   # `janus init` scaffolds from here
 │   ├── blueprint.toml           #   Default project recipe
 │   ├── agents/                  #   Architect, Builder, Tester roles
-│   └── workflows/               #   14 workflow templates (11 linear + 3 DAG)
+│   └── workflows/               #   15 workflow templates (12 linear + 3 DAG)
 ├── configs/                     # Factory defaults
 │   ├── agents.toml              #   Global agent pool
 │   ├── offboard.toml            #   Offboard configuration
 │   └── global_rules.md          #   Shared rules
 ├── scripts/
 │   └── pre-push                 #   Git hook: fmt + clippy + test + PG E2E
-├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 171 tests
+├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 178 tests
 └── Makefile                     #   bootstrap, db-init, health, clean
 ```
 
@@ -198,7 +198,7 @@ janus init --dry-run                  # scaffold + validate, skip daemon registr
 The scaffold includes:
 - `blueprint.toml` — edit the `name` and `default_workflow` fields
 - `agents/` — architect, builder, tester role templates
-- `workflows/` — 14 workflow templates (11 linear + 3 DAG: `req2spec`, `spec2software`, `adr-process`)
+- `workflows/` — 15 workflow templates (12 linear + 3 DAG: `req2spec`, `spec2software`, `adr-process`)
 
 ### Plan a workflow
 
@@ -339,8 +339,8 @@ trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 
 ## CI & Testing
 
-- **174 tests**: all pass, 0 ignored
-- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (174 tests)
+- **178 tests**: all pass, 0 ignored
+- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (178 tests)
 - **E2E tests**: init → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests

@@ -105,7 +105,7 @@ This plan decomposes MetaMach 0.1.0's R&D and grid-connection process into **5 c
 - **Implementation:**
     - Daemon binds UDS listener at `~/.local/state/.../janus.sock` on startup.
     - **Singleton File Lock (PID Lock):** Write current process PID to `~/.local/state/.../janus.pid`. If a second launch detects that file and the PID inside corresponds to a still-alive `janus-daemon` process, safely exit to prevent duplicate UDS binding (stale PID detection: if the PID is not alive, overwrite and start).
-    - When UDS receives a request, the Daemon queries Absurd Postgres's `blueprints` table and returns all `status = 'ACTIVE'` real blueprint lists to the client (`herdr-janus`)-no longer using Mock data (M1 already has the table; data can come from migration seeds or M4's `janus onboard`).
+    - When UDS receives a request, the Daemon queries Absurd Postgres's `blueprints` table and returns all `status = 'ACTIVE'` real blueprint lists to the client (`herdr-janus`)-no longer using Mock data (M1 already has the table; data can come from migration seeds or M4's `janus init`).
 
 #### Task 2.2: Shadow Client UDS Reconciliation & "Lazy-Start" (Check-in Unit 4)
 - **Description:** Refactor `herdr_janus.rs` to connect to the Daemon for data exchange with seamless self-healing startup.

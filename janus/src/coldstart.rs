@@ -69,12 +69,20 @@ pub async fn reconcile(
         let recipe = match recipe::validate(&t.blueprint, repo_root.as_path()) {
             Ok(mut r) => {
                 if t.workflow_name != r.default_workflow {
-                    match recipe::load_workflow(&t.workflow_name, repo_root.as_path()) {
-                        Ok(wf) => r.workflow = wf,
+                    match recipe::load_unified_workflow(&t.workflow_name, repo_root.as_path()) {
+                        Ok(recipe::UnifiedWorkflow::Linear(wf)) => r.workflow = wf,
+                        Ok(recipe::UnifiedWorkflow::Dag { config, .. }) => {
+                            warn!(
+                                task_id = %t.task_id,
+                                "cold-start: `{}` is a DAG workflow; skipping direct step resume",
+                                config.pipeline.name
+                            );
+                            continue;
+                        }
                         Err(e) => {
                             warn!(
                                 task_id = %t.task_id,
-                                "cold-start: load_workflow `{}` failed ({e}); skipping",
+                                "cold-start: load_unified_workflow `{}` failed ({e}); skipping",
                                 t.workflow_name
                             );
                             continue;

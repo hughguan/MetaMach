@@ -333,17 +333,25 @@ fn e2e_pipeline_dag_dispatch() {
 
     let wf_dir = repo.path().join(".janus/workflows");
     std::fs::create_dir_all(&wf_dir).unwrap();
+
+    let n1_sentinel = state.path().join("n1_done.txt");
+    let n2_sentinel = state.path().join("n2_done.txt");
+
     std::fs::write(
         wf_dir.join("step1.toml"),
-        "[workflow]\nname = \"step1\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"true\"\n",
+        format!("[workflow]\nname = \"step1\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"touch {}\"\n", n1_sentinel.display()),
     )
     .unwrap();
 
-    let wf_dag = repo.path().join(".janus/workflows");
-    std::fs::create_dir_all(&wf_dag).unwrap();
     std::fs::write(
-        wf_dag.join("build_dag.toml"),
-        "[workflow]\nname = \"build_dag\"\n\n[[nodes]]\nid = \"n1\"\nworkflow = \"step1\"\n",
+        wf_dir.join("step2.toml"),
+        format!("[workflow]\nname = \"step2\"\n\n[[steps]]\nname = \"s2\"\nagent = \"default\"\ncommand = \"touch {}\"\n", n2_sentinel.display()),
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("build_dag.toml"),
+        "[workflow]\nname = \"build_dag\"\n\n[[nodes]]\nid = \"n1\"\nworkflow = \"step1\"\n\n[[nodes]]\nid = \"n2\"\nworkflow = \"step2\"\nneeds = [\"n1\"]\n",
     )
     .unwrap();
 
@@ -369,6 +377,92 @@ fn e2e_pipeline_dag_dispatch() {
     assert!(
         matches!(resp, Response::Dispatch { .. }),
         "pipeline dag dispatch: {resp:?}"
+    );
+
+    // Wait for multi-level DAG tasks to execute sequentially across level barriers
+    let start = std::time::Instant::now();
+    while (!n1_sentinel.exists() || !n2_sentinel.exists())
+        && start.elapsed() < Duration::from_secs(15)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    assert!(n1_sentinel.exists(), "level 0 node n1 should complete");
+    assert!(
+        n2_sentinel.exists(),
+        "level 1 node n2 should complete after level 0 barrier"
+    );
+}
+
+#[test]
+fn e2e_pipeline_dag_failing_node_aborts_subsequent_levels() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        "[blueprint]\nname = \"dag_fail_e2e\"\ndefault_workflow = \"fail_wf\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+    )
+    .unwrap();
+
+    let wf_dir = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+
+    let downstream_sentinel = state.path().join("downstream_done.txt");
+
+    std::fs::write(
+        wf_dir.join("fail_wf.toml"),
+        "[workflow]\nname = \"fail_wf\"\n\n[[steps]]\nname = \"f1\"\nagent = \"default\"\ncommand = \"exit 1\"\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("downstream_wf.toml"),
+        format!("[workflow]\nname = \"downstream_wf\"\n\n[[steps]]\nname = \"d1\"\nagent = \"default\"\ncommand = \"touch {}\"\n", downstream_sentinel.display()),
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("fail_dag.toml"),
+        "[workflow]\nname = \"fail_dag\"\n\n[[nodes]]\nid = \"n1\"\nworkflow = \"fail_wf\"\n\n[[nodes]]\nid = \"n2\"\nworkflow = \"downstream_wf\"\nneeds = [\"n1\"]\n",
+    )
+    .unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents, repo.path());
+    d.wait_ready();
+    d.uds(
+        &Request::Onboard {
+            name: "dag_fail_e2e".into(),
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
+
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: "dag_fail_e2e".into(),
+                workflow: Some("fail_dag".into()),
+                inline_command: None,
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(matches!(resp, Response::Dispatch { .. }));
+
+    // Wait to ensure level 0 fails and level 1 is NOT dispatched
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(
+        !downstream_sentinel.exists(),
+        "downstream level 1 node should NOT execute when level 0 node fails"
     );
 }
 

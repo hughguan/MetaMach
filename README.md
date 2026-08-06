@@ -36,7 +36,7 @@
                          │        janus-daemon  (MM-CORE)           │
                          │  • Master state machine & UDS router     │
                          │  • Workflow engine (absurd pull-mode)    │
-                         │  • Pipeline DAG (topological sort)       │
+                         │  • DAG engine (topological sort)        │
                          │  • HITL Gateway + Teams Adaptive Cards   │
                          │  • Cold-start resume & checkpoint/recover│
                          └──┬─────────────┬─────────────┬──────────┘
@@ -79,14 +79,14 @@ metamach/
 │   │   │   ├── janus_daemon.rs  #   Control-plane daemon
 │   │   │   ├── herdr_janus.rs   #   Herdr shadow TUI client
 │   │   │   ├── janush.rs        #   Proxy shell (Tool Guard)
-│   │   │   └── janus.rs         #   CLI: init, onboard, dispatch, pipeline
+│   │   │   └── janus.rs         #   CLI: init, onboard, start
 │   │   ├── absurd/              #   Postgres adapter + SQLite fallback
 │   │   ├── tmux/                #   PTY session engine
 │   │   ├── tool_guard/          #   Rule engine + webhook dispatch
 │   │   ├── gateway/             #   HITL Gateway (Teams, HMAC)
 │   │   ├── cognitive/           #   Cognitive Provider SPI (MCP)
 │   │   ├── workflow/            #   Workflow engine + stream filter
-│   │   ├── pipeline.rs          #   Pipeline DAG engine (topological sort)
+│   │   ├── pipeline.rs          #   DAG engine (topological sort, ADR-031)
 │   │   ├── lifecycle.rs         #   Onboard / Offboard lifecycle
 │   │   ├── coldstart.rs         #   Cold-start self-healing
 │   │   ├── recipe.rs            #   Blueprint recipe validation
@@ -98,8 +98,7 @@ metamach/
 ├── templates/                   # `janus init` scaffolds from here
 │   ├── blueprint.toml           #   Default project recipe
 │   ├── agents/                  #   Architect, Builder, Tester roles
-│   ├── workflows/               #   12 workflow templates
-│   └── pipelines/               #   req2spec, spec2software, adr-process
+│   └── workflows/               #   14 workflow templates (11 linear + 3 DAG)
 ├── configs/                     # Factory defaults
 │   ├── agents.toml              #   Global agent pool
 │   ├── offboard.toml            #   Offboard configuration
@@ -120,13 +119,12 @@ my-project/
 │   │   ├── architecture.toml
 │   │   ├── builder.toml
 │   │   └── tester.toml
-│   ├── workflows/               #   Workflow definitions
-│   │   ├── wf_architect_design.toml
-│   │   ├── wf_builder_implement.toml
-│   │   └── wf_tester_validate.toml
-│   ├── pipelines/               #   DAG pipeline definitions
-│   │   ├── req2spec.toml
-│   │   └── spec2software.toml
+│   └── workflows/               #   Workflow definitions (linear + DAG)
+│       ├── wf_architect_design.toml
+│       ├── wf_builder_implement.toml
+│       ├── wf_tester_validate.toml
+│       ├── req2spec.toml
+│       └── spec2software.toml
 │   └── openwiki/                #   RAG knowledge scope (per-blueprint)
 │       └── production_report.md #   Generated on offboard
 └── src/                         # Your project source
@@ -145,7 +143,7 @@ my-project/
 | tmux | 3.3+ | `tmux -V` |
 | Herdr | 0.7.3+ (plugin host) | `herdr --version` |
 
-### Bootstrap MetaMach
+### Bootstrap
 
 ```bash
 git clone https://github.com/hughguan/MetaMach.git
@@ -159,57 +157,121 @@ make bootstrap          # prereq → symlinks → compile → db-init
 3. Initializes native Postgres at `~/.metamach/db/`
 4. Applies catalog migration (`001_catalog.sql`)
 
-### Start a project
+### Lifecycle
+
+Every blueprint follows a consistent lifecycle. Each verb maps to one `janus` command:
+
+```
+init ──→ plan ──→ dry-run ──→ start ──→ monitor ──→ offboard
+ │                                      │
+ └── LLM-assisted ──────────────────────┘
+      (janus plan --description "...")
+```
+
+| Step | Command | What it does |
+|---|---|---|
+| **init** | `janus init` | Scaffold `.janus/`, validate blueprint, register with daemon |
+| **plan** | edit `.toml` or `janus plan --description "..."` | Define the workflow — linear `[[steps]]` or DAG `[[nodes]]` |
+| **dry-run** | `janus start --dry-run` | Preview the execution plan without dispatching — verify steps, agents, and DAG topology |
+| **start** | `janus start` | Execute the workflow — every step is checkpointed for crash recovery |
+| **monitor** | `janus status` / `stop` / `continue` | Observe progress, pause, resume, or inspect task output |
+| **offboard** | `janus offboard --blueprint <name>` | Archive audit trail, commit `production_report.md`, mark inactive |
+
+---
+
+### Initialize a project
 
 ```bash
 cd my-project
 janus init
 ```
 
-This scaffolds `.janus/` with:
+Scaffolds `.janus/` (if new), validates the blueprint and default workflow,
+creates a dedicated PG database, and registers the blueprint with the daemon —
+all in one step. Idempotent: re-running on an existing project re-validates
+without overwriting files.
+
+```bash
+janus init --dry-run                  # scaffold + validate, skip daemon registration
+```
+
+The scaffold includes:
 - `blueprint.toml` — edit the `name` and `default_workflow` fields
 - `agents/` — architect, builder, tester role templates
-- `workflows/` — 12 workflow templates
-- `pipelines/` — 3 pipeline DAG templates (`req2spec`, `spec2software`, `adr-process`)
+- `workflows/` — 14 workflow templates (11 linear + 3 DAG: `req2spec`, `spec2software`, `adr-process`)
 
-### Onboard a blueprint
+### Plan a workflow
 
-```bash
-janus onboard --blueprint my-project
+MetaMach uses a **unified Workflow DSL** (ADR-031) — a single file format for both
+simple linear steps and complex multi-agent DAGs. All workflows live under
+`.janus/workflows/`. Two ways to create one:
+
+**Manual** — edit a `.toml` file directly. Linear mode for sequential steps,
+DAG mode for multi-node dependency graphs:
+
+```toml
+# .janus/workflows/ci.toml
+[workflow]
+name = "ci"
+description = "Build, test, and lint"
+
+[[steps]]
+name = "build"
+agent = "builder"
+command = "cargo build --release"
+
+[[steps]]
+name = "test"
+agent = "tester"
+command = "cargo test"
 ```
 
-Validates `.janus/blueprint.toml` (name, workflow, openwiki scope), creates a
-dedicated `metamach_blueprint_my_project` database with the absurd schema, and
-registers the blueprint in the catalog.
+For complex pipelines, use `[[nodes]]` with `needs` edges for parallel execution.
+Nodes can reference external workflow files (`workflow = "..."`) or define inline
+`steps = [...]`. See `templates/workflows/req2spec.toml` for a full DAG example.
 
-### Dispatch a workflow
-
-```bash
-# 3-tier dispatch: blueprint default, workflow override, or pipeline DAG
-janus dispatch                                         # uses .janus/blueprint.toml defaults
-janus dispatch --blueprint my-project                  # explicit blueprint, default dispatch
-janus dispatch --workflow ci                           # override workflow
-janus dispatch --pipeline spec2software                # execute pipeline DAG
-```
-
-The daemon resolves dispatch priority: `--pipeline` > `blueprint.default_pipeline` > `--workflow` > `blueprint.default_workflow`.
-Pipeline DAGs execute level-by-level via absurd worker leases.
-
-### Stop & Continue
+**LLM-assisted** — generate a workflow from natural language:
 
 ```bash
-janus stop --blueprint my-project                      # stop all active tasks for blueprint
-janus stop --task-id <uuid>                            # stop specific task
-janus continue --blueprint my-project                  # resume stopped/crashed tasks via cold-start
+janus plan --blueprint my-project --description "Build, test, and deploy via SSH"
 ```
 
-### Plan a pipeline
+This produces a validated workflow `.toml` file (ADR-023). Edit it further, then
+dry-run to verify the execution plan.
+
+### Dry-run a workflow
+
+Validate and preview a workflow's execution plan without starting:
 
 ```bash
-janus plan --blueprint my-project --description "..."   # generate pipeline from natural language
+janus start --dry-run                               # preview default workflow
+janus start --workflow spec2software --dry-run      # preview DAG execution plan
 ```
 
-### Check progress
+For DAG workflows, this prints the topologically sorted execution levels
+and per-node step breakdown — useful for verifying `needs` edges before
+committing to execution.
+
+### Start a workflow
+
+Execute a workflow. The daemon auto-detects the shape and routes accordingly:
+
+```bash
+janus start                                         # uses .janus/blueprint.toml defaults
+janus start --blueprint my-project                  # explicit blueprint, default workflow
+janus start --workflow ci                           # override workflow (linear or DAG)
+```
+
+Linear mode runs directly via `handle_dispatch → spawn_workflow`. DAG mode
+runs via topological sort with level-parallel execution. Every step is
+checkpointed in Absurd PG for crash recovery.
+
+```bash
+# Inline command: quick one-off step
+janus start --inline "cargo test"                   # auto-generates transient workflow
+```
+
+### Monitor
 
 ```bash
 janus status                           # all active blueprints
@@ -217,19 +279,16 @@ janus status --blueprint my-project    # one blueprint
 janus status --json                    # machine-readable
 ```
 
-### Pipeline DAGs (ADR-021)
+Pause and resume running workflows:
 
 ```bash
-# Validate a pipeline definition
-janus pipeline validate .janus/pipelines/spec2software.toml
-
-# Generate a pipeline from natural language (ADR-023, LLM-assisted)
-janus pipeline plan --blueprint my-project \
-  "Architect designs, Builder implements, Tester validates, loop until green"
+janus stop --blueprint my-project                      # stop all active tasks for blueprint
+janus stop --task-id <uuid>                            # stop specific task
+janus continue --blueprint my-project                  # resume stopped/crashed tasks via cold-start
 ```
 
-Pipelines define DAGs with `[nodes]` and dependency `needs` edges. The engine
-topologically sorts nodes and executes independent branches in parallel.
+> **Herdr TUI:** `herdr plugin link ./janus` then `prefix+j` opens the
+> Dispatcher overlay for a graphical progress view.
 
 ### Offboard a blueprint
 
@@ -240,13 +299,6 @@ janus offboard --blueprint my-project
 Purges operational data from the per-blueprint database, archives the audit
 trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 
-### Herdr integration
-
-```bash
-herdr plugin link ./janus           # register MetaMach plugin
-# prefix+j opens the Dispatcher TUI overlay
-```
-
 ---
 
 ## Customization Dimensions
@@ -254,8 +306,7 @@ herdr plugin link ./janus           # register MetaMach plugin
 | Dimension | Location | Description |
 |---|---|---|
 | **Agent Pool** | `configs/agents.toml` + `.janus/agents/` | Permissions, provisioning, quota, fallback chains, pre-flight probes |
-| **Workflows** | `templates/workflows/` + `.janus/workflows/` | Linear step sequences: agent + command per step |
-| **Pipelines** | `templates/pipelines/` + `.janus/pipelines/` | DAG composition: nodes with `needs` dependencies, parallel execution |
+| **Workflows** | `templates/workflows/` + `.janus/workflows/` | Linear step sequences or DAG node graphs with `needs` dependencies (unified DSL, ADR-031) |
 | **Blueprints** | `.janus/blueprint.toml` | Per-project recipe: name, default workflow, openwiki scope, remote host |
 
 ---
@@ -290,7 +341,7 @@ herdr plugin link ./janus           # register MetaMach plugin
 
 - **171 tests**: 168 default + 3 Herdr-gated — all pass, 0 ignored
 - **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (174 tests)
-- **E2E pipeline tests**: onboard → dispatch → multi-step workflow completion, pipeline DAG dispatch, stop/continue, Tool Guard interception
+- **E2E tests**: onboard → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests
 

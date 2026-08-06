@@ -20,7 +20,7 @@ This is an **implemented Rust workspace plus specs** — not documentation-only.
 - **M1:** Native Absurd Postgres (Unix socket, no Docker), catalog + blueprint migrations, `herdr-janus` shadow TUI.
 - **M2:** `janus-daemon` resident brain, UDS twin-process protocol, `progress` primitive, `janus::tmux` (internalized from `herdr-tether`), F1 multi-DB fan-out.
 - **M3:** `janush` proxy shell + Tool Guard rule engine (ALLOW/BLOCK/REWRITE, hot-reload, 30s fail-closed timeout).
-- **M4:** Onboard/Offboard lifecycle, LLM-smelt `production_report.md`, cold-start resume, `target_sha` optimistic locking, workflow engine (absurd pull-mode, checkpointing, retry-claim loop), HITL resume loop, cross-host SSH reverse tunnel transport (ADR-017).
+- **M4:** Init/Offboard lifecycle, LLM-smelt `production_report.md`, cold-start resume, `target_sha` optimistic locking, workflow engine (absurd pull-mode, checkpointing, retry-claim loop), HITL resume loop, cross-host SSH reverse tunnel transport (ADR-017).
 - **M5:** Integration test suite (8 files, 174 tests), PG-gated blocking CI gate.
 - **0.4.0:** HITL Gateway (Teams Adaptive Cards, HMAC-SHA256), Cognitive Provider SPI (MCP), loopback HTTP callback listener.
 - **0.4.5–0.4.9:** Pipeline DAG engine (Kahn's topological sort), stream filter (ANSI stripping), configurable agents, observer panel TUI, environmental snapshot, dual-path log pipeline, hardware pre-flight probes, E2E pipeline tests.
@@ -33,7 +33,7 @@ The four binaries — `janus`, `janus-daemon`, `herdr-janus`, `janush` — all e
 Per `docs/Deployment-Spec.md` §1 and `docs/Project-Plan.md` (Check-in Gates):
 
 - **Rust 1.88+ (Edition 2024)** - build with `cargo build --release --locked` (run from `janus/`). CI gates (all green): `cargo fmt --all --manifest-path janus/Cargo.toml -- --check`, `cargo clippy --manifest-path janus/Cargo.toml --all-targets -- -D warnings`, `cargo test --workspace --manifest-path janus/Cargo.toml`.
-- **Native PostgreSQL 16+** (NOT Docker) - the 0.3.0 consensus de-containerized the DB. `make db-init` runs `initdb` + `pg_ctl` + `createdb` + the catalog migration against `$(METAMACH_DB_DIR)` (default `~/.metamach/db`), Unix socket only. Per-blueprint migrations (`002_blueprint.sql`, `003_hitl_verdict.sql`, `004_env_snapshot.sql`) run on `janus onboard`.
+- **Native PostgreSQL 16+** (NOT Docker) - the 0.3.0 consensus de-containerized the DB. `make db-init` runs `initdb` + `pg_ctl` + `createdb` + the catalog migration against `$(METAMACH_DB_DIR)` (default `~/.metamach/db`), Unix socket only. Per-blueprint migrations (`002_blueprint.sql`, `003_hitl_verdict.sql`, `004_env_snapshot.sql`) run on `janus init`.
 - **tmux 3.3+**, **Herdr 0.7.3** (plugin host; M0-validated contract in `docs/herdr-v1-contract.md`).
 - **`herdr-tether` was internalized as `janus::tmux`** (ADR-006 / 0.3.0) — it is no longer an external dependency. The remaining external engine is `openwiki` (RAG), whose per-blueprint content lives under `.janus/openwiki/`. `absurd` is the branded name for the Postgres execution layer; `janus::absurd` is the in-repo sqlx pool/audit module, and schema lives in `janus/migrations/`.
 - Bootstrap entrypoint is `make bootstrap` = `prereq` -> `symlinks` -> `compile` -> `db-init`. Other Make targets: `db-down`, `db-backup`, `db-restore`, `db-migrate`, `health`, `logs`, `ram-disk`, `uninstall`, `clean`.
@@ -51,9 +51,9 @@ MetaMach 0.5.0 is a durable AI "software factory" OS. The core mental model (spr
 - **`janus::cognitive` (Cognitive Provider SPI):** opt-in per-blueprint `[cognitive]` config, `McpProvider` (`codebase-memory-mcp` over stdio JSON-RPC; 2s advisory timeout), `NoopProvider` fail-open default.
 - **`janus::workflow` (Workflow engine):** drives blueprint steps via absurd pull-mode queue. Per-step tmux sessions under `janush`, exit-code capture, per-step checkpoints, lease renewal (10s), retry-claim loop (`max_attempts: 3`), HITL resume.
 - **`janus::pipeline` (Pipeline DAG engine):** `pipelines/<name>.toml` with `[nodes]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution.
-- **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Onboard.
+- **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Init.
 
-Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: **Onboard** (validate recipe -> register tenant -> bind workflow -> load knowledge) ↔ **Offboard** (LLM-smelt `production_report.md` -> `melt_blueprint_data` deletes large JSON rows).
+Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: **Init** (scaffold + validate + register) ↔ **Offboard** (LLM-smelt `production_report.md` -> `melt_blueprint_data` deletes large JSON rows).
 
 **Immutable-vs-Mutable isolation** (critical; see `Deployment-Spec.md` §2): `${HERDR_PLUGIN_ROOT}` (read-only checkout/binaries), `${HERDR_PLUGIN_CONFIG_DIR}` (mutable config: `agents.toml`), `${HERDR_PLUGIN_STATE_DIR}` (mutable state: `janus.sock`, `janus.pid`, `fallback.db`, PG socket). `make bootstrap` must never wipe state on plugin updates.
 
@@ -63,8 +63,8 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 |---|---|---|
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
 | `ADR.md` | 30 Architecture Decision Records (ADR-001 through ADR-030) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook |
-| `PRD.md` | Product requirements, director journey, functional matrix | §3 matrix (priorities + measurable UAT); §4 Day-0 Onboard + user journey |
-| `Feature-Spec.md` | Feature specs + data contracts + fault matrix | **Contracts 3.1–3.11, 4.1–4.3**; §2.4 HITL; §2.5 Onboard/Offboard+LLM; §4 fault matrix |
+| `PRD.md` | Product requirements, director journey, functional matrix | §3 matrix (priorities + measurable UAT); §4 Day-0 Init + user journey |
+| `Feature-Spec.md` | Feature specs + data contracts + fault matrix | **Contracts 3.1–3.11, 4.1–4.3**; §2.4 HITL; §2.5 Init/Offboard+LLM; §4 fault matrix |
 | `Project-Plan.md` | Milestones M0–M5 + check-in units + CI gates | All milestones implemented |
 | `Review-Spec.md` | Audit domains + sign-off sheet | `REV-SEC/STB/DIS/EVO/OPS-NN` items; §3 dependency ordering |
 | `Test-Spec.md` | Test cases + environment | `UTC-XX-YY` IDs (Suites 2.1–2.7); §1 severity gates |
@@ -74,7 +74,7 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 Cross-doc identifiers to keep consistent when editing:
 - **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (Feature-Spec Contract 3.1); `fallback_events` SQLite ring buffer (Contract 3.8).
 - **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
-- **CLI:** unified `janus` CLI with subcommands `janus init` / `onboard` / `offboard` / `dispatch` / `status` / `pipeline validate` / `pipeline plan` / `daemon` / `tmux` (all require the Daemon running — they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
+- **CLI:** unified `janus` CLI with subcommands `janus init` / `offboard` / `start` / `status` / `plan` / `daemon` / `tmux` (all require the Daemon running — they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
 - **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) — not "Unified DB/PG". Project is branded **MetaMach 0.5.0**. tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
 - **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see `Review-Spec.md` REV-SEC-02, `Test-Spec.md` UTC-02-02).
 

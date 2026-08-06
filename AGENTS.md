@@ -98,7 +98,7 @@ MetaMach 0.5.0 is a durable AI software factory OS. Core components:
 - **`janus::pipeline`** - Pipeline DAG engine with Kahn's algorithm topological sort, parallel level execution.
 - **Absurd Postgres** - catalog DB (`metamach_db`) plus one DB per active blueprint (`metamach_blueprint_<name>`); the F1 multi-DB fan-out. SQLite fallback ring buffer for PG outage survival.
 
-Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: Onboard ↔ Offboard.
+Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: Init ↔ Offboard.
 
 ## External Dependencies
 

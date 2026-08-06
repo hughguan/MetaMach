@@ -47,21 +47,15 @@ enum CliCommand {
     },
     /// Launch the resident janus-daemon in the foreground.
     Daemon,
-    /// Register / reactivate a blueprint (Feature-Spec §2.5, Task 4.3).
-    Onboard {
-        /// Blueprint name (defaults to current directory name).
-        #[arg(short, long)]
-        blueprint: Option<String>,
-    },
     /// Smelt execution traces + prune DB cache (Feature-Spec §2.5, Task 4.2).
     Offboard {
         /// Blueprint name to offboard (defaults to current directory name).
         #[arg(short, long)]
         blueprint: Option<String>,
     },
-    /// Dispatch blueprint execution (blueprint default or workflow override).
-    Dispatch {
-        /// Blueprint name to dispatch (defaults to current directory name).
+    /// Start blueprint execution (blueprint default or workflow override).
+    Start {
+        /// Blueprint name to start (defaults to current directory name).
         #[arg(short, long)]
         blueprint: Option<String>,
         /// Optional workflow name override.
@@ -102,11 +96,14 @@ enum CliCommand {
         #[command(subcommand)]
         cmd: PipelineCmd,
     },
-    /// Initialize a project with .janus/ directory from templates.
+    /// Initialize a project: scaffold .janus/, validate, and register with the daemon.
     Init {
         /// Project directory (defaults to current directory).
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Dry-run: scaffold and validate, but skip daemon registration.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Generate a Pipeline TOML from a natural-language description (ADR-022).
     Plan {
@@ -180,22 +177,18 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         CliCommand::Status { blueprint, json } => status(blueprint, json),
         CliCommand::Daemon => daemon(),
-        CliCommand::Onboard { blueprint } => {
-            let bp = resolve_blueprint_name(blueprint)?;
-            lifecycle_cmd(Request::Onboard { name: bp })
-        }
         CliCommand::Offboard { blueprint } => {
             let bp = resolve_blueprint_name(blueprint)?;
             lifecycle_cmd(Request::Offboard { name: bp })
         }
-        CliCommand::Dispatch {
+        CliCommand::Start {
             blueprint,
             workflow,
             dry_run,
             inline,
         } => {
             let bp = resolve_blueprint_name(blueprint)?;
-            dispatch(bp, workflow, dry_run, inline)
+            start(bp, workflow, dry_run, inline)
         }
         CliCommand::Stop { blueprint, task_id } => {
             let bp = if blueprint.is_some() || task_id.is_none() {
@@ -215,7 +208,7 @@ fn main() -> Result<()> {
         }
         CliCommand::Tmux { cmd } => tmux(cmd),
         CliCommand::Pipeline { cmd } => pipeline(cmd),
-        CliCommand::Init { path } => init_project(&path),
+        CliCommand::Init { path, dry_run } => init_project(&path, dry_run),
         CliCommand::Plan {
             blueprint,
             description,
@@ -282,7 +275,7 @@ fn lifecycle_cmd(req: Request) -> Result<()> {
     }
 }
 
-fn dispatch(
+fn start(
     blueprint: String,
     workflow: Option<String>,
     dry_run: bool,
@@ -370,7 +363,7 @@ fn dispatch(
     })?;
     match resp {
         Response::Dispatch { task_id } => {
-            println!("🚀 Dispatched blueprint '{blueprint}' (task_id: {task_id})");
+            println!("🚀 Started blueprint '{blueprint}' (task_id: {task_id})");
             Ok(())
         }
         Response::Error { message } => bail!(message),
@@ -455,67 +448,98 @@ fn tmux(cmd: TmuxCmd) -> Result<()> {
 
 // ── Project init (janus init) ──────────────────────────────────────────
 
-fn init_project(path: &Path) -> Result<()> {
+fn init_project(path: &Path, dry_run: bool) -> Result<()> {
+    let repo_root = janus::paths::repo_root();
     let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let janus_dir = root.join(".janus");
-    if janus_dir.exists() {
-        eprintln!(".janus/ already exists at {}", janus_dir.display());
-        eprintln!("Run 'janus init' in a fresh project, or delete .janus/ to re-initialize.");
+    let already_exists = janus_dir.exists();
+
+    if already_exists {
+        eprintln!(
+            ".janus/ already exists at {} — validating existing blueprint.",
+            janus_dir.display()
+        );
+    } else {
+        let templates_root = repo_root.join("templates");
+        if !templates_root.exists() {
+            anyhow::bail!(
+                "templates/ not found at {}. Is MetaMach installed?",
+                templates_root.display()
+            );
+        }
+
+        // Copy blueprint template.
+        let bp_src = templates_root.join("blueprint.toml");
+        if bp_src.exists() {
+            std::fs::copy(&bp_src, janus_dir.join("blueprint.toml"))?;
+            println!("   blueprint.toml → .janus/blueprint.toml");
+        } else {
+            let name = root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "my-project".to_string());
+            std::fs::write(
+                janus_dir.join("blueprint.toml"),
+                format!(
+                    "[blueprint]\nname = \"{name}\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"{name}\"]\n"
+                ),
+            )?;
+            println!("   blueprint.toml → .janus/blueprint.toml (auto-generated)");
+        }
+
+        // Copy agent templates.
+        let agents_src = templates_root.join("agents");
+        if agents_src.is_dir() {
+            let agents_dst = janus_dir.join("agents");
+            copy_dir(&agents_src, &agents_dst)?;
+            println!("   agents/ → .janus/agents/");
+        }
+
+        // Copy workflow templates.
+        let wf_src = templates_root.join("workflows");
+        if wf_src.is_dir() {
+            let wf_dst = janus_dir.join("workflows");
+            copy_dir(&wf_src, &wf_dst)?;
+            println!("   workflows/ → .janus/workflows/");
+        }
+    }
+
+    // Read blueprint name for validation + registration.
+    let name = janus::recipe::read_blueprint_name(&root)?;
+
+    // Validate blueprint and default workflow.
+    let recipe = janus::recipe::validate(&name, &root)
+        .with_context(|| format!("blueprint validation failed for '{name}'"))?;
+
+    println!();
+    println!("✅ Blueprint validated: {name}");
+    println!("   Default workflow: {}", recipe.default_workflow);
+    println!("   OpenWiki scope: {}", recipe.openwiki_scope.join(", "));
+
+    if dry_run {
+        println!("\n   (dry-run: skipping daemon registration)");
+        println!("   Run 'janus init' without --dry-run to register with the daemon.");
         return Ok(());
     }
-    let templates_root = janus::paths::repo_root().join("templates");
-    if !templates_root.exists() {
-        anyhow::bail!(
-            "templates/ not found at {}. Is MetaMach installed?",
-            templates_root.display()
-        );
-    }
 
-    // Copy blueprint template.
-    let bp_src = templates_root.join("blueprint.toml");
-    if bp_src.exists() {
-        std::fs::copy(&bp_src, janus_dir.join("blueprint.toml"))?;
-        println!("   blueprint.toml → .janus/blueprint.toml");
-    } else {
-        // Create a minimal blueprint if no template exists.
-        let name = root
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "my-project".to_string());
-        std::fs::write(
-            janus_dir.join("blueprint.toml"),
-            format!(
-                "[blueprint]\nname = \"{name}\"\ndefault_workflow = \"smoke\"\n\n[openwiki]\nscope = [\"{name}\"]\n"
-            ),
-        )?;
-        println!("   blueprint.toml → .janus/blueprint.toml (auto-generated)");
+    // Register with daemon.
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
     }
-
-    // Copy agent templates.
-    let agents_src = templates_root.join("agents");
-    if agents_src.is_dir() {
-        let agents_dst = janus_dir.join("agents");
-        copy_dir(&agents_src, &agents_dst)?;
-        println!("   agents/ → .janus/agents/");
+    let resp = uds::request(&Request::Onboard { name })?;
+    match resp {
+        Response::Ok { message } => {
+            println!("   {message}");
+            println!();
+            println!("Next steps:");
+            println!("  1. Edit .janus/workflows/ to define your workflow");
+            println!("  2. Dry-run:  janus start --dry-run");
+            println!("  3. Execute:  janus start");
+            Ok(())
+        }
+        Response::Error { message } => bail!(message),
+        other => bail!("unexpected daemon response: {other:?}"),
     }
-
-    // Copy workflow templates.
-    let wf_src = templates_root.join("workflows");
-    if wf_src.is_dir() {
-        let wf_dst = janus_dir.join("workflows");
-        copy_dir(&wf_src, &wf_dst)?;
-        println!("   workflows/ → .janus/workflows/");
-    }
-
-    println!();
-    println!("✅ Project initialized at {}", root.display());
-    println!();
-    println!("Next steps:");
-    println!("  1. Edit .janus/agents/ to configure your LLM providers");
-    println!("  2. Edit .janus/workflows/ to define your workflow");
-    println!("  3. Add .janus/ to git:  git add .janus/ && git commit");
-    println!("  4. Run:  janus onboard --blueprint <name>");
-    Ok(())
 }
 
 fn copy_dir(src: &Path, dst: &Path) -> Result<()> {

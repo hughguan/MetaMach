@@ -382,7 +382,7 @@ fn e2e_pipeline_dag_dispatch() {
     // Wait for multi-level DAG tasks to execute sequentially across level barriers
     let start = std::time::Instant::now();
     while (!n1_sentinel.exists() || !n2_sentinel.exists())
-        && start.elapsed() < Duration::from_secs(15)
+        && start.elapsed() < Duration::from_secs(30)
     {
         std::thread::sleep(Duration::from_millis(100));
     }

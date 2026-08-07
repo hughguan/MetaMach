@@ -448,6 +448,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-032: MetaMach Studio — Visual Workflow DAG Editor & Web Observer (0.6.0 Candidate)
+
+| Field | Value |
+|---|---|
+| **Context** | MetaMach 0.5.0/0.5.1 unified workflows and pipelines under `.janus/workflows/` (ADR-031). Complex multi-node DAG workflows and human-in-the-loop (HITL) safety gate approvals benefit from visual graph editing, real-time node state visualization, and physical PTY terminal streaming. |
+| **Options Considered** | (1) Embed Web UI inside `janus-daemon`, (2) Standalone `janus-studio` sidecar binary over UDS (`janus.sock`), (3) CLI/TUI-only. |
+| **Decision** | **Adopted as Candidate ADR (0.6.0)** — Option (2): Standalone `janus-studio` sidecar binary exposing REST + WebSocket on `127.0.0.1:8443`. Keep `janus-daemon` zero-web-dependency. Full details in `docs/ADR-032-canvas-studio.md`. |
+| **Rationale** | Preserves core daemon zero-web-dependency isolation. Provides visual DAG authoring, step state visualization, and web HITL approval without daemon memory overhead. |
+| **Status** | 📋 Candidate ADR — Targeted for 0.6.0 (Amends ADR-020, ADR-029, ADR-031). |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

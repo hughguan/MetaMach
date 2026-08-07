@@ -1,8 +1,8 @@
-# MetaMach 0.5.0 — Target Specifications & Quality Matrix
+# MetaMach 0.6.0 — Target Specifications & Quality Matrix
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  
-> **Test Status:** ✅ **178 tests — 178 passed, 0 failed, 0 ignored** (131 unit + 47 integration).
+> **Test Status:** ✅ **193 tests — 193 passed, 0 failed, 0 ignored** (140 unit + 53 integration across 9 test files).
 
 ---
 

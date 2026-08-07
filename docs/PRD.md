@@ -1,10 +1,10 @@
-# MetaMach 0.5.0 — Product Requirements
+# MetaMach 0.6.0 — Product Requirements
 
 > A business guide for the Factory Director: blueprint onboarding, workflow dispatch, HITL gates, and production reports.
 
 ## Director's Note
 
-This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.5.0 feature landscape from a business perspective.
+This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.6.0 feature landscape from a business perspective.
 
 ## 1. Business Vision & Core Pain Points
 
@@ -16,7 +16,7 @@ In traditional AI-assisted R&D and automated assembly, the Factory Director freq
 
 3. **Non-Accumulating Knowledge (Evolution Line):** Every error, pin conflict, and fix the AI encounters vanishes when the session ends, never converted into permanent factory assets — leading to repeated mistakes in subsequent development.
 
-**MetaMach 0.5.0** delivers a digital silicon pipeline as deterministic, safe, controllable, and self-evolving as a physical factory, through its design of "resident guardian brain + durable physical sessions + shared knowledge graph."
+**MetaMach 0.6.0** delivers a digital silicon pipeline as deterministic, safe, controllable, and self-evolving as a physical factory, through its design of "resident guardian brain + durable physical sessions + shared knowledge graph."
 
 ### 1.3 Competitive Positioning & Bare-Metal Hardware Control
 

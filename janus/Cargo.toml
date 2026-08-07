@@ -1,9 +1,9 @@
 [package]
 name = "janus"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.88"
-description = "MetaMach 0.5.0 Janus core: daemon, Herdr shadow TUI, proxy shell, tmux engine, HITL gateway, cognitive SPI, unified workflow DAG engine"
+description = "MetaMach 0.6.0 Janus core: daemon, Herdr shadow TUI, proxy shell, tmux engine, HITL gateway, cognitive SPI, unified workflow DAG engine, visual canvas studio"
 license = "MIT"
 publish = false
 

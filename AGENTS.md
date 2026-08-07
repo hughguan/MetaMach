@@ -87,7 +87,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 ## Architecture Overview
 
-MetaMach 0.5.0 is a durable AI software factory OS. Core components:
+MetaMach 0.6.0 is a durable AI software factory OS. Core components:
 
 - **`janus-daemon`** - control-plane daemon (Rust), sole owner of state and DB connection pool. Hosts UDS listener, workflow engine, HITL gateway, and cold-start reconciliation.
 - **`herdr-janus`** - Herdr 0.7.3 plugin (shadow client), TUI rendering only (ratatui). Crashes never lose state.

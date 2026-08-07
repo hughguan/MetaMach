@@ -1,4 +1,4 @@
-# MetaMach 0.5.0 — System Architecture
+# MetaMach 0.6.0 — System Architecture
 
 > A silicon-grade industrial production machine powered by Janus Daemon, distributed durable execution sessions, and a stateless HITL Gateway.
 
@@ -6,7 +6,7 @@
 
 In the era of distributed AI co-development, traditional AI programming or agent scheduling is largely "stateless single-shot invocation." Under long-running, heavy-load, multi-station, cross-physical-host R&D scenarios, systems are highly vulnerable to process crashes from network jitter, API circuit-breakers, or context loss—fragmenting the development flow.
 
-**MetaMach 0.5.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell, gateway as the portal"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), **Blueprints** (product recipes), and **Gateway** (HITL portal):
+**MetaMach 0.6.0** completely overturns this fragile topology. It adopts a **"daemon as the brain, shadow plugin as the shell, gateway as the portal"** architecture of high cohesion and loose coupling, decomposing the system into **Agent Pool** (production factors), **Workflows** (pipeline SOPs), **Blueprints** (product recipes), and **Gateway** (HITL portal):
 
 - **Brain-as-a-Daemon (Janus Daemon) — Central Nervous System:** Core control flow and state transitions are entirely owned by the always-running background daemon **`janus-daemon`**, which holds an exclusive database connection pool, a `janus::tmux` physical execution engine, and a `janus::gateway` HITL dispatch module. The Herdr-side plugin is merely a lightweight shadow client (`herdr-janus`) dedicated to terminal rendering and interaction.
 

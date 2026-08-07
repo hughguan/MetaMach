@@ -40,17 +40,18 @@ Per `docs/SPEC.md` and `docs/PLAN.md`:
 
 ## High-level architecture
 
-MetaMach 0.5.0 is a durable AI "software factory" OS. The core mental model (spread across `ARCH.md` + `SPEC.md`):
+MetaMach 0.6.0 is a durable AI "software factory" OS. The core mental model (spread across `ARCH.md` + `SPEC.md`):
 
 - **`janus-daemon` (resident brain):** the sole owner of state, the DB connection pool, and the UDS gateway. All Step state transitions are transactional in Absurd Postgres. Exposes a read-only `progress` primitive for the dashboard. Hosts the HITL Gateway loopback HTTP listener and workflow engine.
 - **`herdr-janus` (shadow client):** a lightweight Herdr plugin that only renders the TUI (ratatui: Dispatch and Progress views). Crashes never lose state — it just re-attaches. Lazy-starts the Daemon via `std::process::Command::spawn()` + detach.
+- **`janus-studio` (web observer & canvas studio):** standalone Axum sidecar server (`janus-studio`) running on port 8444 with real-time WebSocket state streaming (`SNAPSHOT`, `DELTA`, `HEARTBEAT`), embedded HTML/CSS/JS visual canvas editor, and Web HITL approval center (ADR-032).
 - **`janush` (proxy shell):** tmux injects this as `SHELL` (absolute path `${HERDR_PLUGIN_ROOT}/bin/janush`). Every Agent command is synchronously reconciled with the Daemon over UDS **before** reaching bash. Verdict: `ALLOW` / `BLOCK` / `REWRITE` (Contract 3.4). 30s timeout = fail-closed `BLOCK`.
 - **`janus::tmux` (physical execution, internalized):** the former external `herdr-tether` engine, now a native module. Manages `remain-on-exit` tmux sessions on an isolated server (`tmux -L metamach-tmux`); cross-host SSH `-R` reverse tunnel transport maps the local `janus.sock` to remote hosts (ADR-017). Sessions survive process exit, SSH drop, or frontend destruction (ARCH §6.1).
 - **Absurd Postgres (Absurd DB):** a catalog DB (`metamach_db`) plus one DB per active blueprint (`metamach_blueprint_<name>`) — the F1 multi-DB fan-out. SQLite fallback ring buffer (ADR-004) keeps the workshop alive during PG outages. Sole source of truth; cold start reads the last `COMPLETED` checkpoint (never `tmux-resurrect`). The `progress` query unions across per-blueprint DBs in Rust (no cross-DB `JOIN`).
 - **`janus::gateway` (HITL Gateway):** Teams Adaptive Card dispatch, non-blocking verdict thread, HMAC-SHA256 loopback HTTP callback listener. Unified `JANUS_HITL_TIMEOUT_SECS` deadline; late callbacks get `410 Gone`.
 - **`janus::cognitive` (Cognitive Provider SPI):** opt-in per-blueprint `[cognitive]` config, `McpProvider` (`codebase-memory-mcp` over stdio JSON-RPC; 2s advisory timeout), `NoopProvider` fail-open default.
 - **`janus::workflow` (Workflow engine):** drives blueprint steps via absurd pull-mode queue. Per-step tmux sessions under `janush`, exit-code capture, per-step checkpoints, lease renewal (10s), retry-claim loop (`max_attempts: 3`), HITL resume.
-- **`janus::pipeline` (Pipeline DAG engine):** `.janus/workflows/<name>.toml` with `[nodes]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution.
+- **`janus::pipeline` (Pipeline DAG engine):** `.janus/workflows/<name>.toml` with `[nodes]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution (ADR-031).
 - **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Init.
 
 Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: **Init** (scaffold + validate + register) ↔ **Offboard** (LLM-smelt `production_report.md` -> `melt_blueprint_data` deletes large JSON rows).
@@ -63,16 +64,16 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 |---|---|---|
 | `PRD.md` | Product requirements, director journey, functional matrix | User persona, business goals, functional requirement matrix |
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
-| `ADR.md` | 31 Architecture Decision Records (ADR-001 through ADR-031) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook, unified workflow DSL |
-| `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 178-test report, system deployment & CI pipeline |
+| `ADR.md` | 32 Architecture Decision Records (ADR-001 through ADR-032) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook, unified workflow DSL, Canvas Studio |
+| `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 193-test report, system deployment & CI pipeline |
 | `PLAN.md` | Execution plan & milestone history (M0 through M5) | Milestone roadmap, physical check-in units, verification gates |
 | `contracts/` | Dependency contracts (`herdr.md`, `absurd.md`, `tmux.md`) | External plugin, database engine, and physical PTY execution contracts |
 
 Cross-doc identifiers to keep consistent when editing:
 - **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (SPEC.md Part 1 §1); `fallback_events` SQLite ring buffer (`fallback.db`, Contract 3.9).
 - **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED | STOPPED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
-- **CLI:** unified `janus` CLI with subcommands `janus init` / `offboard` / `start` / `status` / `plan` / `daemon` / `tmux` (all require the Daemon running — they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
-- **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) — not "Unified DB/PG". Project is branded **MetaMach 0.5.0**. tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
+- **CLI:** unified `janus` CLI with subcommands `janus init` / `offboard` / `start` / `status` / `plan` / `studio` / `daemon` / `tmux` (all require the Daemon running — they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
+- **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) — not "Unified DB/PG". Project is branded **MetaMach 0.6.0**. tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
 - **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see SPEC.md Part 2 UTC-02-02).
 
 When changing a spec, check the related docs — e.g., a schema change in SPEC.md Part 1 §1 typically affects SPEC.md Part 2 UTC cases and PLAN.md milestone tasks. The contracts, test IDs, and milestone units are the cross-referencing fabric.

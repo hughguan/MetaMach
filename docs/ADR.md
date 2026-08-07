@@ -1,6 +1,6 @@
 # MetaMach Architecture Decision Records
 
-> **Purpose:** This file captures the key architectural decisions across MetaMach's evolution from 0.1.0 through 0.5.0. Each ADR documents a decision: context, options considered, final choice, and rationale. This is the permanent record — once converged here, the delta files (`ARCH-0.2.0.md`, `ARCH-0.3.0.md`, `ARCH-0.4.0.md`) are archived to `docs/CH/` for backup.
+> **Purpose:** This file captures the key architectural decisions across MetaMach's evolution from 0.1.0 through 0.6.0. Each ADR documents a decision: context, options considered, final choice, and rationale. This is the permanent record — once converged here, the delta files (`ARCH-0.2.0.md`, `ARCH-0.3.0.md`, `ARCH-0.4.0.md`) are archived to `docs/CH/` for backup.
 
 ---
 

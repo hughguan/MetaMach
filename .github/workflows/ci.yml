@@ -1,7 +1,7 @@
-# MetaMach 0.5.0 — CI Pipeline
+# MetaMach 0.6.0 — CI Pipeline
 # Native PG, no Docker. Tests janus-daemon, herdr-janus, janush, janus::tmux,
-# gateway, cognitive, workflow engine, and pipeline DAG.
-# Per the 0.5.0 architecture: One PG, Multi-DB, tmux for session tests, SQLite bundled.
+# gateway, cognitive, workflow engine, pipeline DAG, and studio.
+# Per the 0.6.0 architecture: One PG, Multi-DB, tmux for session tests, SQLite bundled.
 
 name: MetaMach CI
 

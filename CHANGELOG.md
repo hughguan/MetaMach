@@ -4,9 +4,18 @@ All notable changes to MetaMach are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - Unreleased
+## [0.6.0] - 2026-08-07
 
-31 ADRs committed (001-031), 178 tests, CI-green across Linux + macOS.
+32 ADRs committed (001-032), 193 tests, CI-green across Linux + macOS.
+
+### Added
+- **ADR-032 MetaMach Studio (Web Observer & Visual Workflow Canvas)**: Standalone `janus-studio` binary (Axum + Tokio + WebSocket stream). Embedded visual DAG canvas, real-time active task progress streaming (`SNAPSHOT`, `DELTA`, `HEARTBEAT`), and Web HITL Safety Interlock approval center.
+- **ADR-031 Unified Workflow DSL**: Unification of Workflow and Pipeline DSLs into a single `Workflow` abstraction under `.janus/workflows/`. Supports both Linear mode (direct single-step execution) and DAG mode (level-parallel execution). Hard removed legacy `.janus/pipelines/` search paths and `janus pipeline` subcommand.
+- **Studio UDS Progress API**: `Request::Progress { blueprint: Option<String> }` protocol extension in `janus-daemon` returning full `ActiveTask` snapshots with step execution states and tmux session liveness.
+
+## [0.5.0] - 2026-08-05
+
+30 ADRs committed (001-030), 178 tests, CI-green across Linux + macOS.
 
 ### Added
 - **ADR-022 Time-Driven Sleep**: quota exhaustion detection (`is_quota_exhausted`),

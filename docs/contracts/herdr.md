@@ -43,7 +43,7 @@ A plugin is a directory containing a `herdr-plugin.toml` manifest. The structure
 # janus/herdr-plugin.toml
 id = "metamach.janus"            # required, unique plugin id
 name = "MetaMach Janus"          # required, human-readable
-version = "0.5.0"                # required, matches Cargo.toml
+version = "0.6.0"                # required, matches Cargo.toml
 min_herdr_version = "0.7.3"      # required
 
 [[panes]]                        # declared panes

@@ -456,7 +456,7 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Embed Web UI inside `janus-daemon`, (2) Standalone `janus-studio` sidecar binary over UDS (`janus.sock`), (3) CLI/TUI-only. |
 | **Decision** | **Adopted as Candidate ADR (0.6.0)** — Option (2): Standalone `janus-studio` sidecar binary exposing REST + WebSocket on `127.0.0.1:8443`. Keep `janus-daemon` zero-web-dependency. Full details in `docs/ADR-032-canvas-studio.md`. |
 | **Rationale** | Preserves core daemon zero-web-dependency isolation. Provides visual DAG authoring, step state visualization, and web HITL approval without daemon memory overhead. |
-| **Status** | 📋 Candidate ADR — Targeted for 0.6.0 (Amends ADR-020, ADR-029, ADR-031). |
+| **Status** | ✅ Implemented — 0.6.0 (Amends ADR-020, ADR-029, ADR-031). |
 
 ---
 

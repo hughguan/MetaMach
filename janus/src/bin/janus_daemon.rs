@@ -463,6 +463,98 @@ async fn handle_request(
         Request::Continue { blueprint, task_id } => {
             handle_continue(db.clone(), repo_root.to_path_buf(), blueprint, task_id).await
         }
+        Request::ListWorkflows { blueprint: _ } => {
+            let mut names = std::collections::BTreeSet::new();
+            for dir_name in &[".janus/workflows", "templates/workflows", "workflows"] {
+                let dir_path = repo_root.join(dir_name);
+                if let Ok(entries) = std::fs::read_dir(dir_path) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file()
+                            && path.extension().is_some_and(|ext| ext == "toml")
+                            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                        {
+                            names.insert(stem.to_string());
+                        }
+                    }
+                }
+            }
+            Response::Workflows {
+                names: names.into_iter().collect(),
+            }
+        }
+        Request::GetWorkflow { blueprint: _, name } => {
+            let candidate_paths = [
+                repo_root
+                    .join(".janus/workflows")
+                    .join(format!("{name}.toml")),
+                repo_root
+                    .join("templates/workflows")
+                    .join(format!("{name}.toml")),
+                repo_root.join("workflows").join(format!("{name}.toml")),
+            ];
+            match candidate_paths.iter().find(|p| p.exists()) {
+                Some(path) => match std::fs::read_to_string(path) {
+                    Ok(content) => Response::WorkflowContent { name, content },
+                    Err(e) => Response::Error {
+                        message: format!("read workflow: {e}"),
+                    },
+                },
+                None => Response::Error {
+                    message: format!("workflow '{name}' not found"),
+                },
+            }
+        }
+        Request::SaveWorkflow {
+            blueprint: _,
+            name,
+            content,
+        } => {
+            // Validate TOML syntax and topological DAG rules before writing
+            let tmp_dir = match tempfile::tempdir() {
+                Ok(d) => d,
+                Err(e) => {
+                    return Response::Error {
+                        message: format!("tempdir failed: {e}"),
+                    };
+                }
+            };
+            let wf_dir = tmp_dir.path().join(".janus/workflows");
+            if let Err(e) = std::fs::create_dir_all(&wf_dir) {
+                return Response::Error {
+                    message: format!("create temp dir: {e}"),
+                };
+            }
+            let target_tmp = wf_dir.join(format!("{name}.toml"));
+            if let Err(e) = std::fs::write(&target_tmp, &content) {
+                return Response::Error {
+                    message: format!("write temp workflow: {e}"),
+                };
+            }
+
+            match recipe::load_unified_workflow(&name, tmp_dir.path()) {
+                Ok(_) => {
+                    let dest_dir = repo_root.join(".janus/workflows");
+                    if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+                        return Response::Error {
+                            message: format!("create .janus/workflows dir: {e}"),
+                        };
+                    }
+                    let dest_path = dest_dir.join(format!("{name}.toml"));
+                    match std::fs::write(&dest_path, &content) {
+                        Ok(_) => Response::Ok {
+                            message: format!("workflow '{name}' saved to .janus/workflows/"),
+                        },
+                        Err(e) => Response::Error {
+                            message: format!("save workflow: {e}"),
+                        },
+                    }
+                }
+                Err(e) => Response::Error {
+                    message: format!("workflow validation failed: {e}"),
+                },
+            }
+        }
     }
 }
 

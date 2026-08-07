@@ -311,6 +311,6 @@ A full record of all architectural decisions — including the context, options 
 | 029 | Project-Based Templates (`.janus/`) | ✅ Adopted | 0.5.0 |
 | 030 | Rejection of `justfile` Migration | ❌ Rejected | 0.5.0 |
 | 031 | Workflow & Pipeline DSL Unification | ✅ Implemented | 0.5.1 |
-| 032 | MetaMach Studio Web Observer (Candidate) | 📋 Candidate | 0.6.0 |
+| 032 | MetaMach Studio Web Observer | ✅ Implemented | 0.6.0 |
 
 The delta documents that informed these decisions (`ARCH-0.2.0.md`, `ARCH-0.3.0.md`, `ARCH-0.4.0.md`) are archived in `docs/CH/` — they are historical references, not authoritative. The authoritative architecture specification for all versions is this document.

@@ -26,7 +26,12 @@ path = "src/bin/janus.rs"
 name = "janush"
 path = "src/bin/janush.rs"
 
+[[bin]]
+name = "janus-studio"
+path = "src/bin/janus_studio.rs"
+
 [dependencies]
+axum = { version = "0.7", features = ["ws"] }
 ratatui = "0.29"
 crossterm = "0.28"
 tokio = { version = "1", features = ["full"] }
@@ -52,9 +57,9 @@ ureq = { version = "2", features = ["json"] }
 hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 
 [profile.release]
 # Durable factory binaries: favor fast startup and small size.

@@ -6,7 +6,7 @@
 | **Options Considered** | (1) Embed Web UI directly into `janus-daemon` (axum inside core daemon), (2) Build a decoupled sidecar binary (`janus-studio`) communicating over UDS (`janus.sock`), (3) Remain CLI/TUI-only (status quo). |
 | **Decision** | **Adopted as Candidate ADR (0.6.0)** — Option (2): Decoupled `janus-studio` sidecar process. Keep `janus-daemon` zero-web-dependency. Embed static assets into `janus-studio` via `rust-embed` (React Flow / XYFlow). Proxy all control plane queries over existing UDS socket (`janus.sock`). Expose REST + WebSocket endpoints to the browser on `127.0.0.1:8443`. |
 | **Rationale** | Maintains Core MM-CORE isolation (no web vulnerabilities or heavy async web framework code inside the resident control daemon). Provides visual DAG drag-and-drop authoring, real-time step monitoring, and web-based HITL safety interlock approval without impacting daemon stability or memory footprint. |
-| **Status** | 📋 Candidate ADR — Targeted for 0.6.0 (Amends ADR-020, ADR-029, ADR-031). |
+| **Status** | ✅ Implemented — 0.6.0 (Amends ADR-020, ADR-029, ADR-031). |
 
 ---
 

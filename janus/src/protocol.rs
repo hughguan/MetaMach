@@ -65,6 +65,24 @@ pub enum Request {
     /// SUSPENDED step. Uses `task_id` so the daemon can resolve the correlation_id
     /// from its pending-verdict map.
     GateAction { task_id: Uuid, approve: bool },
+    /// List workflow names in `.janus/workflows/` (ADR-032 / Studio API).
+    ListWorkflows {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        blueprint: Option<String>,
+    },
+    /// Fetch raw workflow TOML content (ADR-032 / Studio API).
+    GetWorkflow {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        blueprint: Option<String>,
+        name: String,
+    },
+    /// Validate and save workflow TOML content to `.janus/workflows/<name>.toml` (ADR-032 / Studio API).
+    SaveWorkflow {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        blueprint: Option<String>,
+        name: String,
+        content: String,
+    },
 }
 
 /// Daemon -> client response.
@@ -77,6 +95,13 @@ pub enum Response {
     },
     Progress {
         active_tasks: Vec<ActiveTask>,
+    },
+    Workflows {
+        names: Vec<String>,
+    },
+    WorkflowContent {
+        name: String,
+        content: String,
     },
     /// Daemon -> `janush`: verdict (Contract 3.4). `verdict` is
     /// `"ALLOW"` | `"BLOCK"` | `"REWRITE"`; `rewritten_argv` is set on REWRITE.

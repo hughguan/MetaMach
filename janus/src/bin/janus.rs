@@ -111,6 +111,15 @@ enum CliCommand {
         #[arg(long)]
         description: String,
     },
+    /// Launch the MetaMach Studio Web Observer & Visual Canvas sidecar (ADR-032).
+    Studio {
+        /// HTTP bind address.
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+        /// HTTP port.
+        #[arg(long, default_value_t = 8443)]
+        port: u16,
+    },
 }
 
 /// `janus tmux` subcommands.
@@ -194,6 +203,7 @@ fn main() -> Result<()> {
             let repo_root = janus::paths::repo_root();
             plan_pipeline(&bp, &description, &repo_root)
         }
+        CliCommand::Studio { bind, port } => studio_cmd(&bind, port),
     }
 }
 
@@ -639,6 +649,32 @@ fn discover_workflows(repo_root: &Path) -> Result<Vec<(String, String)>> {
         }
     }
     Ok(workflows)
+}
+
+fn studio_cmd(bind: &str, port: u16) -> Result<()> {
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
+    }
+    println!("🚀 Launching MetaMach Studio sidecar on {bind}:{port}...");
+    let studio_exe = match std::env::current_exe() {
+        Ok(exe) => match exe.parent() {
+            Some(p) => p.join("janus-studio"),
+            None => PathBuf::from("janus-studio"),
+        },
+        Err(_) => PathBuf::from("janus-studio"),
+    };
+    let mut child = std::process::Command::new(studio_exe)
+        .arg("--bind")
+        .arg(bind)
+        .arg("--port")
+        .arg(port.to_string())
+        .spawn()
+        .context("launch janus-studio binary (run 'cargo build' first?)")?;
+    let status = child.wait()?;
+    if !status.success() {
+        bail!("janus-studio exited with status {}", status);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

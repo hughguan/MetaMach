@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
 
     if let (Some(cert_path), Some(key_path)) = (cli.tls_cert.as_ref(), cli.tls_key.as_ref()) {
         // TLS mode — use axum-server with rustls
-        println!("🔒 TLS enabled — cert={:?} key={:?}", cert_path, key_path);
+        println!("🔒 TLS enabled — cert={cert_path:?} key={key_path:?}");
         let tls_config = RustlsConfig::from_pem_file(cert_path, key_path)
             .await
             .context("failed to load TLS certificate/key")?;

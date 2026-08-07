@@ -48,8 +48,7 @@ impl FallbackDb {
                 result_cache   TEXT,
                 created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
             );
-            CREATE INDEX IF NOT EXISTS idx_fe_task ON fallback_events(task_id);
-            CREATE INDEX IF NOT EXISTS idx_fe_blueprint ON fallback_events(blueprint_name);",
+            CREATE INDEX IF NOT EXISTS idx_fe_task ON fallback_events(task_id);",
         )?;
         // Migrate pre-`blueprint_name` DBs (0.3.0 Contract 3.8 routing column).
         let has_bp: bool = {
@@ -68,6 +67,9 @@ impl FallbackDb {
                 [],
             )?;
         }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_fe_blueprint ON fallback_events(blueprint_name);",
+        )?;
         Ok(Self(Mutex::new(conn)))
     }
 

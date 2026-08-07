@@ -88,13 +88,11 @@ fn collapse_progress_bars(s: &str) -> String {
     let mut out = Vec::with_capacity(lines.len());
     let mut i = 0;
     while i < lines.len() {
-        let pct = extract_progress_pct(lines[i]);
-        if pct.is_none() {
+        let Some(first) = extract_progress_pct(lines[i]) else {
             out.push(lines[i].to_string());
             i += 1;
             continue;
-        }
-        let first = pct.unwrap();
+        };
         let mut last = first;
         let mut j = i + 1;
         while j < lines.len() {

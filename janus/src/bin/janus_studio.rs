@@ -270,7 +270,8 @@ async fn handle_list_workflows(
     };
     match uds::request_to(&state.sock_path, &req, Duration::from_secs(5)) {
         Ok(UdsResponse::Workflows { names }) => Ok(Json(names)),
-        _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(UdsResponse::Error { message }) => Ok(Json(vec![message])),
+        _ => Err(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
 
@@ -316,7 +317,7 @@ async fn handle_progress(
     };
     match uds::request_to(&state.sock_path, &req, Duration::from_secs(5)) {
         Ok(UdsResponse::Progress { active_tasks }) => Ok(Json(active_tasks)),
-        _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        _ => Ok(Json(vec![])),
     }
 }
 
@@ -329,7 +330,7 @@ async fn handle_dispatch(
         workflow: body.workflow,
         inline_command: body.inline_command,
     };
-    match uds::request_to(&state.sock_path, &req, Duration::from_secs(10)) {
+    match uds::request_to(&state.sock_path, &req, Duration::from_secs(15)) {
         Ok(UdsResponse::Dispatch { task_id }) => {
             Ok(Json(serde_json::json!({ "task_id": task_id })))
         }

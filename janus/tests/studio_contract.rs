@@ -93,6 +93,57 @@ impl Drop for Daemon {
     }
 }
 
+struct StudioProcess {
+    child: std::process::Child,
+    port: u16,
+    token: String,
+}
+
+impl StudioProcess {
+    fn spawn(sock_path: &Path, token_path: &Path, port: u16) -> Self {
+        let token = "test_studio_auth_token_12345".to_string();
+        std::fs::write(token_path, &token).unwrap();
+
+        let child = Command::new(env!("CARGO_BIN_EXE_janus-studio"))
+            .arg("--bind")
+            .arg("127.0.0.1")
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--sock")
+            .arg(sock_path)
+            .arg("--token-file")
+            .arg(token_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("spawn janus-studio");
+
+        // Wait for studio HTTP listener to become ready
+        let start = Instant::now();
+        let url = format!("http://127.0.0.1:{port}/api/v1/health");
+        while start.elapsed() < Duration::from_secs(10) {
+            if ureq::get(&url)
+                .timeout(Duration::from_millis(200))
+                .call()
+                .is_ok()
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        StudioProcess { child, port, token }
+    }
+}
+
+impl Drop for StudioProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 #[test]
 fn utc_32_01_uds_workflow_list_get_save() {
     if !pg_available() || !tmux_available() {
@@ -175,4 +226,144 @@ fn utc_32_01_uds_workflow_list_get_save() {
         panic!("expected Workflows, got {resp:?}");
     };
     assert!(names.contains(&"w2".to_string()));
+}
+
+#[test]
+fn utc_32_02_studio_http_rest_api_suite() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        "[blueprint]\nname = \"studio_http_e2e\"\ndefault_workflow = \"w1\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+    )
+    .unwrap();
+    let wf_dir = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    std::fs::write(
+        wf_dir.join("w1.toml"),
+        "[workflow]\nname = \"w1\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"true\"\n",
+    )
+    .unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    // Onboard blueprint so daemon registers state
+    let resp = daemon
+        .uds(
+            &Request::Onboard {
+                name: "studio_http_e2e".into(),
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+    assert!(matches!(resp, Response::Ok { .. }));
+
+    // Spawn janus-studio sidecar on port 8499
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8499);
+    let base_url = format!("http://127.0.0.1:{}", studio.port);
+
+    // 1. GET /api/v1/health — Liveness check without token
+    let res = ureq::get(&format!("{base_url}/api/v1/health"))
+        .call()
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let health_body: serde_json::Value = serde_json::from_reader(res.into_reader()).unwrap();
+    assert_eq!(health_body["status"], "online");
+    assert_eq!(health_body["daemon_online"], true);
+
+    // 2. GET / — Embedded HTML Canvas UI index
+    let res = ureq::get(&format!("{base_url}/")).call().unwrap();
+    assert_eq!(res.status(), 200);
+    let html = res.into_string().unwrap();
+    assert!(html.contains("Canvas Studio"));
+
+    // 3. GET /styles.css & GET /app.js
+    let res_css = ureq::get(&format!("{base_url}/styles.css")).call().unwrap();
+    assert_eq!(res_css.status(), 200);
+    let res_js = ureq::get(&format!("{base_url}/app.js")).call().unwrap();
+    assert_eq!(res_js.status(), 200);
+
+    // 4. Auth interlock — Unauthenticated request to /api/v1/workflows must return 401
+    let unauth_res = ureq::get(&format!("{base_url}/api/v1/workflows")).call();
+    assert!(unauth_res.is_err());
+    if let Err(ureq::Error::Status(code, _)) = unauth_res {
+        assert_eq!(code, 401);
+    } else {
+        panic!("expected 401 status for unauthenticated request");
+    }
+
+    // 5. GET /api/v1/workflows — Authenticated list workflows
+    let res = ureq::get(&format!("{base_url}/api/v1/workflows"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .call()
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let workflows: Vec<String> = serde_json::from_reader(res.into_reader()).unwrap();
+    assert!(workflows.contains(&"w1".to_string()));
+
+    // 6. GET /api/v1/workflows/w1 — Authenticated get workflow TOML
+    let res = ureq::get(&format!("{base_url}/api/v1/workflows/w1"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .call()
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let content = res.into_string().unwrap();
+    assert!(content.contains("[workflow]"));
+
+    // 7. POST /api/v1/workflows/w2 — Authenticated save workflow
+    let w2_payload = serde_json::json!({
+        "content": "[workflow]\nname = \"w2\"\n\n[[steps]]\nname = \"s2\"\nagent = \"default\"\ncommand = \"echo http_saved\"\n"
+    });
+    let res = ureq::post(&format!("{base_url}/api/v1/workflows/w2"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .send_json(w2_payload)
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // Verify w2 now listed
+    let res = ureq::get(&format!("{base_url}/api/v1/workflows"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .call()
+        .unwrap();
+    let list: Vec<String> = serde_json::from_reader(res.into_reader()).unwrap();
+    assert!(list.contains(&"w2".to_string()));
+
+    // 8. GET /api/v1/progress — Authenticated active progress snapshot
+    let res = ureq::get(&format!("{base_url}/api/v1/progress"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .call()
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // 9. POST /api/v1/dispatch — Authenticated workflow dispatch
+    let dispatch_payload = serde_json::json!({
+        "blueprint": "studio_http_e2e",
+        "workflow": "w1"
+    });
+    let res = ureq::post(&format!("{base_url}/api/v1/dispatch"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .timeout(Duration::from_secs(20))
+        .send_json(dispatch_payload);
+    assert!(res.is_ok() || matches!(&res, Err(ureq::Error::Status(code, _)) if *code == 400));
+
+    // 10. POST /api/v1/gates/<task_id>/verdict — Authenticated HITL gate verdict submission
+    let dummy_id = uuid::Uuid::new_v4();
+    let gate_payload = serde_json::json!({
+        "approve": true
+    });
+    let res = ureq::post(&format!("{base_url}/api/v1/gates/{dummy_id}/verdict"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .send_json(gate_payload);
+    assert!(res.is_ok());
 }

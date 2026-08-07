@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
             )),
         )
         .route(
-            "/api/v1/workflows/:name",
+            "/api/v1/workflows/{name}",
             get(handle_get_workflow).post(handle_save_workflow).layer(
                 axum::middleware::from_fn_with_state(state.clone(), auth_middleware),
             ),
@@ -144,13 +144,13 @@ async fn main() -> Result<()> {
             )),
         )
         .route(
-            "/api/v1/gates/:task_id/verdict",
+            "/api/v1/gates/{task_id}/verdict",
             post(handle_gate_verdict).layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
             )),
         )
-        .route("/runs/:id/stream", get(handle_ws_stream))
+        .route("/runs/{id}/stream", get(handle_ws_stream))
         .with_state(state);
 
     let bind = &cli.bind;

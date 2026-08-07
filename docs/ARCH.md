@@ -161,7 +161,8 @@ sequenceDiagram
 
 ## 5. GitHub Monorepo Directory Structure
 
-To fully comply with Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** physical isolation boundary, the entire `metamach` repository use```
+To fully comply with Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** physical isolation boundary, the entire `metamach` repository uses the following organizational topology:
+```
 metamach/ (Single monorepo — silicon factory headquarters)
 ├── .github/
 │   └── workflows/
@@ -230,12 +231,6 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │   #   ├── agents/               # Project-specific agent role overrides
 │   #   ├── workflows/            # Unified workflow definitions (linear + DAG)
 │   #   └── openwiki/             # RAG knowledge scope; production_report.md on offboard
-```========================
-│   # 4. PROVISIONING (maintenance & sandbox mounting)
-│   # ====================================================================
-└── provisioning/
-    ├── bootstrap.sh              # Zero-dependency deploy: native PG init, symlinks, migrations
-    └── migrations/               # Postgres init migration scripts (catalog + per-blueprint)
 
 # ═══════════════════════════════════════════════════════════════════════
 # EXTERNAL DEPENDENCIES (separate repos, fetched/built by make bootstrap)

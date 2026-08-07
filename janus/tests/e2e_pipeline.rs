@@ -552,3 +552,233 @@ fn e2e_stop_and_continue() {
         "continue: {cont_resp:?}"
     );
 }
+
+/// ADR-028 / ADR-031 E2E Test: Diamond DAG dependency with parallel level execution.
+/// Topology: Root (Node A) -> Left (Node B) & Right (Node C) -> Join (Node D).
+/// Verifies that Level 1 nodes B and C execute in parallel after Level 0 A,
+/// and Level 2 Join node D executes only after both B and C complete.
+#[test]
+fn e2e_pipeline_dag_diamond_dependency_parallel_execution() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_name = format!(
+        "diamond_e2e_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        format!("[blueprint]\nname = \"{bp_name}\"\ndefault_workflow = \"diamond_dag\"\n\n[openwiki]\nscope = [\"e2e\"]\n"),
+    )
+    .unwrap();
+
+    let wf_dir = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+
+    let sentinel_a = state.path().join("a_done.txt");
+    let sentinel_b = state.path().join("b_done.txt");
+    let sentinel_c = state.path().join("c_done.txt");
+    let sentinel_d = state.path().join("d_done.txt");
+
+    std::fs::write(
+        wf_dir.join("wf_a.toml"),
+        format!("[workflow]\nname = \"wf_a\"\n\n[[steps]]\nname = \"sa\"\nagent = \"default\"\ncommand = \"touch {}\"\n", sentinel_a.display()),
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("wf_b.toml"),
+        format!("[workflow]\nname = \"wf_b\"\n\n[[steps]]\nname = \"sb\"\nagent = \"default\"\ncommand = \"touch {}\"\n", sentinel_b.display()),
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("wf_c.toml"),
+        format!("[workflow]\nname = \"wf_c\"\n\n[[steps]]\nname = \"sc\"\nagent = \"default\"\ncommand = \"touch {}\"\n", sentinel_c.display()),
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("wf_d.toml"),
+        format!("[workflow]\nname = \"wf_d\"\n\n[[steps]]\nname = \"sd\"\nagent = \"default\"\ncommand = \"touch {}\"\n", sentinel_d.display()),
+    )
+    .unwrap();
+
+    // Diamond DAG: A (level 0) -> B & C (level 1) -> D (level 2)
+    std::fs::write(
+        wf_dir.join("diamond_dag.toml"),
+        r#"[workflow]
+name = "diamond_dag"
+
+[[nodes]]
+id = "node_a"
+workflow = "wf_a"
+
+[[nodes]]
+id = "node_b"
+workflow = "wf_b"
+needs = ["node_a"]
+
+[[nodes]]
+id = "node_c"
+workflow = "wf_c"
+needs = ["node_a"]
+
+[[nodes]]
+id = "node_d"
+workflow = "wf_d"
+needs = ["node_b", "node_c"]
+"#,
+    )
+    .unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents, repo.path());
+    d.wait_ready();
+    d.uds(
+        &Request::Onboard {
+            name: bp_name.clone(),
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
+
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: bp_name,
+                workflow: Some("diamond_dag".into()),
+                inline_command: None,
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(matches!(resp, Response::Dispatch { .. }));
+
+    // Wait for all 4 level nodes to complete sequentially across Kahn level barriers
+    let start = Instant::now();
+    while (!sentinel_a.exists()
+        || !sentinel_b.exists()
+        || !sentinel_c.exists()
+        || !sentinel_d.exists())
+        && start.elapsed() < Duration::from_secs(45)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    assert!(sentinel_a.exists(), "Level 0 node A must complete");
+    assert!(sentinel_b.exists(), "Level 1 node B must complete");
+    assert!(sentinel_c.exists(), "Level 1 node C must complete");
+    assert!(
+        sentinel_d.exists(),
+        "Level 2 join node D must complete after both B and C"
+    );
+}
+
+/// ADR-028 / ADR-031 E2E Test: Hybrid Node Composition in DAG Workflows.
+/// Tests a DAG workflow containing both standalone workflow nodes (`workflow = "name"`)
+/// and inline step sequence nodes (`steps = [...]`).
+#[test]
+fn e2e_hybrid_dag_workflow_node_composition() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_name = format!(
+        "hybrid_e2e_{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        format!("[blueprint]\nname = \"{bp_name}\"\ndefault_workflow = \"hybrid_dag\"\n\n[openwiki]\nscope = [\"e2e\"]\n"),
+    )
+    .unwrap();
+
+    let wf_dir = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+
+    let standalone_sentinel = state.path().join("standalone_done.txt");
+    let inline_sentinel = state.path().join("inline_done.txt");
+
+    std::fs::write(
+        wf_dir.join("standalone_wf.toml"),
+        format!("[workflow]\nname = \"standalone_wf\"\n\n[[steps]]\nname = \"st1\"\nagent = \"default\"\ncommand = \"touch {}\"\n", standalone_sentinel.display()),
+    )
+    .unwrap();
+
+    std::fs::write(
+        wf_dir.join("hybrid_dag.toml"),
+        format!(
+            r#"[workflow]
+name = "hybrid_dag"
+
+[[nodes]]
+id = "n_standalone"
+workflow = "standalone_wf"
+
+[[nodes]]
+id = "n_inline"
+needs = ["n_standalone"]
+
+[[nodes.steps]]
+name = "inline_step"
+agent = "default"
+command = "touch {}"
+"#,
+            inline_sentinel.display()
+        ),
+    )
+    .unwrap();
+
+    let d = Daemon::spawn(state.path(), &agents, repo.path());
+    d.wait_ready();
+    d.uds(
+        &Request::Onboard {
+            name: bp_name.clone(),
+        },
+        Duration::from_secs(15),
+    )
+    .unwrap();
+
+    let resp = d
+        .uds(
+            &Request::Dispatch {
+                blueprint: bp_name,
+                workflow: Some("hybrid_dag".into()),
+                inline_command: None,
+            },
+            Duration::from_secs(15),
+        )
+        .unwrap();
+    assert!(matches!(resp, Response::Dispatch { .. }));
+
+    let start = Instant::now();
+    while (!standalone_sentinel.exists() || !inline_sentinel.exists())
+        && start.elapsed() < Duration::from_secs(30)
+    {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    assert!(
+        standalone_sentinel.exists(),
+        "Level 0 standalone workflow node must complete"
+    );
+    assert!(
+        inline_sentinel.exists(),
+        "Level 1 inline step node must complete after standalone node"
+    );
+}

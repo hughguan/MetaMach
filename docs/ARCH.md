@@ -276,7 +276,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 
 ## 7. Architecture Decision Records
 
-A full record of all architectural decisions — including the context, options considered, and rationale for each — is maintained in [`docs/ADR.md`](ADR.md). The ADR captures the evolution from 0.1.0 through 0.4.0 across 14 decisions:
+A full record of all architectural decisions — including the context, options considered, and rationale for each — is maintained in [`docs/ADR.md`](ADR.md). The ADR captures the evolution from 0.1.0 through 0.6.0 across 32 decisions:
 
 | ADR | Decision | Verdict | Version |
 |-----|----------|---------|---------|
@@ -288,11 +288,29 @@ A full record of all architectural decisions — including the context, options 
 | 006 | tmux Internalization | ✅ Adopted | 0.3.0 |
 | 007 | Fail-Closed 30s Timeout | ✅ Force-Retained | 0.3.0 |
 | 008 | 16KB Budget Dual Defense | ✅ Force-Retained | 0.3.0 |
-| 009 | Isolated tmux Server (`-L metamach-tmux`) | ✅ Already Implemented | 0.3.0 |
-| 010 | Cognitive Provider SPI (Contract 4.1) | 🔌 New | 0.4.0 |
-| 011 | codebase-memory-mcp (Contract 4.2) | 🔌 New | 0.4.0 |
-| 012 | HITL Gateway (Contracts 4.3a–c) | 🌐 New | 0.4.0 |
-| 013 | Teams Active Cards (Contract 4.3b) | 🌐 New | 0.4.0 |
-| 014 | WebhookPayload Relocation to protocol.rs | 🔄 Extended | 0.4.0 |
+| 009 | Isolated tmux Server (`-L metamach-tmux`) | ✅ Implemented | 0.3.0 |
+| 010 | Cognitive Provider SPI (Contract 4.1) | ✅ Adopted | 0.4.0 |
+| 011 | codebase-memory-mcp (Contract 4.2) | ✅ Adopted | 0.4.0 |
+| 012 | HITL Gateway (Contracts 4.3a–c) | ✅ Adopted | 0.4.0 |
+| 013 | Teams Adaptive Cards (Contract 4.3b) | ✅ Adopted | 0.4.0 |
+| 014 | WebhookPayload Relocation to protocol.rs | ✅ Adopted | 0.4.0 |
+| 015 | Direct UDS Socket Dispatch | ✅ Adopted | 0.4.0 |
+| 016 | Absurd DB Schema Loading | ✅ Adopted | 0.4.0 |
+| 017 | Cross-Host Remote Execution via SSH `-R` | ✅ Adopted | 0.4.0 |
+| 018 | Coldstart Task Rescheduling | ✅ Adopted | 0.4.0 |
+| 019 | Pipeline DAG Engine (Kahn's Sort) | ✅ Adopted | 0.4.0 |
+| 020 | Webhook HITL Approval Gate | ✅ Adopted | 0.4.0 |
+| 021 | Absurd Queue Durable Step Engine | ✅ Adopted | 0.4.0 |
+| 022 | SQLite Fallback Ring Buffer | ✅ Adopted | 0.4.0 |
+| 023 | Offboard Smelt & Archival | ✅ Adopted | 0.4.0 |
+| 024 | OpenWiki Experience Inheritance | ✅ Adopted | 0.4.0 |
+| 025 | Pre-Spawn Stale Session Purge | ✅ Adopted | 0.4.0 |
+| 026 | Tool Guard Hardware Interlock | ✅ Adopted | 0.5.0 |
+| 027 | Hardware Probe SPI (Candidate) | 📋 Candidate | 0.6.0 |
+| 028 | E2E Pipeline Test Suite | ✅ Adopted | 0.5.0 |
+| 029 | Project-Based Templates (`.janus/`) | ✅ Adopted | 0.5.0 |
+| 030 | Rejection of `justfile` Migration | ❌ Rejected | 0.5.0 |
+| 031 | Workflow & Pipeline DSL Unification | 📋 Approved | 0.5.1 |
+| 032 | MetaMach Studio Web Observer (Candidate) | 📋 Candidate | 0.6.0 |
 
 The delta documents that informed these decisions (`ARCH-0.2.0.md`, `ARCH-0.3.0.md`, `ARCH-0.4.0.md`) are archived in `docs/CH/` — they are historical references, not authoritative. The authoritative architecture specification for all versions is this document.

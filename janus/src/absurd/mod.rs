@@ -143,9 +143,9 @@ impl AbsurdDb {
         let opts = base.database(&db_name);
         match PgPoolOptions::new()
             .min_connections(0)
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(5))
-            .idle_timeout(Duration::from_secs(2))
+            .max_connections(5)
+            .acquire_timeout(Duration::from_secs(10))
+            .idle_timeout(Duration::from_secs(10))
             .connect_with(opts)
             .await
         {

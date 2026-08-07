@@ -116,8 +116,8 @@ enum CliCommand {
         /// HTTP bind address.
         #[arg(long, default_value = "127.0.0.1")]
         bind: String,
-        /// HTTP port.
-        #[arg(long, default_value_t = 8443)]
+        /// HTTP port (default: 8444).
+        #[arg(long, default_value_t = 8444)]
         port: u16,
         /// Run studio sidecar detached in the background.
         #[arg(short, long)]

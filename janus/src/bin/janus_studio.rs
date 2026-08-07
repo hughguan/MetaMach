@@ -33,8 +33,8 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1")]
     bind: String,
 
-    /// Listening HTTP port (default: 8443)
-    #[arg(long, default_value_t = 8443)]
+    /// Listening HTTP port (default: 8444)
+    #[arg(long, default_value_t = 8444)]
     port: u16,
 
     /// Path to authentication token file
@@ -158,6 +158,18 @@ async fn main() -> Result<()> {
         .parse()
         .context("invalid bind/port configuration")?;
 
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            eprintln!("❌ Cannot bind to {bind}:{port} — address/port is already in use.");
+            eprintln!(
+                "💡 Tip: Use 'janus studio --port <PORT>' to specify a custom port, or stop the process using port {port}."
+            );
+            std::process::exit(1);
+        }
+        Err(e) => return Err(e).context("failed to bind TCP listener"),
+    };
+
     let scheme = if cli.tls_cert.is_some() && cli.tls_key.is_some() {
         "https"
     } else {
@@ -171,7 +183,6 @@ async fn main() -> Result<()> {
         println!("🔒 TLS Configuration: Enabled");
     }
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())

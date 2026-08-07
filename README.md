@@ -52,7 +52,7 @@
                    ▲                                           ▲
                    │ (reattach view)                           │ UDS proxying
      ┌──────────────────────┐                  ┌──────────────────────────────┐
-     │  herdr-janus (TUI)    │                  │  janus-studio (Web Observer) │  ← http://127.0.0.1:8443
+     │  herdr-janus (TUI)    │                  │  janus-studio (Web Observer) │  ← http://127.0.0.1:8444
      │  • Dispatch / Progress│                  │  • Visual DAG Canvas Editor  │     Decoupled Axum sidecar
      └──────────────────────┘                  │  • Real-Time WS Streamer     │     Zero daemon web dep
                                                │  • HITL Gateway Interlocks   │
@@ -300,7 +300,7 @@ janus continue --blueprint my-project                  # resume stopped/crashed 
 MetaMach 0.6.0 includes a zero-dependency web dashboard (ADR-032) running as a standalone `janus-studio` sidecar binary over UDS (`janus.sock`):
 
 ```bash
-janus studio                           # launch interactive sidecar on http://127.0.0.1:8443
+janus studio                           # launch interactive sidecar on http://127.0.0.1:8444
 janus studio -d                        # launch detached in background
 janus studio --port 9000               # custom HTTP port
 ```

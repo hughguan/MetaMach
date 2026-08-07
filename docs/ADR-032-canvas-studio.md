@@ -4,7 +4,7 @@
 |---|---|
 | **Context** | MetaMach 0.5.0/0.5.1 unified workflows and pipelines under `.janus/workflows/` (ADR-031). While CLI tools (`janus`, `janush`, `herdr-janus`) provide full control plane capabilities, complex multi-node DAG workflows and human-in-the-loop (HITL) safety gate approvals benefit from visual graph editing, real-time node state visualization, and physical PTY terminal streaming. |
 | **Options Considered** | (1) Embed Web UI directly into `janus-daemon` (axum inside core daemon), (2) Build a decoupled sidecar binary (`janus-studio`) communicating over UDS (`janus.sock`), (3) Remain CLI/TUI-only (status quo). |
-| **Decision** | **Adopted as Candidate ADR (0.6.0)** — Option (2): Decoupled `janus-studio` sidecar process. Keep `janus-daemon` zero-web-dependency. Embed static assets into `janus-studio` via `rust-embed` (React Flow / XYFlow). Proxy all control plane queries over existing UDS socket (`janus.sock`). Expose REST + WebSocket endpoints to the browser on `127.0.0.1:8443`. |
+| **Decision** | **Adopted as Candidate ADR (0.6.0)** — Option (2): Decoupled `janus-studio` sidecar process. Keep `janus-daemon` zero-web-dependency. Embed static assets into `janus-studio` via `rust-embed` (React Flow / XYFlow). Proxy all control plane queries over existing UDS socket (`janus.sock`). Expose REST + WebSocket endpoints to the browser on `127.0.0.1:8444`. |
 | **Rationale** | Maintains Core MM-CORE isolation (no web vulnerabilities or heavy async web framework code inside the resident control daemon). Provides visual DAG drag-and-drop authoring, real-time step monitoring, and web-based HITL safety interlock approval without impacting daemon stability or memory footprint. |
 | **Status** | ✅ Implemented — 0.6.0 (Amends ADR-020, ADR-029, ADR-031). |
 
@@ -23,7 +23,7 @@ MetaMach Studio is an **optional** Web UI running as an independent sidecar bina
  │    - Real-time Node Status & PTY 16 KiB Log Output Stream              │
  │    - Web-based Safety Interlock Approval (HITL Gate)                   │
  └───────────────────▲────────────────────────────────────────────────────┘
-                     │ REST API / WebSocket (127.0.0.1:8443)
+                     │ REST API / WebSocket (127.0.0.1:8444)
                      │ Auth: X-Janus-Studio-Token
                      ▼
  ┌───────────────────┴────────────────────────────────────────────────────┐

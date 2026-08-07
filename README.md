@@ -5,7 +5,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
   <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
-  <img alt="Tests: 190" src="https://img.shields.io/badge/tests-190%20(CI%20green)-22c55e.svg">
+  <img alt="Tests: 192" src="https://img.shields.io/badge/tests-192%20(CI%20green)-22c55e.svg">
   <img alt="Version: 0.6.0" src="https://img.shields.io/badge/version-0.6.0-6366f1.svg">
 </p>
 
@@ -36,7 +36,7 @@
                          │        janus-daemon  (MM-CORE)           │
                          │  • Master state machine & UDS router     │
                          │  • Workflow engine (absurd pull-mode)    │
-                         │  • DAG engine (topological sort)        │
+                         │  • DAG engine (topological sort)         │
                          │  • HITL Gateway + Teams Adaptive Cards   │
                          │  • Cold-start resume & checkpoint/recover│
                          └──┬─────────────┬─────────────┬──────────┘
@@ -82,7 +82,7 @@ metamach/
 │   │   │   ├── janus_daemon.rs  #   Control-plane daemon
 │   │   │   ├── herdr_janus.rs   #   Herdr shadow TUI client
 │   │   │   ├── janush.rs        #   Proxy shell (Tool Guard)
-│   │   │   ├── janus_studio.rs  #   MetaMach Studio sidecar (Axum REST/WS, ADR-032)
+│   │   │   ├── janus_studio.rs  #   MetaMach Studio sidecar (Axum REST/WS)
 │   │   │   └── janus.rs         #   CLI: init, start, status, studio, stop, continue, offboard
 │   │   ├── studio_assets/       #   Embedded HTML/CSS/JS Canvas UI
 │   │   ├── absurd/              #   Postgres adapter + SQLite fallback
@@ -207,7 +207,7 @@ The scaffold includes:
 
 ### Plan a workflow
 
-MetaMach uses a **unified Workflow DSL** (ADR-031) — a single file format for both
+MetaMach uses a **unified Workflow DSL** — a single file format for both
 simple linear steps and complex multi-agent DAGs. All workflows live under
 `.janus/workflows/`. Two ways to create one:
 
@@ -241,7 +241,7 @@ Nodes can reference external workflow files (`workflow = "..."`) or define inlin
 janus plan --blueprint my-project --description "Build, test, and deploy via SSH"
 ```
 
-This produces a validated workflow `.toml` file (ADR-023). Edit it further, then
+This produces a validated workflow `.toml` file. Edit it further, then
 dry-run to verify the execution plan.
 
 ### Dry-run a workflow
@@ -297,7 +297,7 @@ janus continue --blueprint my-project                  # resume stopped/crashed 
 
 ### Launch MetaMach Studio (Web Observer & Visual Canvas)
 
-MetaMach 0.6.0 includes a zero-dependency web dashboard (ADR-032) running as a standalone `janus-studio` sidecar binary over UDS (`janus.sock`):
+MetaMach 0.6.0 includes a zero-dependency web dashboard running as a standalone `janus-studio` sidecar binary over UDS (`janus.sock`):
 
 ```bash
 janus studio                           # launch interactive sidecar on http://127.0.0.1:8444
@@ -328,7 +328,7 @@ trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 | Dimension | Location | Description |
 |---|---|---|
 | **Agent Pool** | `configs/agents.toml` + `.janus/agents/` | Permissions, provisioning, quota, fallback chains, pre-flight probes |
-| **Workflows** | `templates/workflows/` + `.janus/workflows/` | Linear step sequences or DAG node graphs with `needs` dependencies (unified DSL, ADR-031) |
+| **Workflows** | `templates/workflows/` + `.janus/workflows/` | Linear step sequences or DAG node graphs with `needs` dependencies (unified DSL) |
 | **Blueprints** | `.janus/blueprint.toml` | Per-project recipe: name, default workflow, openwiki scope, remote host |
 
 ---
@@ -354,15 +354,15 @@ trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 
 ### 🔄 Universal Reusability
 - **Agent-agnostic**: works with any CLI agent (Claude Code, Codex, Pi, Aider, Roo Code)
-- **Cross-host**: SSH `-R` reverse tunnels for remote compilation targets (ADR-017)
+- **Cross-host**: SSH `-R` reverse tunnels for remote compilation targets
 - **Single-binary bootstrap**: `make bootstrap` → ready to deploy
 
 ---
 
 ## CI & Testing
 
-- **178 tests**: all pass, 0 ignored
-- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (178 tests)
+- **192 tests**: all pass, 0 ignored
+- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (192 tests)
 - **E2E tests**: init → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests

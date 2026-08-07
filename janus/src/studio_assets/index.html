@@ -17,9 +17,10 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
   <div class="app-container">
     <!-- Sidebar Navigation -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-logo">
           <i class="ph-bold ph-cpu"></i>
@@ -29,6 +30,9 @@
           <h1>MetaMach <span class="badge-v">0.6.0</span></h1>
           <p>Canvas Studio &amp; Observer</p>
         </div>
+        <button class="mobile-close-btn" id="mobile-close-btn" aria-label="Close menu">
+          <i class="ph-bold ph-x"></i>
+        </button>
       </div>
 
       <nav class="nav-menu">
@@ -90,10 +94,15 @@
     <main class="main-content">
       <!-- Top Bar Header -->
       <header class="top-bar">
-        <div class="breadcrumb">
-          <span class="bc-root">MetaMach OS</span>
-          <i class="ph-bold ph-caret-right"></i>
-          <span class="bc-current" id="current-view-title">System Overview</span>
+        <div class="top-bar-left">
+          <button class="mobile-toggle" id="mobile-menu-toggle" aria-label="Toggle navigation">
+            <i class="ph-bold ph-list"></i>
+          </button>
+          <div class="breadcrumb">
+            <span class="bc-root">MetaMach OS</span>
+            <i class="ph-bold ph-caret-right"></i>
+            <span class="bc-current" id="current-view-title">System Overview</span>
+          </div>
         </div>
 
         <div class="header-controls">
@@ -519,7 +528,25 @@
         <button class="btn btn-primary" id="btn-confirm-dispatch"><i class="ph-bold ph-play"></i> Start Execution</button>
       </div>
     </div>
-  </div>
+  <!-- Mobile Bottom Quick Navigation Bar -->
+  <nav class="mobile-bottom-nav">
+    <button class="mobile-nav-btn active" data-tab="overview">
+      <i class="ph-bold ph-squares-four"></i>
+      <span>Overview</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab="dag-canvas">
+      <i class="ph-bold ph-tree-structure"></i>
+      <span>Canvas</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab="pty-streamer">
+      <i class="ph-bold ph-terminal-window"></i>
+      <span>PTY Stream</span>
+    </button>
+    <button class="mobile-nav-btn" data-tab="hitl-gateway">
+      <i class="ph-bold ph-shield-warning"></i>
+      <span>HITL Gate</span>
+    </button>
+  </nav>
 
   <script src="app.js"></script>
 </body>

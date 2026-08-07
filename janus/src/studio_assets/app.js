@@ -433,6 +433,61 @@ needs = ["builder_implement"]`;
     `;
   }
 
+  // Mobile Navigation Drawer & Bottom Bar Handlers
+  const mobileToggle = document.getElementById('mobile-menu-toggle');
+  const mobileClose = document.getElementById('mobile-close-btn');
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const mobileNavBtns = document.querySelectorAll('.mobile-nav-btn');
+
+  function openMobileSidebar() {
+    if (sidebar) sidebar.classList.add('mobile-open');
+    if (backdrop) backdrop.classList.add('active');
+  }
+
+  function closeMobileSidebar() {
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (backdrop) backdrop.classList.remove('active');
+  }
+
+  if (mobileToggle) mobileToggle.addEventListener('click', openMobileSidebar);
+  if (mobileClose) mobileClose.addEventListener('click', closeMobileSidebar);
+  if (backdrop) backdrop.addEventListener('click', closeMobileSidebar);
+
+  // Sync tab switching between desktop nav and mobile bottom nav
+  function switchTab(tab) {
+    navItems.forEach(n => {
+      if (n.dataset.tab === tab) n.classList.add('active');
+      else n.classList.remove('active');
+    });
+
+    mobileNavBtns.forEach(b => {
+      if (b.dataset.tab === tab) b.classList.add('active');
+      else b.classList.remove('active');
+    });
+
+    viewPanels.forEach(p => p.classList.remove('active'));
+    const targetPanel = document.getElementById(`view-${tab}`);
+    if (targetPanel) {
+      targetPanel.classList.add('active');
+    }
+    if (viewTitle && titleMap[tab]) {
+      viewTitle.textContent = titleMap[tab];
+    }
+    if (tab === 'dag-canvas') {
+      renderDAGGraph();
+    }
+    closeMobileSidebar();
+  }
+
+  navItems.forEach(item => {
+    item.addEventListener('click', () => switchTab(item.dataset.tab));
+  });
+
+  mobileNavBtns.forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
   // Initializations
   renderTasksTable();
   renderHITLGateway();

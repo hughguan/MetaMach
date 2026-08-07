@@ -152,7 +152,9 @@ async fn main() -> Result<()> {
         .route("/runs/:id/stream", get(handle_ws_stream))
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", cli.bind, cli.port)
+    let bind = &cli.bind;
+    let port = cli.port;
+    let addr: SocketAddr = format!("{bind}:{port}")
         .parse()
         .context("invalid bind/port configuration")?;
 
@@ -162,11 +164,8 @@ async fn main() -> Result<()> {
         "http"
     };
 
-    println!(
-        "🚀 MetaMach Studio (v0.6.0) listening on {}://{}",
-        scheme, addr
-    );
-    println!("🔐 Auth Token: {}", auth_token);
+    println!("🚀 MetaMach Studio (v0.6.0) listening on {scheme}://{addr}");
+    println!("🔐 Auth Token: {auth_token}");
 
     if cli.tls_cert.is_some() || cli.tls_key.is_some() {
         println!("🔒 TLS Configuration: Enabled");

@@ -190,7 +190,7 @@
 | **Context** | The Herdr 0.7.3 plugin model provides pane entrypoints (`[[panes]]`), injected environment variables (`HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_SOCKET_PATH`), and placement directives (`overlay | split | tab | zoomed`). `herdr-janus` was always intended as a lightweight shadow client, but the original Chinese design doc (`docs/bak/herdr-plugin.md`) proposed an over-engineered approach with two panes, invalid placement directives, and CLI modes that don't match the actual implementation. |
 | **Options Considered** | (1) Two-pane design (interception-popup + dashboard) with CLI `--mode` flags, (2) Single-pane design with internal Tab-toggle (Dispatch ↔ Progress), M0-validated against Herdr 0.7.3. |
 | **Decision** | **Adopted** — Single `dispatcher` pane with `placement = "overlay"`, internal `Tab` toggle between Dispatch (ACTIVE blueprints) and Progress (in-flight tasks). Keybinding is configured in `~/.config/herdr/config.toml` (not the plugin manifest). The plugin process runs a ratatui TUI; Herdr closes the overlay automatically on process exit — no explicit `herdr plugin pane close` call needed. |
-| **Rationale** | The M0 spike (`docs/herdr-v1-contract.md`) validated Herdr 0.7.3's actual behavior: `placement = "overlay"` (not `popup`), no `width`/`height` manifest fields, `id = "metamach.janus"` (not com.metamach.janus), `min_herdr_version = "0.7.3"`. The two-pane design was over-engineered — one pane with internal view switching is simpler. The `herdr plugin pane close` approach is unnecessary; Herdr closes the overlay when the process exits. |
+| **Rationale** | The M0 spike (`docs/contracts/herdr.md`) validated Herdr 0.7.3's actual behavior: `placement = "overlay"` (not `popup`), no `width`/`height` manifest fields, `id = "metamach.janus"` (not com.metamach.janus), `min_herdr_version = "0.7.3"`. The two-pane design was over-engineered — one pane with internal view switching is simpler. The `herdr plugin pane close` approach is unnecessary; Herdr closes the overlay when the process exits. |
 | **Status** | ✅ Implemented in 0.3.0+ (M2). `janus/herdr-plugin.toml` + `janus/src/bin/herdr_janus.rs`. |
 
 ### Manifest (Corrected)
@@ -286,8 +286,8 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 | Field | Value |
 |---|---|
-| **Context** | Phase 2 (`M4-4.1-design.md` §2.1) proposed a separate `SshTmuxBackend` type for cross-host SSH tmux sessions — a new struct, new file (`tmux/ssh.rs`), new `DurableBackend` impl duplicating ~100 lines of identical tmux command construction. The only difference between local and remote tmux is an `ssh <host>` prefix on the CLI command. |
-| **Options Considered** | (1) Separate `SshTmuxBackend` type (M4-4.1-design.md §2.1), (2) Same `TmuxBackend` with optional `ssh <host>` prefix, (3) Multi-daemon topology (remote daemon + remote PG per host). |
+| **Context** | Phase 2 (`docs/bak/M4-4.1-design.md` §2.1) proposed a separate `SshTmuxBackend` type for cross-host SSH tmux sessions — a new struct, new file (`tmux/ssh.rs`), new `DurableBackend` impl duplicating ~100 lines of identical tmux command construction. The only difference between local and remote tmux is an `ssh <host>` prefix on the CLI command. |
+| **Options Considered** | (1) Separate `SshTmuxBackend` type (`docs/bak/M4-4.1-design.md` §2.1), (2) Same `TmuxBackend` with optional `ssh <host>` prefix, (3) Multi-daemon topology (remote daemon + remote PG per host). |
 | **Decision** | **Adopted** — Option (2): `TmuxBackend` gains a `with_ssh(host)` constructor. The `ssh <host>` prefix is prepended to all tmux CLI calls (`new-session`, `display-message`, `capture-pane`, etc.). All `DurableBackend` methods remain identical. Remote janush ↔ daemon connectivity uses SSH `-R` reverse tunnel to map the local `janus.sock` to `/tmp/mm-<host>.sock` on the remote host — zero remote configuration. |
 | **Rationale** | All `DurableBackend` operations are tmux CLI calls; `ssh <host> tmux ...` is syntactically identical to `tmux ...`. A single backend with optional SSH prefix is ~20 lines vs ~100 lines of duplicated code. The reverse tunnel keeps Tool Guard local (same agents.toml, same GuardCheck, same verdicts). Remote host needs only tmux + janush (two binaries, scp once) — no daemon, no PG, no agents.toml, no gateway. |
 | **Status** | ✅ Implemented in 0.4.5 (`6ac8b9e`). |
@@ -330,30 +330,6 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
-## ADR-021: Pipeline DAG — Workflow Composition Engine (0.4.9)
-
-| Field | Value |
-|---|---|
-| **Context** | The 0.4.x workflow engine executes flat `[[steps]]` sequentially. Complex pipelines require composing multiple Workflows with dependency edges (compile → audit → flash), parallel execution of independent nodes, and reuse of shared Workflow libraries across Blueprints. |
-| **Options Considered** | (1) Keep flat sequential model (no composition), (2) Add a `Pipeline` DAG layer above Workflows with `needs:` edges and topological scheduling, (3) Redefine Workflow to include branching/looping (breaking change). |
-| **Decision** | **Adopted** — Option (2): introduce `Pipeline` as a new abstraction layer between Blueprint and Workflow. A `pipelines/<name>.toml` file defines a DAG of `[[nodes]]` each referencing a Workflow. `needs:` edges define dependencies; nodes at the same level run in parallel. Workflow and Blueprint keep their current definitions — Pipeline is an addition, not a redefinition. |
-| **Rationale** | Preserves backward compatibility: existing `Blueprint → Workflow` bindings continue working. Adds composition without breaking changes. TOML format consistent with existing config files. Topological sort + parallel scheduling is a well-understood pattern with low implementation risk (~500 lines). |
-| **Status** | ✅ Implemented in 0.4.9 (`314c423`). |
-
----
-
-## ADR-023: Agent Planner — LLM-Assisted Pipeline Generation (0.5.0)
-
-| Field | Value |
-|---|---|
-| **Context** | Writing `pipelines/<name>.toml` by hand requires knowing Workflow names, node IDs, and dependency edges. For non-programmer Factory Directors, this is a significant adoption barrier. |
-| **Options Considered** | (1) Manual TOML editing only (status quo), (2) LLM-assisted CLI tool that generates Pipeline TOML from natural language, (3) Web-based drag-and-drop editor (Canvas Studio, 0.6.0). |
-| **Decision** | **Adopted** — Option (2): `janus pipeline plan` CLI subcommand. The Planner reads the Workflow library (`workflows/*.toml`), sends a catalog + user prompt to the LLM (using existing Coding Plan provider), receives generated Pipeline TOML, runs `janus pipeline validate`, and writes `pipelines/<name>.toml`. Three-phase interactive workflow: Draft → Revise → Commit. |
-| **Rationale** | CLI-only, zero daemon changes, zero new API keys (reuses Coding Plan provider). LLM is advisory — `janus pipeline validate` is the final gate. Fallback: hand-write pipelines always works. Natural-language generation removes the biggest UX barrier for non-programmer users. |
-| **Status** | ✅ Implemented in 0.5.0. |
-
----
-
 ## ADR-022: Time-Driven Suspension — Quota Exhaustion & Scheduled Sleep (0.5.0)
 
 | Field | Value |
@@ -363,6 +339,18 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Decision** | **Adopted** — Option (2): add `sleep` to the `DurableEngine` trait and integrate it into the engine's retry loop. On step exit ≠ 0, the engine inspects `stdout_tail` for quota-exhaustion patterns (429, quota exceeded, rate limit) and the Configurable Agent's quota config (ADR-019). If quota exhaustion is detected, the engine calls `engine.sleep(queue, task_id, run_id, seconds)` instead of `fail_run` — absurd suspends the task for the specified duration, then auto-wakes it. The engine re-claims and resumes from the same step. |
 | **Rationale** | absurd already supports `sleep()` — this is a one-method addition to the `DurableEngine` trait. The pattern detection in `stdout_tail` is heuristic but low-risk: if the detection is wrong, the engine falls back to `fail_run`. The sleep duration is configurable via `JANUS_QUOTA_SLEEP_SECONDS` (default: until next UTC hour boundary, or a fixed 300s). Time-driven sleep fills the gap between "retry immediately" and "fail permanently" — it's the correct response for quota-bound resources. |
 | **Status** | ✅ Implemented in 0.5.0 (`3bb4aad`). |
+
+---
+
+## ADR-023: Agent Planner — LLM-Assisted Pipeline Generation (0.5.0)
+
+| Field | Value |
+|---|---|
+| **Context** | Writing workflow DAG definitions by hand requires knowing Workflow names, node IDs, and dependency edges. For non-programmer Factory Directors, this is a significant adoption barrier. |
+| **Options Considered** | (1) Manual TOML editing only (status quo), (2) LLM-assisted CLI tool that generates Workflow DAG TOML from natural language, (3) Web-based drag-and-drop editor (Canvas Studio, 0.6.0). |
+| **Decision** | **Adopted** — Option (2): `janus plan` CLI subcommand. The Planner reads the Workflow library (`templates/workflows/*.toml` + `.janus/workflows/*.toml`), sends a catalog + user prompt to the LLM (using existing Coding Plan provider), receives generated Workflow DAG TOML, runs validation, and writes to `.janus/workflows/`. Three-phase interactive workflow: Draft → Revise → Commit. |
+| **Rationale** | CLI-only, zero daemon changes, zero new API keys (reuses Coding Plan provider). LLM is advisory — validation is the final gate. Fallback: hand-write workflows always works. Natural-language generation removes the biggest UX barrier for non-programmer users. |
+| **Status** | ✅ Implemented in 0.5.0. |
 
 ---
 
@@ -420,7 +408,7 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 |---|---|
 | **Context** | Test-Spec Suite 2.11 defines three end-to-end multi-agent pipelines (`req2spec`, `spec2software`, `adr-process`) that validate the full DevSecOps lifecycle across ARCHITECT, BUILDER, and TESTER agents. These require real LLM agents, API keys, PG, and tmux — they cannot run in CI. But the pipeline mechanics (DAG engine, parallel execution, Tool Guard, checkpoint/recovery, git commit) need CI coverage. |
 | **Options Considered** | (1) E2E tests only (manual, no CI coverage of pipeline mechanics), (2) Mock-agent CI tests + manual LLM validation (dual-path), (3) No E2E tests — rely on unit + integration tests. |
-| **Decision** | **Adopted** — Option (2): dual-path approach. **CI path:** `tests/e2e_pipeline.rs` with mock agents (deterministic shell scripts: `echo APPROVED`, `echo 'spec content' > docs/...`) that exercise the full DAG engine, Tool Guard interception, checkpoint/recovery, cold-start resume, and git commit — zero LLM dependency. **Manual path:** pre-release validation following the Suite 2.11 procedures with real LLM agents, run from a macOS/Linux host with PG + tmux + API keys. **Blueprint:** `blueprints/software-dev/` with `requirements/product.md`, `agents.toml` with architect/builder/tester roles, `pipelines/req2spec.toml`, `pipelines/spec2software.toml`, `pipelines/adr-process.toml`. |
+| **Decision** | **Adopted** — Option (2): dual-path approach. **CI path:** `tests/e2e_pipeline.rs` with mock agents (deterministic shell scripts: `echo APPROVED`, `echo 'spec content' > docs/...`) that exercise the full DAG engine, Tool Guard interception, checkpoint/recovery, cold-start resume, and git commit — zero LLM dependency. **Manual path:** pre-release validation following the Suite 2.11 procedures with real LLM agents, run from a macOS/Linux host with PG + tmux + API keys. **Blueprint:** `.janus/` with `blueprint.toml`, `agents.toml` with architect/builder/tester roles, `.janus/workflows/req2spec.toml`, `.janus/workflows/spec2software.toml`, `.janus/workflows/adr-process.toml`. |
 | **Rationale** | Mock-agent tests give CI confidence that the pipeline mechanics work end-to-end (DAG → Dispatch → Progress → COMPLETED → git commit) without the cost, flakiness, and API key dependency of real LLMs. Manual validation with real agents catches integration issues that mocks can't (LLM prompt quality, real output format, actual API behavior). The `software-dev` blueprint serves as both the CI test fixture and the manual validation target. |
 | **Status** | 📋 Spec'd Only — 0.4.9.4 implementation (0.5.0 prep). |
 

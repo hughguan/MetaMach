@@ -65,11 +65,11 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 | `ADR.md` | 31 Architecture Decision Records (ADR-001 through ADR-031) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook, unified workflow DSL |
 | `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 178-test report, system deployment & CI pipeline |
 | `PLAN.md` | Execution plan & milestone history (M0 through M5) | Milestone roadmap, physical check-in units, verification gates |
-| `contracts/` | Dependency contracts (`herdr.md`, `absurd.md`) | External plugin and database engine API contracts |
+| `contracts/` | Dependency contracts (`herdr.md`, `absurd.md`, `tmux.md`) | External plugin, database engine, and physical PTY execution contracts |
 
 Cross-doc identifiers to keep consistent when editing:
-- **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (SPEC.md Part 1 §1); `fallback_events` SQLite ring buffer (Contract 3.8).
-- **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
+- **Data contracts:** `blueprints`, `absurd_tasks`, `absurd_steps` (SPEC.md Part 1 §1); `fallback_events` SQLite ring buffer (`fallback.db`, Contract 3.9).
+- **Status enum:** `PENDING -> STARTING -> RUNNING -> COMPLETED | FAILED | SUSPENDED | STOPPED` (tasks/steps); `ACTIVE <-> OFFBOARDED` (blueprints).
 - **CLI:** unified `janus` CLI with subcommands `janus init` / `offboard` / `start` / `status` / `plan` / `daemon` / `tmux` (all require the Daemon running — they are UDS clients, never direct DB access). tmux session commands are `janus tmux open|attach|list` (native `janus::tmux`; the old `herdr-tether <subcommand>` surface was internalized).
 - **Naming:** database is "Absurd Postgres" (formal) / "Absurd DB" (shorthand) — not "Unified DB/PG". Project is branded **MetaMach 0.5.0**. tmux socket is `metamach-tmux` (renamed from the prior `metamach-tether`).
 - **Safety tests:** never prescribe literal `rm -rf /`; use the `/tmp/metamach-*-guard-$(uuidgen)` sentinel pattern (see SPEC.md Part 2 UTC-02-02).

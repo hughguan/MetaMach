@@ -34,7 +34,7 @@
 
 ### Key Invariants
 1. **Isolated Server (`tmux -L metamach-tmux`)**: Physical sessions run on a dedicated socket (`TMUX_SOCKET`), never polluting the developer's personal tmux server.
-2. **Physical Non-Destruction (`remain-on-exit on`)**: Sessions survive process exit, SSH drops, or daemon restarts (ARCH §6.1). Pane completion is detected via `display-message '#{pane_dead}: #{pane_dead_status}'`.
+2. **Physical Non-Destruction (`remain-on-exit on`)**: Sessions survive process exit, SSH drops, or daemon restarts (ARCH §6 Invariant #1). Pane completion is detected via `display-message '#{pane_dead}: #{pane_dead_status}'`.
 3. **Fail-Closed PTY Interception (`janush`)**: Workload commands are wrapped in `janush -c "<command>"` so every agent execution is synchronously reconciled against Tool Guard before execution.
 
 ---

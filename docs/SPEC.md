@@ -20,13 +20,16 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 | Contract | Message Type | Sender → Receiver | Payload / Description |
 |---|---|---|---|
 | **Contract 3.1** | `Ping` / `Pong` | Client → Daemon | Daemon liveness check + version info. |
-| `GuardCheck` | `janush` → Daemon | `agent`, `command`, `session_name`, `target_sha`, `env_snapshot`. |
-| `GuardVerdict` | Daemon → `janush` | Verdict (`ALLOW`, `BLOCK`, `REWRITE`), `rewritten_command`, `cognitive_context`. |
-| `RegisterTenant` | `janus init` → Daemon | Registers blueprint name, default workflow, and validates PostgreSQL schema. |
-| `Dispatch` | CLI/TUI → Daemon | Dispatches linear or DAG workflow by name onto Absurd PG. Returns `task_id`. |
-| `Stop` | CLI/TUI → Daemon | Kills active tmux sessions for task and marks task `STOPPED`. |
-| `Continue` | CLI/TUI → Daemon | Resumes stopped/crashed tasks via cold-start reconciliation. |
-| `ProgressQuery` | TUI → Daemon | Queries active task execution state across per-blueprint databases. |
+| **Contract 3.2** | `GuardCheck` / `GuardVerdict` | `janush` → Daemon | `agent`, `command`, `session_name`, `target_sha`, `env_snapshot`. |
+| **Contract 3.3** | `RegisterTenant` | `janus init` → Daemon | Registers blueprint name, default workflow, and validates PostgreSQL schema. |
+| **Contract 3.4** | `Dispatch` | CLI/TUI → Daemon | Dispatches linear or DAG workflow by name onto Absurd PG. Returns `task_id`. |
+| **Contract 3.5** | `Stop` / `Continue` | CLI/TUI → Daemon | Kills active tmux sessions for task and marks task `STOPPED` / resumes task. |
+| **Contract 3.6** | `ProgressQuery` | TUI → Daemon | Queries active task execution state across per-blueprint databases. |
+| **Contract 3.7** | Blueprint Recipe | CLI/Daemon | Parsing and validation of `.janus/blueprint.toml` configuration. |
+| **Contract 3.8** | Step Workflow | Engine/Daemon | Execution of workflow steps, step status transitions, and Absurd queue naming. |
+| **Contract 3.9** | SQLite Fallback Ring | Adapter/Daemon | Ring buffer persistence (`fallback.db`) during PostgreSQL outages. |
+| **Contract 3.10** | Offboard & Smelt | CLI/Daemon | Archival of audit trail, database smelting, and `production_report.md` git commit. |
+| **Contract 3.11** | Cold-Start Reconcile | Daemon Boot | Recovery and rescheduling of interrupted tasks on daemon startup. |
 
 ---
 
@@ -38,21 +41,34 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
   - `ALLOW`: Command passes through to `janush` and executes bare-metal in PTY.
   - `BLOCK`: Command is rejected with exit code `126` (fail-closed timeout = 30s `BLOCK`).
   - `REWRITE`: Command is safely modified (e.g. converting financial command to `--dry-run`).
-- **HITL Interception**: Commands matching high-risk patterns (e.g. production deploy, `rm -rf /`, database drop) trigger `SUSPEND` state in Absurd PG and dispatch a Teams Adaptive Card via `janus::gateway`. Execution freezes until human approval or 15-minute deadline expiry (`410 Gone`).
+- **HITL Interception**: Commands matching high-risk patterns (e.g. production deploy, `rm -rf /`, database drop) trigger `SUSPEND` state in Absurd PG and dispatch a Teams Adaptive Card via `janus::gateway`. Execution freezes until human approval or 30-minute default deadline expiry (`410 Gone`, configurable via `JANUS_HITL_TIMEOUT_SECS`).
 
 ---
 
-## 3. Advanced Engine & Infrastructure Features (Contracts 4.1 – 4.3)
+## 3. Advanced Engine & Infrastructure Features (Contracts 4.1 – 4.6)
 
-### Contract 4.1 — Init & Offboard Lifecycle
+### Contract 4.1 — Cognitive Provider SPI (`janus::cognitive`)
+- Advisory-only SPI for external Model Context Protocol (MCP) servers (e.g. `codebase-memory-mcp`).
+- Standard 2-second fail-open timeout: provider timeouts or unreachability automatically fall back to standard Tool Guard rules without blocking execution.
+
+### Contract 4.2 — Model Context Protocol Integration & OpenWiki RAG
+- Connects MCP tool discovery and semantic codebase context to agent execution pipelines.
+- Supplemented by `.janus/openwiki/` RAG knowledge scopes.
+
+### Contract 4.3 — HITL Gateway & Webhook Integration (`janus::gateway`)
+- Microsoft Teams Adaptive Card (1.4 JSON schema) dispatch for high-risk human approval requests.
+- HMAC-SHA256 signature verification (`X-MetaMach-Signature`) and loopback HTTP callback listener (`:9090` / `/api/v1/hitl/verdict`).
+- Idempotent handling: duplicate verdicts return `409 Conflict`.
+
+### Contract 4.4 — Init & Offboard Lifecycle
 - `janus init`: Idempotent scaffold of `.janus/`, blueprint recipe validation, PG blueprint database initialization, tenant registration.
 - `janus offboard`: Commits `production_report.md` to git, executes `melt_blueprint_data` (purges heavy JSON rows while retaining step audit logs), updates catalog status to `OFFBOARDED`.
 
-### Contract 4.2 — Environmental Snapshot & Stream Filter
+### Contract 4.5 — Environmental Snapshot & Stream Filter
 - **Environmental Snapshot (`004_env_snapshot.sql`)**: Captures `JANUS_ENV_TIMESTAMP` (ISO-8601 UTC) and `JANUS_ENV_TTY_DEVICES` on step start.
 - **ANSI Stream Filter (`janus::workflow::filter`)**: Strips ANSI terminal escape sequences and collapses progress bar redrawing to enforce 16 KiB truncation budgets.
 
-### Contract 4.3 — Pre-Flight Hardware Probes & Dual-Path Logging
+### Contract 4.6 — Pre-Flight Hardware Probes & Dual-Path Logging
 - **Pre-Flight Probes**: Probes hardware interfaces (Serial, USB, SSH) before executing target hardware steps. Outcome: `Bypass`, `RequireApproval`, or `NoProbe`.
 - **Dual-Path Log Pipeline**: Raw PTY output written to `/tmp/metamach/logs/<task_id>.log` (7-day GC); 16 KiB truncated tail stored transactionally in PostgreSQL `metamach_step_meta`.
 
@@ -66,15 +82,15 @@ MetaMach maintains 178 automated tests across 8 integration test files and inlin
 
 | Test ID | Module / File | Description | Target Contract | Severity |
 |---|---|---|---|---|
-| **UTC-01-01** | `uds_contract.rs` | Daemon binds physical socket `janus.sock` and PID lock file `janus.pid`; second launch refuses lock. | §3.1 Daemon socket | Blocker |
-| **UTC-02-02** | `uds_contract.rs` | `janush` proxy shell intercepts ALLOW/BLOCK commands and enforces 30s fail-closed timeout. | §3.4 Fail-Closed | Blocker |
-| **UTC-03-01** | `step_workflow.rs` | Step state transitions (`STARTING` → `RUNNING` → `COMPLETED`/`FAILED`). | §3.3 Step Workflow | Blocker |
-| **UTC-03-03** | `step_workflow.rs` | Cold-start reconciliation: daemon restart resumes from last `COMPLETED` checkpoint. | §4.4 Cold-Start | Blocker |
-| **UTC-04-01** | `onboard_lifecycle.rs` | HITL suspend preserves guard verdict scene; resume executes follow-on step. | §2.4 HITL Gateway | Critical |
-| **UTC-05-01** | `onboard_lifecycle.rs` | Dual 16 KiB budget truncation at `janush` and `janus-daemon`. | §4.2 16KB Budget | Critical |
-| **UTC-05-02** | `onboard_lifecycle.rs` | `janus offboard` smelts operational data and archives audit trail. | Contract 4.1 Offboard | Major |
-| **UTC-10-02** | `gateway.rs` | HITL Teams Adaptive Card webhook callback validation and duplicate rejection (`409 Conflict`). | §2.4 HITL Gateway | Critical |
-| **UTC-10-04** | `gateway.rs` | HMAC-SHA256 constant-time webhook signature verification. | §2.4 Security | Blocker |
+| **UTC-01-01** | `uds_contract.rs` | Daemon binds physical socket `janus.sock` and PID lock file `janus.pid`; second launch refuses lock. | Contract 3.1 | Blocker |
+| **UTC-02-02** | `uds_contract.rs` | `janush` proxy shell intercepts ALLOW/BLOCK commands and enforces 30s fail-closed timeout. | Contract 3.2 | Blocker |
+| **UTC-03-01** | `step_workflow.rs` | Step state transitions (`STARTING` → `RUNNING` → `COMPLETED`/`FAILED`). | Contract 3.8 | Blocker |
+| **UTC-03-03** | `step_workflow.rs` | Cold-start reconciliation: daemon restart resumes from last `COMPLETED` checkpoint. | Contract 3.11 | Blocker |
+| **UTC-04-01** | `onboard_lifecycle.rs` | HITL suspend preserves guard verdict scene; resume executes follow-on step. | Contract 4.3 | Critical |
+| **UTC-05-01** | `onboard_lifecycle.rs` | Dual 16 KiB budget truncation at `janush` and `janus-daemon`. | Contract 4.5 | Critical |
+| **UTC-05-02** | `onboard_lifecycle.rs` | `janus offboard` smelts operational data and archives audit trail. | Contract 4.4 | Major |
+| **UTC-10-02** | `gateway.rs` | HITL Teams Adaptive Card webhook callback validation and duplicate rejection (`409 Conflict`). | Contract 4.3 | Critical |
+| **UTC-10-04** | `gateway.rs` | HMAC-SHA256 constant-time webhook signature verification. | Contract 4.3 | Blocker |
 
 ---
 

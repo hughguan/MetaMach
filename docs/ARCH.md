@@ -161,48 +161,61 @@ sequenceDiagram
 
 ## 5. GitHub Monorepo Directory Structure
 
-To fully comply with Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** physical isolation boundary, the entire `metamach` repository uses the following organizational topology:
-
-```
+To fully comply with Herdr 0.7.3's **"Immutable ROOT vs. Mutable State"** physical isolation boundary, the entire `metamach` repository use```
 metamach/ (Single monorepo — silicon factory headquarters)
 ├── .github/
 │   └── workflows/
-│       └── build-janus.yml       # CI: cross-platform janus binary compilation
+│       └── ci.yml                # CI workflow: native PG + tmux + Herdr (all 178 tests)
 │
-├── Makefile                      # Factory master switch
+├── docs/                         # English specs (source of truth) & ADR.md
+│   └── contracts/                # Dependency contracts (herdr.md, absurd.md, tmux.md)
+├── Makefile                      # Factory master switch & bootstrap targets
 ├── README.md                     # Factory operations manual & safety whitepaper
-├── .gitignore                    # Strictly filter local temp sandboxes, PG data dirs, local state
+├── AGENTS.md                     # AI agent repository guidelines & architecture
+├── CLAUDE.md                     # Developer & AI guidance
+├── .gitignore                    # Filter local temp sandboxes, PG data dirs, local state
 │
 │   # ====================================================================
-│   # 1. JANUS CORE (supreme control brain & shadow client)
+│   # 1. JANUS CORE (control plane daemon, shell proxy & TUI)
 │   # ====================================================================
 ├── janus/
 │   ├── Cargo.toml                # Rust workspace config
-│   ├── herdr-plugin.toml         # Herdr 0.7.3 plugin contract (popup declaration & event hooks)
-│   ├── migrations/               # Postgres init migration scripts
-│   │   └── 001_init_absurd.sql
+│   ├── herdr-plugin.toml         # Herdr 0.7.3 plugin contract (overlay declaration & event hooks)
+│   ├── migrations/               # PostgreSQL init & schema migration scripts
+│   │   ├── 001_catalog.sql
+│   │   ├── 002_blueprint.sql
+│   │   ├── 003_hitl_verdict.sql
+│   │   └── 004_env_snapshot.sql
 │   └── src/
 │       ├── bin/
-│       │   ├── janus_daemon.rs   # Resident background daemon
-│       │   ├── herdr_janus.rs    # Ultra-lightweight Herdr shadow client
-│       │   └── janush.rs       # Proxy shell
+│       │   ├── janus.rs          # CLI client (init, plan, status, offboard)
+│       │   ├── janus_daemon.rs   # Resident background daemon (UDS, state, DB pool)
+│       │   ├── herdr_janus.rs    # Herdr 0.7.3 TUI shadow client (ratatui overlay)
+│       │   └── janush.rs         # Proxy shell for Tool Guard interception
 │       │
-│       ├── gateway/              # 🌐 0.4.0 HITL Gateway (Hermes Run API, Teams, Telegram)
-│       ├── cognitive/            # 🔌 0.4.0 Cognitive Provider SPI (MCP, OpenWiki)
-│       ├── tool_guard/           # janush in-memory interception & allowlist filtering
-│       ├── absurd/               # Exclusive sqlx Postgres connection pool, reconciliation & GC
-│       └── tui/                  # Popup keyboard UI (Ratatui)
+│       ├── tmux/                 # PTY session engine (remain-on-exit tmux server)
+│       ├── gateway/              # 🌐 HITL Gateway (Teams Adaptive Cards, HMAC, callback)
+│       ├── cognitive/            # 🔌 Cognitive Provider SPI (MCP plugins, OpenWiki)
+│       ├── tool_guard/           # In-memory command rule engine & allowlist filter
+│       ├── absurd/               # Absurd Postgres pool, catalog DB, fallback ring buffer
+│       ├── workflow/             # Workflow execution engine, step dispatch, stream filter
+│       ├── agent.rs              # Agent pool configuration & capability resolution
+│       ├── coldstart.rs          # Daemon boot cold-start reconciliation
+│       ├── lifecycle.rs          # Project onboard & offboard lifecycle management
+│       ├── paths.rs              # System path resolution (UDS socket, state dirs)
+│       ├── pipeline.rs           # Pipeline DAG engine (Kahn's topo-sort level barrier)
+│       ├── protocol.rs           # UDS request/response wire protocol definitions
+│       ├── recipe.rs             # Blueprint & workflow TOML recipe parser/validator
+│       ├── spawn.rs              # Daemon process launcher & PID lock manager
+│       └── uds.rs                # Async UDS server & socket listener
 │
 │   # ====================================================================
-│   # 2. CONFIG & EXTERNAL DEPENDENCIES
+│   # 2. CONFIGS & TEMPLATES
 │   # ====================================================================
-├── configs/                      # Global static config
+├── configs/                      # Global static configuration
 │   ├── agents.toml               # Agent Pool registration & permission allowlist
-│   ├── tmux.conf                 # tmux init config (remain-on-exit)
-│   └── global_rules.md           # Factory-wide developer rules (Agent onboarding safety lines)
-│
-├── openwiki/                     # External: langchain-ai/openwiki — RAG knowledge federation engine
-│   └── configs/                  # OpenWiki engine config (binary built from external repo)
+│   ├── offboard.toml             # Offboard smelting policy configuration
+│   └── global_rules.md           # Factory-wide developer rules & safety guidelines
 │
 ├── templates/                    # `janus init` scaffolds from here
 │   ├── blueprint.toml            # Default project recipe template
@@ -217,8 +230,7 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │   #   ├── agents/               # Project-specific agent role overrides
 │   #   ├── workflows/            # Unified workflow definitions (linear + DAG)
 │   #   └── openwiki/             # RAG knowledge scope; production_report.md on offboard
-│
-│   # ====================================================================
+```========================
 │   # 4. PROVISIONING (maintenance & sandbox mounting)
 │   # ====================================================================
 └── provisioning/

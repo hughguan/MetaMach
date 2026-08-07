@@ -377,11 +377,17 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
     let mut ticks = 0u64;
 
     // 1. Initial SNAPSHOT on connect per ADR-032 §5.C
-    let req = Request::Progress { blueprint: None };
-    let active_tasks = match uds::request_to(&state.sock_path, &req, Duration::from_millis(1000)) {
-        Ok(UdsResponse::Progress { active_tasks }) => active_tasks,
-        _ => vec![],
-    };
+    let sock_path = state.sock_path.clone();
+    let active_tasks = tokio::task::spawn_blocking(move || {
+        let req = Request::Progress { blueprint: None };
+        match uds::request_to(&sock_path, &req, Duration::from_secs(3)) {
+            Ok(UdsResponse::Progress { active_tasks }) => active_tasks,
+            _ => vec![],
+        }
+    })
+    .await
+    .unwrap_or_default();
+
     let json_str = serde_json::to_string(&active_tasks).unwrap_or_default();
     let snapshot = serde_json::json!({
         "type": "SNAPSHOT",
@@ -398,39 +404,45 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
     loop {
         interval.tick().await;
         ticks += 1;
-        let req = Request::Progress { blueprint: None };
-        if let Ok(UdsResponse::Progress { active_tasks }) =
-            uds::request_to(&state.sock_path, &req, Duration::from_millis(500))
-        {
-            let current_json = serde_json::to_string(&active_tasks).unwrap_or_default();
-            if last_tasks_json.as_ref() != Some(&current_json) {
-                let delta = serde_json::json!({
-                    "type": "DELTA",
-                    "run_id": id,
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "active_tasks": active_tasks
-                });
-                if socket
-                    .send(Message::Text(delta.to_string().into()))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-                last_tasks_json = Some(current_json);
-            } else if ticks.is_multiple_of(10) {
-                let hb = serde_json::json!({
-                    "type": "HEARTBEAT",
-                    "run_id": id,
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                });
-                if socket
-                    .send(Message::Text(hb.to_string().into()))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
+        let sock_path = state.sock_path.clone();
+        let active_tasks = tokio::task::spawn_blocking(move || {
+            let req = Request::Progress { blueprint: None };
+            match uds::request_to(&sock_path, &req, Duration::from_secs(3)) {
+                Ok(UdsResponse::Progress { active_tasks }) => active_tasks,
+                _ => vec![],
+            }
+        })
+        .await
+        .unwrap_or_default();
+
+        let current_json = serde_json::to_string(&active_tasks).unwrap_or_default();
+        if last_tasks_json.as_ref() != Some(&current_json) {
+            let delta = serde_json::json!({
+                "type": "DELTA",
+                "run_id": id,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "active_tasks": active_tasks
+            });
+            if socket
+                .send(Message::Text(delta.to_string().into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+            last_tasks_json = Some(current_json);
+        } else if ticks.is_multiple_of(10) {
+            let hb = serde_json::json!({
+                "type": "HEARTBEAT",
+                "run_id": id,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+            if socket
+                .send(Message::Text(hb.to_string().into()))
+                .await
+                .is_err()
+            {
+                break;
             }
         }
     }

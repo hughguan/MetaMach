@@ -144,7 +144,7 @@ impl AbsurdDb {
         match PgPoolOptions::new()
             .min_connections(0)
             .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
+            .acquire_timeout(Duration::from_secs(5))
             .idle_timeout(Duration::from_secs(10))
             .connect_with(opts)
             .await
@@ -179,6 +179,14 @@ impl AbsurdDb {
     /// re-init re-applies the IF NOT EXISTS / ADD COLUMN IF NOT EXISTS
     /// migrations (no-op on an existing DB).
     pub async fn ensure_blueprint_db(&self, name: &str) -> Result<()> {
+        if self
+            .blueprint_pools
+            .read()
+            .expect("blueprint_pools lock")
+            .contains_key(name)
+        {
+            return Ok(());
+        }
         let Some(catalog) = self.catalog_pool().await else {
             bail!("catalog DB offline - cannot create blueprint DB for {name}");
         };
@@ -275,12 +283,24 @@ impl AbsurdDb {
     pub async fn progress(&self, blueprint: Option<&str>) -> Result<Vec<ActiveTask>> {
         let names: Vec<String> = match blueprint {
             Some(n) => vec![n.to_string()],
-            None => self
-                .active_blueprints()
-                .await?
-                .into_iter()
-                .map(|b| b.name)
-                .collect(),
+            None => {
+                let cached: Vec<String> = self
+                    .blueprint_pools
+                    .read()
+                    .expect("bp lock")
+                    .keys()
+                    .cloned()
+                    .collect();
+                if !cached.is_empty() {
+                    cached
+                } else {
+                    self.active_blueprints()
+                        .await?
+                        .into_iter()
+                        .map(|b| b.name)
+                        .collect()
+                }
+            }
         };
         let futures = names.into_iter().map(|name| async move {
             let pool = match self.blueprint_pool(&name).await {

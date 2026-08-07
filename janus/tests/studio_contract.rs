@@ -56,7 +56,7 @@ impl Daemon {
             .env("JANUS_AGENTS_TOML", agents)
             .env("JANUS_GATEWAY_LISTEN_PORT", "0")
             .env("JANUS_JANUSH_BIN", env!("CARGO_BIN_EXE_janush"))
-            .env("RUST_LOG", "warn")
+            .env("RUST_LOG", "debug")
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -258,15 +258,22 @@ fn utc_32_02_studio_http_rest_api_suite() {
     let daemon = Daemon::spawn(state.path(), &agents, repo.path());
     daemon.wait_ready();
 
-    let resp = daemon
-        .uds(
+    // Onboard blueprint (retrying if PG is still connecting)
+    let mut onboarded = false;
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        if let Ok(Response::Ok { .. }) = daemon.uds(
             &Request::Onboard {
                 name: "studio_http_e2e".into(),
             },
-            Duration::from_secs(5),
-        )
-        .unwrap();
-    assert!(matches!(resp, Response::Ok { .. }));
+            Duration::from_secs(2),
+        ) {
+            onboarded = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(onboarded, "failed to onboard studio_http_e2e");
 
     let token_path = state.path().join("studio.token");
     let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8499);
@@ -588,23 +595,37 @@ async fn utc_32_09_ws_delta_on_state_transition() {
     // 2-step workflow — first step sleeps 1s to give time for WS delta detection
     std::fs::write(
         wf_dir.join("wf_delta.toml"),
-        "[workflow]\nname = \"wf_delta\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"sleep 1; true\"\n\n[[steps]]\nname = \"s2\"\nagent = \"default\"\ncommand = \"true\"\n",
+        "[workflow]\nname = \"wf_delta\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"sleep 3; true\"\n\n[[steps]]\nname = \"s2\"\nagent = \"default\"\ncommand = \"true\"\n",
     )
     .unwrap();
 
     let daemon = Daemon::spawn(state.path(), &agents, repo.path());
     daemon.wait_ready();
 
-    // Onboard blueprint so daemon registers state
-    let resp = daemon
-        .uds(
-            &Request::Onboard {
-                name: "ws_delta_e2e".into(),
-            },
-            Duration::from_secs(5),
-        )
+    // Onboard blueprint so daemon registers state (retry if PG is still connecting)
+    let daemon_sock = daemon.sock.clone();
+    let mut onboarded = false;
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        let sock = daemon_sock.clone();
+        let res = tokio::task::spawn_blocking(move || {
+            uds::request_to(
+                &sock,
+                &Request::Onboard {
+                    name: "ws_delta_e2e".into(),
+                },
+                Duration::from_secs(2),
+            )
+        })
+        .await
         .unwrap();
-    assert!(matches!(resp, Response::Ok { .. }));
+        if let Ok(Response::Ok { .. }) = res {
+            onboarded = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(onboarded, "failed to onboard blueprint ws_delta_e2e");
 
     let token_path = state.path().join("studio.token");
     let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8490);
@@ -641,9 +662,11 @@ async fn utc_32_09_ws_delta_on_state_transition() {
         "first WS frame must be SNAPSHOT"
     );
 
-    // 2. Dispatch the workflow via UDS
-    let dispatch_resp = daemon
-        .uds(
+    // 2. Dispatch the workflow via UDS in spawn_blocking so synchronous UDS I/O doesn't block Tokio worker thread
+    let daemon_sock = daemon.sock.clone();
+    let dispatch_resp = tokio::task::spawn_blocking(move || {
+        uds::request_to(
+            &daemon_sock,
             &Request::Dispatch {
                 blueprint: "ws_delta_e2e".into(),
                 workflow: Some("wf_delta".into()),
@@ -651,7 +674,11 @@ async fn utc_32_09_ws_delta_on_state_transition() {
             },
             Duration::from_secs(15),
         )
-        .expect("dispatch failed");
+    })
+    .await
+    .unwrap();
+
+    let dispatch_resp = dispatch_resp.expect("dispatch failed");
     let _task_id = match dispatch_resp {
         Response::Dispatch { task_id } => task_id,
         _ => panic!("expected Dispatch response, got {dispatch_resp:?}"),
@@ -690,8 +717,8 @@ async fn utc_32_09_ws_delta_on_state_transition() {
                 break;
             }
             Err(_) => {
-                // Timeout — no more frames, workflow likely done
-                break;
+                // Timeout waiting for next frame - continue checking until deadline
+                continue;
             }
         }
     }

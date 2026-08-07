@@ -5,8 +5,8 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
   <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
-  <img alt="Tests: 178" src="https://img.shields.io/badge/tests-178%20(CI%20green)-22c55e.svg">
-  <img alt="Version: 0.5.0" src="https://img.shields.io/badge/version-0.5.0-6366f1.svg">
+  <img alt="Tests: 182" src="https://img.shields.io/badge/tests-182%20(CI%20green)-22c55e.svg">
+  <img alt="Version: 0.6.0" src="https://img.shields.io/badge/version-0.6.0-6366f1.svg">
 </p>
 
 > **MetaMach is NOT an AI agent framework. It is a durable AI Software Factory OS —**
@@ -49,12 +49,14 @@
      │  • remain-on-exit    │  │  • per-blueprint DB│  │  • Hermes /v1/runs     │
      │  • SSH reverse tunnel│  │  • SQLite fallback │  │  • HMAC webhooks      │
      └──────────────────────┘  └───────────────────┘  └──────────────────────┘
-                   ▲
-                   │ (reattach view)
-     ┌──────────────────────┐
-     │  herdr-janus (TUI)    │  ← Herdr overlay pane (prefix+j)
-     │  • Dispatch / Progress│     Shadow client — zero state, zero logic
-     └──────────────────────┘
+                   ▲                                           ▲
+                   │ (reattach view)                           │ UDS proxying
+     ┌──────────────────────┐                  ┌──────────────────────────────┐
+     │  herdr-janus (TUI)    │                  │  janus-studio (Web Observer) │  ← http://127.0.0.1:8443
+     │  • Dispatch / Progress│                  │  • Visual DAG Canvas Editor  │     Decoupled Axum sidecar
+     └──────────────────────┘                  │  • Real-Time WS Streamer     │     Zero daemon web dep
+                                               │  • HITL Gateway Interlocks   │
+                                               └──────────────────────────────┘
 ```
 
 ---
@@ -80,7 +82,9 @@ metamach/
 │   │   │   ├── janus_daemon.rs  #   Control-plane daemon
 │   │   │   ├── herdr_janus.rs   #   Herdr shadow TUI client
 │   │   │   ├── janush.rs        #   Proxy shell (Tool Guard)
-│   │   │   └── janus.rs         #   CLI: init, start, status, stop, continue, offboard
+│   │   │   ├── janus_studio.rs  #   MetaMach Studio sidecar (Axum REST/WS, ADR-032)
+│   │   │   └── janus.rs         #   CLI: init, start, status, studio, stop, continue, offboard
+│   │   ├── studio_assets/       #   Embedded HTML/CSS/JS Canvas UI
 │   │   ├── absurd/              #   Postgres adapter + SQLite fallback
 │   │   ├── tmux/                #   PTY session engine
 │   │   ├── tool_guard/          #   Rule engine + webhook dispatch
@@ -289,7 +293,24 @@ janus continue --blueprint my-project                  # resume stopped/crashed 
 ```
 
 > **Herdr TUI:** `herdr plugin link ./janus` then `prefix+j` opens the
-> Dispatcher overlay for a graphical progress view.
+> Dispatcher overlay for a terminal progress view.
+
+### Launch MetaMach Studio (Web Observer & Visual Canvas)
+
+MetaMach 0.6.0 includes a zero-dependency web dashboard (ADR-032) running as a standalone `janus-studio` sidecar binary over UDS (`janus.sock`):
+
+```bash
+janus studio                           # launch interactive sidecar on http://127.0.0.1:8443
+janus studio -d                        # launch detached in background
+janus studio --port 9000               # custom HTTP port
+```
+
+**Key Features**:
+- 🎨 **Visual DAG Canvas**: Interactive drag-and-drop workflow authoring, node dependencies, and execution plan visualization.
+- 📡 **Real-Time Web Observer**: Live WebSocket stream (`/runs/:id/stream`) delivering step state transitions (`SNAPSHOT` and diff `DELTA` events).
+- 🛡️ **HITL Gateway Approval Center**: Web-based one-click interlock approval (`/api/v1/gates/:task_id/verdict`) for high-risk agent operations.
+- 🔐 **Token Security**: Auto-generates `~/.metamach/studio.token` with header validation (`X-Janus-Studio-Token`).
+- ⚡ **Zero-Dependency Core**: Decoupled Axum sidecar leaves core `janus-daemon` zero-web-dependency.
 
 ### Offboard a blueprint
 

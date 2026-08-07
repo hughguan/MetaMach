@@ -314,14 +314,14 @@ pub fn load_unified_workflow(name: &str, repo_root: &Path) -> Result<UnifiedWork
         && !dag.nodes.is_empty()
     {
         let unified = parse_dag_workflow(dag)?;
-        if let UnifiedWorkflow::Dag { ref config, .. } = unified {
-            if config.pipeline.name != name {
-                bail!(
-                    "workflow name {:?} != requested name {:?}",
-                    config.pipeline.name,
-                    name
-                );
-            }
+        if let UnifiedWorkflow::Dag { ref config, .. } = unified
+            && config.pipeline.name != name
+        {
+            bail!(
+                "workflow name {:?} != requested name {:?}",
+                config.pipeline.name,
+                name
+            );
         }
         return Ok(unified);
     }

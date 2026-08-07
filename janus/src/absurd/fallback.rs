@@ -211,4 +211,53 @@ mod tests {
         // A second drain is empty.
         assert!(db.drain().unwrap().is_empty());
     }
+
+    #[test]
+    fn utc_0a_02_sqlite_ring_buffer_replay_on_pg_restore() {
+        // UTC-0a-02: SQLite fallback ring buffer accumulates events during PG outage,
+        // then drains completely for PG log replay upon recovery.
+        let f = tmp();
+        let fallback = FallbackDb::open(f.path()).expect("open fallback db");
+
+        let task1 = Uuid::new_v4();
+        let task2 = Uuid::new_v4();
+
+        // 1. Record step transition events during simulated PG outage
+        fallback
+            .record(
+                &task1,
+                "bp_replay",
+                "step_build",
+                "RUNNING",
+                Some("{\"step\":1}"),
+            )
+            .expect("record step_build");
+        fallback
+            .record(
+                &task1,
+                "bp_replay",
+                "step_build",
+                "COMPLETED",
+                Some("{\"step\":1,\"exit\":0}"),
+            )
+            .expect("record step_build completion");
+        fallback
+            .record(&task2, "bp_replay", "step_test", "RUNNING", None)
+            .expect("record step_test");
+
+        assert_eq!(fallback.count().unwrap(), 3);
+
+        // 2. Simulate PG restoration: drain fallback events for replay
+        let replay_events = fallback.drain().expect("drain fallback events");
+        assert_eq!(replay_events.len(), 3);
+        assert_eq!(replay_events[0].task_id, task1.to_string());
+        assert_eq!(replay_events[0].step_name, "step_build");
+        assert_eq!(replay_events[0].status, "RUNNING");
+        assert_eq!(replay_events[1].status, "COMPLETED");
+        assert_eq!(replay_events[2].task_id, task2.to_string());
+
+        // 3. Verify ring buffer is emptied after replay
+        assert_eq!(fallback.count().unwrap(), 0);
+        assert!(fallback.drain().unwrap().is_empty());
+    }
 }

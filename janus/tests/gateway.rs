@@ -118,3 +118,64 @@ async fn utc_10_04_hmac_auth_rejects_unsigned_and_wrong_accepts_correct() {
         200
     );
 }
+
+#[tokio::test]
+async fn utc_04_02_hitl_hmac_webhook_validation() {
+    let secret = b"webhook-secret-key-123".to_vec();
+    let gw = Arc::new(Gateway::new(
+        vec![Arc::new(NoopChannel)],
+        Some(secret.clone()),
+        0,
+        Arc::new(LoggingVerdictSink),
+    ));
+    let (addr, _handle) = gw.clone().bind_listener().await.unwrap();
+    gw.dispatch(&payload("cid-hmac-02")).unwrap();
+
+    let body = r#"{"action":"approve","approved_by":"teams"}"#;
+    assert_eq!(post(&addr, "cid-hmac-02", body, None).await, 401);
+
+    let invalid_tag = "Hmac invalid_signature_payload_bytes_base64==";
+    assert_eq!(
+        post(&addr, "cid-hmac-02", body, Some(invalid_tag)).await,
+        401
+    );
+
+    let valid_tag = sign(&secret, body.as_bytes());
+    assert_eq!(
+        post(
+            &addr,
+            "cid-hmac-02",
+            body,
+            Some(&format!("Hmac {valid_tag}"))
+        )
+        .await,
+        200
+    );
+}
+
+#[tokio::test]
+async fn utc_04_03_hitl_gate_approve_reject_verdict() {
+    let gw = Arc::new(Gateway::new(
+        vec![Arc::new(NoopChannel)],
+        None,
+        0,
+        Arc::new(LoggingVerdictSink),
+    ));
+    let (_addr, _handle) = gw.clone().bind_listener().await.unwrap();
+
+    let task_id = uuid::Uuid::new_v4();
+    let mut payload_item = payload("cid-04-03");
+    payload_item.task_id = Some(task_id);
+
+    gw.dispatch(&payload_item).unwrap();
+
+    // Verify task_id correlation resolution
+    let cid = gw
+        .find_correlation_by_task(task_id)
+        .expect("found correlation by task_id");
+    assert_eq!(cid, "cid-04-03");
+
+    // Resolve approve verdict via TUI / UDS interlock
+    let status = gw.resolve_tui(&cid, true);
+    assert!(matches!(status, janus::gateway::CallbackStatus::Resolved));
+}

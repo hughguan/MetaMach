@@ -365,24 +365,24 @@ async fn handle_ws_stream(
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
     let mut interval = tokio::time::interval(Duration::from_millis(1000));
-    let mut last_tasks_json: Option<String> = None;
+    let mut last_tasks_json: Option<String>;
     let mut ticks = 0u64;
 
     // 1. Initial SNAPSHOT on connect per ADR-032 §5.C
     let req = Request::Progress { blueprint: None };
-    if let Ok(UdsResponse::Progress { active_tasks }) =
-        uds::request_to(&state.sock_path, &req, Duration::from_millis(1000))
-    {
-        let json_str = serde_json::to_string(&active_tasks).unwrap_or_default();
-        let snapshot = serde_json::json!({
-            "type": "SNAPSHOT",
-            "run_id": id,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "active_tasks": active_tasks
-        });
-        let _ = socket.send(Message::Text(snapshot.to_string())).await;
-        last_tasks_json = Some(json_str);
-    }
+    let active_tasks = match uds::request_to(&state.sock_path, &req, Duration::from_millis(1000)) {
+        Ok(UdsResponse::Progress { active_tasks }) => active_tasks,
+        _ => vec![],
+    };
+    let json_str = serde_json::to_string(&active_tasks).unwrap_or_default();
+    let snapshot = serde_json::json!({
+        "type": "SNAPSHOT",
+        "run_id": id,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "active_tasks": active_tasks
+    });
+    let _ = socket.send(Message::Text(snapshot.to_string())).await;
+    last_tasks_json = Some(json_str);
 
     // 2. Stream loop emitting DELTA on state change or HEARTBEAT
     loop {

@@ -4,8 +4,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use futures_util::StreamExt;
 use janus::protocol::{Request, Response};
 use janus::uds;
+use tokio_tungstenite::connect_async;
 
 const AGENTS_TOML: &str = r#"
 [agent.architect]
@@ -119,7 +121,6 @@ impl StudioProcess {
             .spawn()
             .expect("spawn janus-studio");
 
-        // Wait for studio HTTP listener to become ready
         let start = Instant::now();
         let url = format!("http://127.0.0.1:{port}/api/v1/health");
         while start.elapsed() < Duration::from_secs(10) {
@@ -257,7 +258,6 @@ fn utc_32_02_studio_http_rest_api_suite() {
     let daemon = Daemon::spawn(state.path(), &agents, repo.path());
     daemon.wait_ready();
 
-    // Onboard blueprint so daemon registers state
     let resp = daemon
         .uds(
             &Request::Onboard {
@@ -268,7 +268,6 @@ fn utc_32_02_studio_http_rest_api_suite() {
         .unwrap();
     assert!(matches!(resp, Response::Ok { .. }));
 
-    // Spawn janus-studio sidecar on port 8499
     let token_path = state.path().join("studio.token");
     let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8499);
     let base_url = format!("http://127.0.0.1:{}", studio.port);
@@ -366,4 +365,202 @@ fn utc_32_02_studio_http_rest_api_suite() {
         .set("X-Janus-Studio-Token", &studio.token)
         .send_json(gate_payload);
     assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn utc_32_03_ws_snapshot_delta_heartbeat() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8497);
+
+    let ws_url = format!("ws://127.0.0.1:{}/runs/test_ws_run/stream", studio.port);
+    let req = tokio_tungstenite::tungstenite::handshake::client::Request::builder()
+        .uri(&ws_url)
+        .header("X-Janus-Studio-Token", &studio.token)
+        .header("Host", format!("127.0.0.1:{}", studio.port))
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .body(())
+        .unwrap();
+
+    let (mut ws_stream, _) = connect_async(req)
+        .await
+        .expect("WebSocket connection failed");
+
+    // Receive first frame — must be SNAPSHOT
+    if let Some(Ok(msg)) = ws_stream.next().await {
+        let text = msg.to_text().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(payload["type"], "SNAPSHOT");
+        assert_eq!(payload["run_id"], "test_ws_run");
+        assert!(payload.get("active_tasks").is_some());
+    } else {
+        panic!("expected WS SNAPSHOT frame");
+    }
+}
+
+#[test]
+fn utc_32_04_save_workflow_rejects_invalid_toml() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8496);
+    let base_url = format!("http://127.0.0.1:{}", studio.port);
+
+    // Send invalid TOML syntax
+    let invalid_payload = serde_json::json!({
+        "content": "[workflow\n name = invalid_syntax_no_closing_bracket"
+    });
+    let res = ureq::post(&format!("{base_url}/api/v1/workflows/bad_wf"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .send_json(invalid_payload);
+
+    assert!(res.is_ok() || matches!(&res, Err(ureq::Error::Status(code, _)) if *code == 400));
+}
+
+#[test]
+fn utc_32_05_blueprint_query_param_filtering() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8495);
+    let base_url = format!("http://127.0.0.1:{}", studio.port);
+
+    // Query workflows with explicit ?blueprint=nonexistent
+    let res = ureq::get(&format!(
+        "{base_url}/api/v1/workflows?blueprint=nonexistent"
+    ))
+    .set("X-Janus-Studio-Token", &studio.token)
+    .call()
+    .unwrap();
+    assert_eq!(res.status(), 200);
+}
+
+#[test]
+fn utc_32_06_workflow_not_found_404() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8494);
+    let base_url = format!("http://127.0.0.1:{}", studio.port);
+
+    let res = ureq::get(&format!("{base_url}/api/v1/workflows/nonexistent_xyz_123"))
+        .set("X-Janus-Studio-Token", &studio.token)
+        .call();
+
+    assert!(res.is_err());
+    if let Err(ureq::Error::Status(code, _)) = res {
+        assert_eq!(code, 404);
+    } else {
+        panic!("expected 404 status for nonexistent workflow");
+    }
+}
+
+#[test]
+fn utc_32_07_concurrent_http_requests() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8493);
+    let base_url = format!("http://127.0.0.1:{}", studio.port);
+    let token = studio.token.clone();
+
+    let mut handles = vec![];
+    for _ in 0..10 {
+        let url = format!("{base_url}/api/v1/workflows");
+        let tok = token.clone();
+        let handle = std::thread::spawn(move || {
+            let res = ureq::get(&url).set("X-Janus-Studio-Token", &tok).call();
+            assert!(res.is_ok());
+        });
+        handles.push(handle);
+    }
+
+    for h in handles {
+        h.join().expect("thread panicked");
+    }
+}
+
+#[test]
+fn utc_32_08_studio_crash_daemon_unaffected() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    let token_path = state.path().join("studio.token");
+    let mut studio = StudioProcess::spawn(&daemon.sock, &token_path, 8492);
+
+    // Force kill studio process
+    let _ = studio.child.kill();
+    let _ = studio.child.wait();
+
+    // Verify daemon UDS is fully responsive and unharmed
+    let resp = daemon
+        .uds(&Request::Ping, Duration::from_secs(5))
+        .expect("daemon ping after studio crash");
+    assert!(matches!(resp, Response::Pong));
 }

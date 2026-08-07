@@ -692,7 +692,7 @@ fn studio_cmd(bind: &str, port: u16, detach: bool) -> Result<()> {
             .context("launch janus-studio binary (run 'cargo build' first?)")?;
         let status = child.wait()?;
         if !status.success() {
-            bail!("janus-studio exited with status {}", status);
+            bail!("janus-studio exited with status {status}");
         }
     }
     Ok(())

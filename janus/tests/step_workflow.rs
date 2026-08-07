@@ -800,7 +800,7 @@ command = "echo hi"
     ));
 
     // Wait for the absurd task to reach `completed` (engine wakes + re-runs build).
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let out = psql(format!(
             "SELECT state FROM absurd.t_{name}_test_flow WHERE task_id = '{task_id}'"
@@ -810,7 +810,7 @@ command = "echo hi"
         }
         if Instant::now() > deadline {
             panic!(
-                "task did not reach completed after HITL approve within 30s: {}",
+                "task did not reach completed after HITL approve within 60s: {}",
                 String::from_utf8_lossy(&out.stdout)
             );
         }

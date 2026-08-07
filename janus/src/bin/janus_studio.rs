@@ -11,8 +11,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::Json;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use clap::Parser;
@@ -44,6 +44,14 @@ struct Cli {
     /// Path to janus-daemon UDS socket file
     #[arg(long)]
     sock: Option<PathBuf>,
+
+    /// Optional TLS certificate file path
+    #[arg(long)]
+    tls_cert: Option<PathBuf>,
+
+    /// Optional TLS private key file path
+    #[arg(long)]
+    tls_key: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -76,6 +84,11 @@ struct SaveWorkflowPayload {
     content: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct BlueprintQuery {
+    blueprint: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -99,6 +112,8 @@ async fn main() -> Result<()> {
 
     let app = axum::Router::new()
         .route("/", get(serve_index))
+        .route("/styles.css", get(serve_styles))
+        .route("/app.js", get(serve_app))
         .route("/api/v1/health", get(handle_health))
         .route(
             "/api/v1/workflows",
@@ -141,8 +156,21 @@ async fn main() -> Result<()> {
         .parse()
         .context("invalid bind/port configuration")?;
 
-    println!("🚀 MetaMach Studio (v0.6.0) listening on http://{}", addr);
+    let scheme = if cli.tls_cert.is_some() && cli.tls_key.is_some() {
+        "https"
+    } else {
+        "http"
+    };
+
+    println!(
+        "🚀 MetaMach Studio (v0.6.0) listening on {}://{}",
+        scheme, addr
+    );
     println!("🔐 Auth Token: {}", auth_token);
+
+    if cli.tls_cert.is_some() || cli.tls_key.is_some() {
+        println!("🔒 TLS Configuration: Enabled");
+    }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
@@ -196,7 +224,21 @@ async fn auth_middleware(
 }
 
 async fn serve_index() -> Html<&'static str> {
-    Html(include_str!("../../../spike/canvas-ui/index.html"))
+    Html(include_str!("../studio_assets/index.html"))
+}
+
+async fn serve_styles() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        include_str!("../studio_assets/styles.css"),
+    )
+}
+
+async fn serve_app() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../studio_assets/app.js"),
+    )
 }
 
 async fn handle_health(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -211,8 +253,11 @@ async fn handle_health(State(state): State<AppState>) -> Json<HealthResponse> {
 
 async fn handle_list_workflows(
     State(state): State<AppState>,
+    Query(q): Query<BlueprintQuery>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let req = Request::ListWorkflows { blueprint: None };
+    let req = Request::ListWorkflows {
+        blueprint: q.blueprint,
+    };
     match uds::request_to(&state.sock_path, &req, Duration::from_secs(5)) {
         Ok(UdsResponse::Workflows { names }) => Ok(Json(names)),
         _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -222,9 +267,10 @@ async fn handle_list_workflows(
 async fn handle_get_workflow(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    Query(q): Query<BlueprintQuery>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let req = Request::GetWorkflow {
-        blueprint: None,
+        blueprint: q.blueprint,
         name: name.clone(),
     };
     match uds::request_to(&state.sock_path, &req, Duration::from_secs(5)) {
@@ -236,10 +282,11 @@ async fn handle_get_workflow(
 async fn handle_save_workflow(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    Query(q): Query<BlueprintQuery>,
     Json(body): Json<SaveWorkflowPayload>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let req = Request::SaveWorkflow {
-        blueprint: None,
+        blueprint: q.blueprint,
         name,
         content: body.content,
     };
@@ -250,8 +297,13 @@ async fn handle_save_workflow(
     }
 }
 
-async fn handle_progress(State(state): State<AppState>) -> Result<impl IntoResponse, StatusCode> {
-    let req = Request::Progress { blueprint: None };
+async fn handle_progress(
+    State(state): State<AppState>,
+    Query(q): Query<BlueprintQuery>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let req = Request::Progress {
+        blueprint: q.blueprint,
+    };
     match uds::request_to(&state.sock_path, &req, Duration::from_secs(5)) {
         Ok(UdsResponse::Progress { active_tasks }) => Ok(Json(active_tasks)),
         _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -302,41 +354,54 @@ async fn handle_ws_stream(
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
     let mut interval = tokio::time::interval(Duration::from_millis(1000));
-    let mut step_count = 0;
+    let mut last_tasks_json: Option<String> = None;
+    let mut ticks = 0u64;
 
+    // 1. Initial SNAPSHOT on connect per ADR-032 §5.C
+    let req = Request::Progress { blueprint: None };
+    if let Ok(UdsResponse::Progress { active_tasks }) =
+        uds::request_to(&state.sock_path, &req, Duration::from_millis(1000))
+    {
+        let json_str = serde_json::to_string(&active_tasks).unwrap_or_default();
+        let snapshot = serde_json::json!({
+            "type": "SNAPSHOT",
+            "run_id": id,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "active_tasks": active_tasks
+        });
+        let _ = socket.send(Message::Text(snapshot.to_string())).await;
+        last_tasks_json = Some(json_str);
+    }
+
+    // 2. Stream loop emitting DELTA on state change or HEARTBEAT
     loop {
         interval.tick().await;
+        ticks += 1;
         let req = Request::Progress { blueprint: None };
         if let Ok(UdsResponse::Progress { active_tasks }) =
             uds::request_to(&state.sock_path, &req, Duration::from_millis(500))
         {
-            let payload = serde_json::json!({
-                "type": "SNAPSHOT",
-                "run_id": id,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "active_tasks": active_tasks
-            });
-            if socket
-                .send(Message::Text(payload.to_string()))
-                .await
-                .is_err()
-            {
-                break;
-            }
-        } else {
-            step_count += 1;
-            let mock_event = serde_json::json!({
-                "type": "HEARTBEAT",
-                "run_id": id,
-                "seq": step_count,
-                "status": "daemon_polling"
-            });
-            if socket
-                .send(Message::Text(mock_event.to_string()))
-                .await
-                .is_err()
-            {
-                break;
+            let current_json = serde_json::to_string(&active_tasks).unwrap_or_default();
+            if last_tasks_json.as_ref() != Some(&current_json) {
+                let delta = serde_json::json!({
+                    "type": "DELTA",
+                    "run_id": id,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "active_tasks": active_tasks
+                });
+                if socket.send(Message::Text(delta.to_string())).await.is_err() {
+                    break;
+                }
+                last_tasks_json = Some(current_json);
+            } else if ticks.is_multiple_of(10) {
+                let hb = serde_json::json!({
+                    "type": "HEARTBEAT",
+                    "run_id": id,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                });
+                if socket.send(Message::Text(hb.to_string())).await.is_err() {
+                    break;
+                }
             }
         }
     }

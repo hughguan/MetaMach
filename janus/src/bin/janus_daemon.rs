@@ -463,10 +463,21 @@ async fn handle_request(
         Request::Continue { blueprint, task_id } => {
             handle_continue(db.clone(), repo_root.to_path_buf(), blueprint, task_id).await
         }
-        Request::ListWorkflows { blueprint: _ } => {
+        Request::ListWorkflows { blueprint } => {
+            let target_root = match blueprint {
+                Some(ref bp) => {
+                    let candidate = repo_root.join(bp);
+                    if candidate.is_dir() {
+                        candidate
+                    } else {
+                        repo_root.to_path_buf()
+                    }
+                }
+                None => repo_root.to_path_buf(),
+            };
             let mut names = std::collections::BTreeSet::new();
             for dir_name in &[".janus/workflows", "templates/workflows", "workflows"] {
-                let dir_path = repo_root.join(dir_name);
+                let dir_path = target_root.join(dir_name);
                 if let Ok(entries) = std::fs::read_dir(dir_path) {
                     for entry in entries.flatten() {
                         let path = entry.path();
@@ -483,15 +494,26 @@ async fn handle_request(
                 names: names.into_iter().collect(),
             }
         }
-        Request::GetWorkflow { blueprint: _, name } => {
+        Request::GetWorkflow { blueprint, name } => {
+            let target_root = match blueprint {
+                Some(ref bp) => {
+                    let candidate = repo_root.join(bp);
+                    if candidate.is_dir() {
+                        candidate
+                    } else {
+                        repo_root.to_path_buf()
+                    }
+                }
+                None => repo_root.to_path_buf(),
+            };
             let candidate_paths = [
-                repo_root
+                target_root
                     .join(".janus/workflows")
                     .join(format!("{name}.toml")),
-                repo_root
+                target_root
                     .join("templates/workflows")
                     .join(format!("{name}.toml")),
-                repo_root.join("workflows").join(format!("{name}.toml")),
+                target_root.join("workflows").join(format!("{name}.toml")),
             ];
             match candidate_paths.iter().find(|p| p.exists()) {
                 Some(path) => match std::fs::read_to_string(path) {
@@ -506,10 +528,21 @@ async fn handle_request(
             }
         }
         Request::SaveWorkflow {
-            blueprint: _,
+            blueprint,
             name,
             content,
         } => {
+            let target_root = match blueprint {
+                Some(ref bp) => {
+                    let candidate = repo_root.join(bp);
+                    if candidate.is_dir() {
+                        candidate
+                    } else {
+                        repo_root.to_path_buf()
+                    }
+                }
+                None => repo_root.to_path_buf(),
+            };
             // Validate TOML syntax and topological DAG rules before writing
             let tmp_dir = match tempfile::tempdir() {
                 Ok(d) => d,
@@ -534,7 +567,7 @@ async fn handle_request(
 
             match recipe::load_unified_workflow(&name, tmp_dir.path()) {
                 Ok(_) => {
-                    let dest_dir = repo_root.join(".janus/workflows");
+                    let dest_dir = target_root.join(".janus/workflows");
                     if let Err(e) = std::fs::create_dir_all(&dest_dir) {
                         return Response::Error {
                             message: format!("create .janus/workflows dir: {e}"),

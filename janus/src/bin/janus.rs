@@ -119,6 +119,9 @@ enum CliCommand {
         /// HTTP port.
         #[arg(long, default_value_t = 8443)]
         port: u16,
+        /// Run studio sidecar detached in the background.
+        #[arg(short, long)]
+        detach: bool,
     },
 }
 
@@ -203,7 +206,7 @@ fn main() -> Result<()> {
             let repo_root = janus::paths::repo_root();
             plan_pipeline(&bp, &description, &repo_root)
         }
-        CliCommand::Studio { bind, port } => studio_cmd(&bind, port),
+        CliCommand::Studio { bind, port, detach } => studio_cmd(&bind, port, detach),
     }
 }
 
@@ -651,11 +654,10 @@ fn discover_workflows(repo_root: &Path) -> Result<Vec<(String, String)>> {
     Ok(workflows)
 }
 
-fn studio_cmd(bind: &str, port: u16) -> Result<()> {
+fn studio_cmd(bind: &str, port: u16, detach: bool) -> Result<()> {
     if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
         bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
     }
-    println!("🚀 Launching MetaMach Studio sidecar on {bind}:{port}...");
     let studio_exe = match std::env::current_exe() {
         Ok(exe) => match exe.parent() {
             Some(p) => p.join("janus-studio"),
@@ -663,16 +665,35 @@ fn studio_cmd(bind: &str, port: u16) -> Result<()> {
         },
         Err(_) => PathBuf::from("janus-studio"),
     };
-    let mut child = std::process::Command::new(studio_exe)
-        .arg("--bind")
-        .arg(bind)
-        .arg("--port")
-        .arg(port.to_string())
-        .spawn()
-        .context("launch janus-studio binary (run 'cargo build' first?)")?;
-    let status = child.wait()?;
-    if !status.success() {
-        bail!("janus-studio exited with status {}", status);
+    if detach {
+        let child = std::process::Command::new(studio_exe)
+            .arg("--bind")
+            .arg(bind)
+            .arg("--port")
+            .arg(port.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .context("launch detached janus-studio binary (run 'cargo build' first?)")?;
+        println!(
+            "🚀 MetaMach Studio launched in background (PID {}) on http://{bind}:{port}",
+            child.id()
+        );
+    } else {
+        println!(
+            "🚀 Launching MetaMach Studio sidecar on http://{bind}:{port} (Press Ctrl+C to stop)..."
+        );
+        let mut child = std::process::Command::new(studio_exe)
+            .arg("--bind")
+            .arg(bind)
+            .arg("--port")
+            .arg(port.to_string())
+            .spawn()
+            .context("launch janus-studio binary (run 'cargo build' first?)")?;
+        let status = child.wait()?;
+        if !status.success() {
+            bail!("janus-studio exited with status {}", status);
+        }
     }
     Ok(())
 }

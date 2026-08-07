@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MetaMach 0.6.0 — Canvas Studio &amp; Web Observer</title>
+  <meta name="description" content="Visual DAG Canvas, Real-Time PTY Streamer, and HITL Gateway Approval Center for MetaMach Autonomous Software Factory OS">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <i class="ph-bold ph-cpu"></i>
+          <span class="logo-pulse"></span>
+        </div>
+        <div class="brand-text">
+          <h1>MetaMach <span class="badge-v">0.6.0</span></h1>
+          <p>Canvas Studio &amp; Observer</p>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <div class="nav-section">MAIN PANELS</div>
+        <button class="nav-item active" data-tab="overview">
+          <i class="ph-bold ph-squares-four"></i>
+          <span>System Overview</span>
+        </button>
+        <button class="nav-item" data-tab="dag-canvas">
+          <i class="ph-bold ph-tree-structure"></i>
+          <span>DAG Canvas Studio</span>
+          <span class="nav-badge" id="badge-nodes">8 Nodes</span>
+        </button>
+        <button class="nav-item" data-tab="pty-streamer">
+          <i class="ph-bold ph-terminal-window"></i>
+          <span>PTY Output Streamer</span>
+          <span class="nav-badge live" id="badge-pty">LIVE</span>
+        </button>
+        <button class="nav-item" data-tab="hitl-gateway">
+          <i class="ph-bold ph-shield-warning"></i>
+          <span>HITL Gateway</span>
+          <span class="nav-badge alert" id="badge-hitl">1 Pending</span>
+        </button>
+        
+        <div class="nav-section">INFRASTRUCTURE</div>
+        <button class="nav-item" data-tab="absurd-db">
+          <i class="ph-bold ph-database"></i>
+          <span>Absurd Multi-DB</span>
+        </button>
+        <button class="nav-item" data-tab="tool-guard">
+          <i class="ph-bold ph-lock-key"></i>
+          <span>Tool Guard Policies</span>
+        </button>
+        <button class="nav-item" data-tab="workflow-editor">
+          <i class="ph-bold ph-code-block"></i>
+          <span>DSL Workflow Editor</span>
+        </button>
+      </nav>
+
+      <div class="system-status-card">
+        <div class="status-header">
+          <span class="status-dot online"></span>
+          <span class="status-title">Daemon &amp; Multi-DB Online</span>
+        </div>
+        <div class="status-metrics">
+          <div class="metric-mini">
+            <span class="lbl">PG Pool</span>
+            <span class="val green">Catalog + 3 BP</span>
+          </div>
+          <div class="metric-mini">
+            <span class="lbl">Fallback Ring</span>
+            <span class="val">0 / 1000</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Bar Header -->
+      <header class="top-bar">
+        <div class="breadcrumb">
+          <span class="bc-root">MetaMach OS</span>
+          <i class="ph-bold ph-caret-right"></i>
+          <span class="bc-current" id="current-view-title">System Overview</span>
+        </div>
+
+        <div class="header-controls">
+          <div class="bp-selector-wrapper">
+            <i class="ph-bold ph-blueprint"></i>
+            <select id="blueprint-select">
+              <option value="metamach_demo">metamach_demo (ACTIVE)</option>
+              <option value="spec2software">spec2software (DAG)</option>
+              <option value="hardware_probe">hardware_probe (PTY)</option>
+            </select>
+          </div>
+
+          <button class="btn btn-primary" id="btn-dispatch-modal">
+            <i class="ph-bold ph-play"></i>
+            <span>Dispatch Workflow</span>
+          </button>
+
+          <div class="connection-pill">
+            <span class="pulse-icon"></span>
+            <span>UDS Socket</span>
+            <code id="sock-path">janus.sock</code>
+          </div>
+        </div>
+      </header>
+
+      <!-- View Containers -->
+
+      <!-- 1. System Overview Panel -->
+      <section id="view-overview" class="view-panel active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon purple"><i class="ph-bold ph-tree-structure"></i></div>
+            <div class="stat-data">
+              <span class="stat-val" id="stat-active-dags">2</span>
+              <span class="stat-lbl">Active DAG Workflows</span>
+            </div>
+            <div class="stat-sparkline"><span class="bar b1"></span><span class="bar b2"></span><span class="bar b3"></span><span class="bar b4"></span></div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon blue"><i class="ph-bold ph-terminal-window"></i></div>
+            <div class="stat-data">
+              <span class="stat-val" id="stat-pty-sessions">4</span>
+              <span class="stat-lbl">Active PTY Sessions</span>
+            </div>
+            <div class="stat-sparkline"><span class="bar b2"></span><span class="bar b4"></span><span class="bar b3"></span><span class="bar b5"></span></div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon amber"><i class="ph-bold ph-shield-warning"></i></div>
+            <div class="stat-data">
+              <span class="stat-val" id="stat-hitl-pending">1</span>
+              <span class="stat-lbl">HITL Gate Approvals</span>
+            </div>
+            <div class="stat-sparkline"><span class="bar b5"></span><span class="bar b1"></span><span class="bar b2"></span><span class="bar b4"></span></div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon green"><i class="ph-bold ph-check-circle"></i></div>
+            <div class="stat-data">
+              <span class="stat-val" id="stat-completed-steps">142</span>
+              <span class="stat-lbl">Completed Steps</span>
+            </div>
+            <div class="stat-sparkline"><span class="bar b3"></span><span class="bar b4"></span><span class="bar b5"></span><span class="bar b5"></span></div>
+          </div>
+        </div>
+
+        <div class="overview-layout">
+          <!-- Live Active Tasks Table -->
+          <div class="card card-tasks">
+            <div class="card-header">
+              <h3><i class="ph-bold ph-list-checks"></i> In-Flight Execution Tasks</h3>
+              <div class="card-actions">
+                <span class="badge badge-info">Absurd Queue: Pull Mode</span>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table" id="tasks-table">
+                <thead>
+                  <tr>
+                    <th>Task ID</th>
+                    <th>Blueprint</th>
+                    <th>Workflow</th>
+                    <th>Current Step</th>
+                    <th>Topological Level</th>
+                    <th>PTY Session</th>
+                    <th>Elapsed</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="tasks-tbody">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Quick Actions & Gateway Status -->
+          <div class="overview-sidebar">
+            <div class="card card-hitl-quick">
+              <div class="card-header">
+                <h3><i class="ph-bold ph-bell-ringing"></i> Pending HITL Gate</h3>
+                <span class="badge badge-warning">Teams HMAC</span>
+              </div>
+              <div class="hitl-banner" id="hitl-banner-content">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+
+            <div class="card card-db-summary">
+              <div class="card-header">
+                <h3><i class="ph-bold ph-database"></i> F1 Multi-DB Fanout</h3>
+              </div>
+              <div class="db-list">
+                <div class="db-item">
+                  <div class="db-meta">
+                    <span class="db-name">metamach_db (Catalog)</span>
+                    <span class="db-tag">Postgres 16</span>
+                  </div>
+                  <span class="status-pill green">Connected</span>
+                </div>
+                <div class="db-item">
+                  <div class="db-meta">
+                    <span class="db-name">metamach_blueprint_demo</span>
+                    <span class="db-tag">Blueprint Overlay</span>
+                  </div>
+                  <span class="status-pill green">Connected</span>
+                </div>
+                <div class="db-item">
+                  <div class="db-meta">
+                    <span class="db-name">fallback.db (SQLite Ring)</span>
+                    <span class="db-tag">0/1000 events</span>
+                  </div>
+                  <span class="status-pill blue">Ready</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. DAG Canvas Studio Panel -->
+      <section id="view-dag-canvas" class="view-panel">
+        <div class="panel-header-toolbar">
+          <div class="toolbar-left">
+            <h2>Workflow DAG Canvas Studio</h2>
+            <p>Kahn's Topological Sort Level Graph &amp; Parallel Level Barrier Execution</p>
+          </div>
+          <div class="toolbar-right">
+            <div class="btn-group">
+              <button class="btn btn-secondary active" id="btn-dag-layout-topo">Topological Levels</button>
+              <button class="btn btn-secondary" id="btn-dag-layout-tree">Hierarchical</button>
+            </div>
+            <button class="btn btn-outline" id="btn-reset-zoom"><i class="ph-bold ph-arrows-out-cardinal"></i> Reset View</button>
+          </div>
+        </div>
+
+        <div class="dag-workspace">
+          <!-- SVG DAG Canvas -->
+          <div class="dag-canvas-container" id="dag-container">
+            <svg id="dag-svg" width="100%" height="100%">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="28" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" />
+                </marker>
+                <marker id="arrow-active" viewBox="0 0 10 10" refX="28" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8" />
+                </marker>
+                <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="6" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+              </defs>
+              <g id="dag-viewport">
+                <!-- Levels & Nodes rendered by JS -->
+              </g>
+            </svg>
+
+            <!-- Level Barriers Overlay -->
+            <div class="level-barriers-overlay" id="level-barriers">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+
+          <!-- DAG Node Inspector Drawer -->
+          <div class="node-inspector" id="node-inspector">
+            <div class="inspector-header">
+              <div class="node-title-group">
+                <span class="node-type-tag" id="node-tag">DAG Node</span>
+                <h3 id="inspector-node-id">Select a node</h3>
+              </div>
+              <button class="btn-close" id="btn-close-inspector"><i class="ph-bold ph-x"></i></button>
+            </div>
+            <div class="inspector-body" id="inspector-body">
+              <p class="placeholder-text">Click any step or node in the DAG graph to view dependencies, execution level, agent role, and logs.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. PTY Terminal Output Streamer Panel -->
+      <section id="view-pty-streamer" class="view-panel">
+        <div class="panel-header-toolbar">
+          <div class="toolbar-left">
+            <h2>Physical PTY Session Output Streamer</h2>
+            <p>Isolated tmux Server: <code>tmux -L metamach-tmux</code> (remain-on-exit panes)</p>
+          </div>
+          <div class="toolbar-right">
+            <div class="session-selector">
+              <label>PTY Session:</label>
+              <select id="pty-session-select">
+                <option value="tmux-janus-task-019fd9f3-0">tmux-janus-task-019fd9f3-0 (scout)</option>
+                <option value="tmux-janus-task-019fd9f3-1">tmux-janus-task-019fd9f3-1 (build)</option>
+                <option value="tmux-janus-task-019fd9f3-2">tmux-janus-task-019fd9f3-2 (verify)</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary" id="btn-strip-ansi"><i class="ph-bold ph-paint-brush"></i> Toggle ANSI</button>
+            <button class="btn btn-secondary" id="btn-clear-term"><i class="ph-bold ph-trash"></i> Clear</button>
+          </div>
+        </div>
+
+        <div class="terminal-workspace">
+          <div class="terminal-header">
+            <div class="term-dots">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+            </div>
+            <div class="term-title" id="term-session-title">janush proxy shell — /dev/pts/4 (remain-on-exit)</div>
+            <div class="term-status-badge">
+              <span class="status-dot green"></span>
+              <span>LIVE PTY STREAM</span>
+            </div>
+          </div>
+          <div class="terminal-body" id="pty-terminal-body">
+            <pre class="term-content" id="term-output"></pre>
+          </div>
+          <div class="terminal-footer">
+            <div class="term-filter">
+              <i class="ph-bold ph-magnifying-glass"></i>
+              <input type="text" id="term-search-input" placeholder="Search terminal output (grep)...">
+            </div>
+            <div class="term-meta">
+              <span id="term-line-count">128 lines</span>
+              <span>16 KiB Truncation Window</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. HITL Gateway Approval Center Panel -->
+      <section id="view-hitl-gateway" class="view-panel">
+        <div class="panel-header-toolbar">
+          <div class="toolbar-left">
+            <h2>HITL Gateway &amp; Webhook Approval Center</h2>
+            <p>Teams Adaptive Card &amp; Loopback Callback Listener (Port 8443, HMAC-SHA256)</p>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-secondary" id="btn-simulate-hitl"><i class="ph-bold ph-plus-circle"></i> Trigger Test HITL Card</button>
+          </div>
+        </div>
+
+        <div class="hitl-layout">
+          <!-- Pending Approvals Stack -->
+          <div class="hitl-column">
+            <h3><i class="ph-bold ph-clock"></i> Active Approval Gateways</h3>
+            <div class="cards-list" id="hitl-cards-list">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+
+          <!-- HMAC & Webhook Inspector -->
+          <div class="hitl-column">
+            <h3><i class="ph-bold ph-code"></i> Payload &amp; HMAC Signature Inspector</h3>
+            <div class="card card-json-inspector">
+              <div class="card-header">
+                <span>WebhookPayload (Enriched Scene)</span>
+                <button class="btn btn-xs btn-outline" id="btn-copy-hitl-payload"><i class="ph-bold ph-copy"></i> Copy JSON</button>
+              </div>
+              <pre class="json-code" id="hitl-json-view"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. Absurd Multi-DB Panel -->
+      <section id="view-absurd-db" class="view-panel">
+        <div class="panel-header-toolbar">
+          <div class="toolbar-left">
+            <h2>Absurd Postgres Engine &amp; Multi-DB Fanout</h2>
+            <p>Catalog DB <code>metamach_db</code> + Per-Blueprint <code>metamach_blueprint_&lt;name&gt;</code> Databases</p>
+          </div>
+        </div>
+
+        <div class="absurd-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph-bold ph-database"></i> Connection Pool Topology</h3>
+            </div>
+            <div class="pool-metrics">
+              <div class="pool-box">
+                <span class="lbl">Catalog Pool</span>
+                <span class="val">max 3 connections</span>
+                <span class="sub">metamach_db</span>
+              </div>
+              <div class="pool-box">
+                <span class="lbl">Blueprint Pool</span>
+                <span class="val">max 5 connections</span>
+                <span class="sub">metamach_blueprint_*</span>
+              </div>
+              <div class="pool-box">
+                <span class="lbl">SQLite Ring</span>
+                <span class="val">1000 entries max</span>
+                <span class="sub">fallback.db</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph-bold ph-arrows-clockwise"></i> SQLite Fallback Ring Buffer</h3>
+            </div>
+            <div class="ring-buffer-status">
+              <div class="ring-gauge">
+                <div class="ring-fill" style="width: 4%;"></div>
+              </div>
+              <div class="ring-meta">
+                <span>Current Ring Usage: <strong>4 / 1000 events</strong></span>
+                <span class="badge badge-success">PG Healthy (0 Replays Pending)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. Tool Guard Policy Panel -->
+      <section id="view-tool-guard" class="view-panel">
+        <div class="panel-header-toolbar">
+          <div class="toolbar-left">
+            <h2>Tool Guard Security Rules &amp; Capabilities</h2>
+            <p>Synchronous Interception Layer for <code>janush</code> (30s Fail-Closed Timeout)</p>
+          </div>
+        </div>
+
+        <div class="card card-table">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Agent Role</th>
+                  <th>Capability Target</th>
+                  <th>Verdict Action</th>
+                  <th>Rule Match Pattern</th>
+                  <th>Risk Rating</th>
+                </tr>
+              </thead>
+              <tbody id="guard-rules-tbody">
+                <!-- Rendered by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7. DSL Workflow Editor Panel -->
+      <section id="view-workflow-editor" class="view-panel">
+        <div class="panel-header-toolbar">
+          <div class="toolbar-left">
+            <h2>Unified Workflow DSL &amp; Topological Validator</h2>
+            <p>Linear Step Sequences &amp; DAG Node Graphs (Kahn's Sort Validator)</p>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-secondary" id="btn-validate-dsl"><i class="ph-bold ph-check"></i> Validate Topological DAG</button>
+            <button class="btn btn-primary" id="btn-save-dsl"><i class="ph-bold ph-floppy-disk"></i> Save to .janus/workflows/</button>
+          </div>
+        </div>
+
+        <div class="editor-layout">
+          <div class="editor-pane">
+            <textarea id="dsl-code-input" spellcheck="false" class="code-textarea"></textarea>
+          </div>
+          <div class="preview-pane">
+            <div class="preview-header">Topological Level Preview</div>
+            <div class="preview-content" id="dsl-topo-preview">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Dispatch Modal -->
+  <div class="modal-backdrop" id="dispatch-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3><i class="ph-bold ph-rocket-launch"></i> Dispatch Workflow Task</h3>
+        <button class="btn-close" id="btn-close-dispatch-modal"><i class="ph-bold ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Blueprint Recipe:</label>
+          <input type="text" id="modal-bp-input" value="metamach_demo" readonly>
+        </div>
+        <div class="form-group">
+          <label>Select Workflow Target:</label>
+          <select id="modal-wf-select">
+            <option value="spec2software">spec2software (DAG: Kahn Topological Sort)</option>
+            <option value="wf_architect_design">wf_architect_design (Linear: 3 steps)</option>
+            <option value="wf_builder_implement">wf_builder_implement (Linear: 4 steps)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Execution Mode:</label>
+          <div class="radio-group">
+            <label><input type="radio" name="exec-mode" value="absurd" checked> Absurd PG Queue (Durable)</label>
+            <label><input type="radio" name="exec-mode" value="dryrun"> Dry-Run Preview</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-cancel-modal">Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-dispatch"><i class="ph-bold ph-play"></i> Start Execution</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

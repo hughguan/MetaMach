@@ -195,7 +195,10 @@ pub enum UnifiedWorkflow {
 /// Internal TOML deserialization target for DAG mode workflow files.
 #[derive(Debug, Clone, Deserialize)]
 struct DagWorkflowFile {
-    pub workflow: WorkflowSection,
+    #[serde(default)]
+    pub workflow: Option<WorkflowSection>,
+    #[serde(default)]
+    pub pipeline: Option<PipelineMeta>,
     #[serde(default)]
     pub nodes: Vec<DagNodeDef>,
 }
@@ -213,6 +216,14 @@ struct DagNodeDef {
 
 /// Helper to parse a DAG workflow file into UnifiedWorkflow::Dag.
 fn parse_dag_workflow(dag: DagWorkflowFile) -> Result<UnifiedWorkflow> {
+    let (name, description) = if let Some(wf) = dag.workflow {
+        (wf.name, wf.description)
+    } else if let Some(pipe) = dag.pipeline {
+        (pipe.name, pipe.description)
+    } else {
+        bail!("workflow or pipeline section header required");
+    };
+
     let mut pipeline_nodes = Vec::new();
     let mut inline_register = HashMap::new();
 
@@ -261,10 +272,7 @@ fn parse_dag_workflow(dag: DagWorkflowFile) -> Result<UnifiedWorkflow> {
     }
 
     let config = PipelineConfig {
-        pipeline: PipelineMeta {
-            name: dag.workflow.name,
-            description: dag.workflow.description,
-        },
+        pipeline: PipelineMeta { name, description },
         nodes: pipeline_nodes,
     };
     config.validate()?;
@@ -301,18 +309,21 @@ pub fn load_unified_workflow(name: &str, repo_root: &Path) -> Result<UnifiedWork
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("read workflow {}", path.display()))?;
 
-    // 1. Try parsing unified DAG format ([workflow] + [[nodes]])
+    // 1. Try parsing unified DAG format ([workflow] or legacy [pipeline] + [[nodes]])
     if let Ok(dag) = toml::from_str::<DagWorkflowFile>(&text)
         && !dag.nodes.is_empty()
     {
-        if dag.workflow.name != name {
-            bail!(
-                "workflow name {:?} != requested name {:?}",
-                dag.workflow.name,
-                name
-            );
+        let unified = parse_dag_workflow(dag)?;
+        if let UnifiedWorkflow::Dag { ref config, .. } = unified {
+            if config.pipeline.name != name {
+                bail!(
+                    "workflow name {:?} != requested name {:?}",
+                    config.pipeline.name,
+                    name
+                );
+            }
         }
-        return parse_dag_workflow(dag);
+        return Ok(unified);
     }
 
     // 2. Fallback: parse standard linear workflow ([workflow] + [[steps]])
@@ -661,6 +672,36 @@ steps = [
                     .expect("inline wf registered");
                 assert_eq!(inline_wf.steps.len(), 1);
                 assert_eq!(inline_wf.steps[0].name, "test");
+            }
+            UnifiedWorkflow::Linear(_) => panic!("expected Dag workflow"),
+        }
+    }
+
+    #[test]
+    fn test_load_unified_workflow_legacy_pipeline_header_bridging() {
+        let d = tempdir().unwrap();
+        let wf_dir = d.path().join(".janus/workflows");
+        fs::create_dir_all(&wf_dir).unwrap();
+
+        fs::write(
+            wf_dir.join("legacy_header.toml"),
+            r#"
+[pipeline]
+name = "legacy_header"
+description = "Legacy pipeline header bridging in workflows/"
+
+[[nodes]]
+id = "n1"
+workflow = "wf1"
+"#,
+        )
+        .unwrap();
+
+        let unified = load_unified_workflow("legacy_header", d.path()).unwrap();
+        match unified {
+            UnifiedWorkflow::Dag { config, .. } => {
+                assert_eq!(config.pipeline.name, "legacy_header");
+                assert_eq!(config.nodes.len(), 1);
             }
             UnifiedWorkflow::Linear(_) => panic!("expected Dag workflow"),
         }

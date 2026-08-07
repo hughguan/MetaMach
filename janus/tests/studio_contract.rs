@@ -564,3 +564,140 @@ fn utc_32_08_studio_crash_daemon_unaffected() {
         .expect("daemon ping after studio crash");
     assert!(matches!(resp, Response::Pong));
 }
+
+#[tokio::test]
+async fn utc_32_09_ws_delta_on_state_transition() {
+    if !pg_available() || !tmux_available() {
+        eprintln!("skipping: PG or tmux not available");
+        return;
+    }
+    let state = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let agents = state.path().join("agents.toml");
+    std::fs::write(&agents, AGENTS_TOML).unwrap();
+
+    let bp_dir = repo.path().join(".janus");
+    std::fs::create_dir_all(&bp_dir).unwrap();
+    std::fs::write(
+        bp_dir.join("blueprint.toml"),
+        "[blueprint]\nname = \"ws_delta_e2e\"\ndefault_workflow = \"wf_delta\"\n\n[openwiki]\nscope = [\"e2e\"]\n",
+    )
+    .unwrap();
+    let wf_dir = repo.path().join(".janus/workflows");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    // 2-step workflow — first step sleeps 1s to give time for WS delta detection
+    std::fs::write(
+        wf_dir.join("wf_delta.toml"),
+        "[workflow]\nname = \"wf_delta\"\n\n[[steps]]\nname = \"s1\"\nagent = \"default\"\ncommand = \"sleep 1; true\"\n\n[[steps]]\nname = \"s2\"\nagent = \"default\"\ncommand = \"true\"\n",
+    )
+    .unwrap();
+
+    let daemon = Daemon::spawn(state.path(), &agents, repo.path());
+    daemon.wait_ready();
+
+    // Onboard blueprint so daemon registers state
+    let resp = daemon
+        .uds(
+            &Request::Onboard {
+                name: "ws_delta_e2e".into(),
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+    assert!(matches!(resp, Response::Ok { .. }));
+
+    let token_path = state.path().join("studio.token");
+    let studio = StudioProcess::spawn(&daemon.sock, &token_path, 8490);
+
+    // Connect to WebSocket first, then dispatch
+    let ws_url = format!("ws://127.0.0.1:{}/runs/ws_delta_run/stream", studio.port);
+    let req = tokio_tungstenite::tungstenite::handshake::client::Request::builder()
+        .uri(&ws_url)
+        .header("X-Janus-Studio-Token", &studio.token)
+        .header("Host", format!("127.0.0.1:{}", studio.port))
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .body(())
+        .unwrap();
+
+    let (mut ws_stream, _) = connect_async(req)
+        .await
+        .expect("WebSocket connection failed");
+
+    // 1. Receive SNAPSHOT on connect
+    let first_msg = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
+        .await
+        .expect("timeout waiting for SNAPSHOT")
+        .expect("ws stream ended")
+        .expect("ws error");
+    let snapshot: serde_json::Value = serde_json::from_str(first_msg.to_text().unwrap()).unwrap();
+    assert_eq!(
+        snapshot["type"], "SNAPSHOT",
+        "first WS frame must be SNAPSHOT"
+    );
+
+    // 2. Dispatch the workflow via UDS
+    let dispatch_resp = daemon
+        .uds(
+            &Request::Dispatch {
+                blueprint: "ws_delta_e2e".into(),
+                workflow: Some("wf_delta".into()),
+                inline_command: None,
+            },
+            Duration::from_secs(15),
+        )
+        .expect("dispatch failed");
+    let _task_id = match dispatch_resp {
+        Response::Dispatch { task_id } => task_id,
+        _ => panic!("expected Dispatch response, got {dispatch_resp:?}"),
+    };
+
+    // 3. Poll WS for DELTA events (workflow runs ~1s, studio polls every 1s)
+    let mut saw_delta = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(2), ws_stream.next()).await {
+            Ok(Some(Ok(msg))) => {
+                let text = msg.to_text().unwrap();
+                let payload: serde_json::Value = serde_json::from_str(text).unwrap();
+                match payload["type"].as_str() {
+                    Some("DELTA") => {
+                        saw_delta = true;
+                        assert_eq!(payload["run_id"], "ws_delta_run");
+                        assert!(
+                            payload.get("active_tasks").is_some(),
+                            "DELTA must include active_tasks"
+                        );
+                        break;
+                    }
+                    Some("SNAPSHOT") | Some("HEARTBEAT") => {
+                        // Ignore — only care about DELTA
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Some(Err(e))) => {
+                eprintln!("WS error: {e}");
+                break;
+            }
+            Ok(None) => {
+                eprintln!("WS stream ended");
+                break;
+            }
+            Err(_) => {
+                // Timeout — no more frames, workflow likely done
+                break;
+            }
+        }
+    }
+
+    assert!(
+        saw_delta,
+        "expected at least one DELTA event after workflow dispatch"
+    );
+}

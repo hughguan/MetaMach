@@ -15,6 +15,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
+use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -158,18 +159,6 @@ async fn main() -> Result<()> {
         .parse()
         .context("invalid bind/port configuration")?;
 
-    let listener = match tokio::net::TcpListener::bind(&addr).await {
-        Ok(l) => l,
-        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-            eprintln!("❌ Cannot bind to {bind}:{port} — address/port is already in use.");
-            eprintln!(
-                "💡 Tip: Use 'janus studio --port <PORT>' to specify a custom port, or stop the process using port {port}."
-            );
-            std::process::exit(1);
-        }
-        Err(e) => return Err(e).context("failed to bind TCP listener"),
-    };
-
     let scheme = if cli.tls_cert.is_some() && cli.tls_key.is_some() {
         "https"
     } else {
@@ -179,11 +168,30 @@ async fn main() -> Result<()> {
     println!("🚀 MetaMach Studio (v0.6.0) listening on {scheme}://{addr}");
     println!("🔐 Auth Token: {auth_token}");
 
-    if cli.tls_cert.is_some() || cli.tls_key.is_some() {
-        println!("🔒 TLS Configuration: Enabled");
+    if let (Some(cert_path), Some(key_path)) = (cli.tls_cert.as_ref(), cli.tls_key.as_ref()) {
+        // TLS mode — use axum-server with rustls
+        println!("🔒 TLS enabled — cert={:?} key={:?}", cert_path, key_path);
+        let tls_config = RustlsConfig::from_pem_file(cert_path, key_path)
+            .await
+            .context("failed to load TLS certificate/key")?;
+        axum_server::bind_rustls(addr, tls_config)
+            .serve(app.into_make_service())
+            .await?;
+    } else {
+        // Plain HTTP mode — keep existing AddrInUse error handling
+        let listener = match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                eprintln!("❌ Cannot bind to {bind}:{port} — address/port is already in use.");
+                eprintln!(
+                    "💡 Tip: Use 'janus studio --port <PORT>' to specify a custom port, or stop the process using port {port}."
+                );
+                std::process::exit(1);
+            }
+            Err(e) => return Err(e).context("failed to bind TCP listener"),
+        };
+        axum::serve(listener, app).await?;
     }
-
-    axum::serve(listener, app).await?;
 
     Ok(())
 }
@@ -381,7 +389,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "active_tasks": active_tasks
     });
-    let _ = socket.send(Message::Text(snapshot.to_string())).await;
+    let _ = socket
+        .send(Message::Text(snapshot.to_string().into()))
+        .await;
     last_tasks_json = Some(json_str);
 
     // 2. Stream loop emitting DELTA on state change or HEARTBEAT
@@ -400,7 +410,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                     "active_tasks": active_tasks
                 });
-                if socket.send(Message::Text(delta.to_string())).await.is_err() {
+                if socket
+                    .send(Message::Text(delta.to_string().into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
                 last_tasks_json = Some(current_json);
@@ -410,7 +424,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, id: String) {
                     "run_id": id,
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
-                if socket.send(Message::Text(hb.to_string())).await.is_err() {
+                if socket
+                    .send(Message::Text(hb.to_string().into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }

@@ -31,7 +31,7 @@ name = "janus-studio"
 path = "src/bin/janus_studio.rs"
 
 [dependencies]
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 ratatui = "0.29"
 crossterm = "0.28"
 tokio = { version = "1", features = ["full"] }
@@ -59,6 +59,7 @@ sha2 = "0.10"
 base64 = "0.22"
 tempfile = "3"
 tokio-tungstenite = "0.24"
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 
 [dev-dependencies]
 

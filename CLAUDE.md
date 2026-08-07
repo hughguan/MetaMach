@@ -12,7 +12,7 @@ The **English specs directly under `docs/` are the sole version-controlled spec 
 
 ## Repository status
 
-This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.5.0** (~11,000 LOC, 178 tests, CI-green). All milestones M0–M4 plus M5 integration tests are complete, including the 0.3.0 de-containerization consensus and the 0.4.0 gateway/ecosystem delta.
+This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.6.0** (~12,000 LOC, 190 tests, CI-green). All milestones M0–M4 plus M5 integration tests are complete, including the 0.3.0 de-containerization consensus, 0.4.0 gateway/ecosystem delta, ADR-031 DSL unification, and ADR-032 MetaMach Studio.
 
 **Implemented and tested:**
 - **M0:** Herdr 0.7.3 plugin contract validated.
@@ -20,12 +20,13 @@ This is an **implemented Rust workspace plus specs** — not documentation-only.
 - **M2:** `janus-daemon` resident brain, UDS twin-process protocol, `progress` primitive, `janus::tmux` (internalized from `herdr-tether`), F1 multi-DB fan-out.
 - **M3:** `janush` proxy shell + Tool Guard rule engine (ALLOW/BLOCK/REWRITE, hot-reload, 30s fail-closed timeout).
 - **M4:** Init/Offboard lifecycle, LLM-smelt `production_report.md`, cold-start resume, `target_sha` optimistic locking, workflow engine (absurd pull-mode, checkpointing, retry-claim loop), HITL resume loop, cross-host SSH reverse tunnel transport (ADR-017).
-- **M5:** Integration test suite (8 files, 178 tests), PG-gated blocking CI gate.
+- **M5:** Integration test suite (10 files, 190 tests), PG-gated blocking CI gate.
 - **0.4.0:** HITL Gateway (Teams Adaptive Cards, HMAC-SHA256), Cognitive Provider SPI (MCP), loopback HTTP callback listener.
 - **0.4.5–0.4.9:** Pipeline DAG engine (Kahn's topological sort), stream filter (ANSI stripping), configurable agents, observer panel TUI, environmental snapshot, dual-path log pipeline, hardware pre-flight probes, E2E pipeline tests.
 - **0.5.0 (ADR-029):** Project-based templates — `janus init` scaffolds `.janus/` from `templates/`. Blueprint config moved from `blueprints/<name>/janus.toml` → `.janus/blueprint.toml`. 15 workflow templates (linear + DAG), 3 agent role templates.
+- **0.6.0 (ADR-031 & ADR-032):** Workflow & Pipeline DSL Unification + MetaMach Studio (Visual Workflow DAG Editor & Web Observer sidecar binary on port `8444`, REST + WS stream APIs, token auth, zero-daemon-web-dep architecture).
 
-The four binaries — `janus`, `janus-daemon`, `herdr-janus`, `janush` — all exist under `janus/src/bin/`. Zero `todo!`/`unimplemented!`/`FIXME`/`HACK` stubs in the codebase.
+The five binaries — `janus`, `janus-daemon`, `herdr-janus`, `janush`, `janus-studio` — all exist under `janus/src/bin/`. Zero `todo!`/`unimplemented!`/`FIXME`/`HACK` stubs in the codebase.
 
 ## Build & toolchain
 

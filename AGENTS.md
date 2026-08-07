@@ -2,22 +2,23 @@
 
 ## Project Structure
 
-MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.5.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates. 178 tests, CI-green. Current layout:
+MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.6.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio. 190 tests, CI-green. Current layout:
 
-`` metamach/
-├── docs/                # ✅ English specs (source of truth) + ADR.md (31 decisions)
+``` metamach/
+├── docs/                # ✅ English specs (source of truth) + ADR.md (32 decisions)
 ├── docs/CH/             # ❌ gitignored - Chinese translations & audit artifacts
-├── janus/               # ✅ Rust workspace (4 binaries + shared lib, ~11,000 LOC)
-│   ├── src/bin/         #   janus, janus-daemon, herdr-janus, janush
+├── janus/               # ✅ Rust workspace (5 binaries + shared lib, ~12,000 LOC)
+│   ├── src/bin/         #   janus, janus-daemon, herdr-janus, janush, janus-studio
 │   ├── src/absurd/      #   Postgres adapter + SQLite fallback ring
 │   ├── src/tmux/        #   PTY session engine (remain-on-exit)
 │   ├── src/tool_guard/  #   Rule engine + webhook dispatch
 │   ├── src/gateway/     #   HITL Gateway (Teams Adaptive Cards, HMAC)
 │   ├── src/cognitive/   #   Cognitive Provider SPI (MCP)
 │   ├── src/workflow/    #   Workflow engine + stream filter
+│   ├── src/studio_assets/#  Embedded HTML, CSS, JS Canvas Studio assets
 │   ├── src/{agent,coldstart,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
 │   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
-│   └── tests/           #   8 integration test files (178 tests total)
+│   └── tests/           #   10 integration test files (190 tests total)
 ├── templates/           # ✅ `janus init` scaffolds from here
 │   ├── blueprint.toml   #   Default project recipe
 │   ├── agents/          #   Architect, Builder, Tester role templates
@@ -66,13 +67,13 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 ## Coding Style & Naming
 
 - **Rust 2024 Edition** with `rustfmt` defaults. All code must pass `cargo fmt` and `cargo clippy -D warnings`.
-- Binaries use kebab-case: `janus-daemon`, `herdr-janus`, `janush`, `janus`.
+- Binaries use kebab-case: `janus-daemon`, `herdr-janus`, `janush`, `janus`, `janus-studio`.
 - Config files are TOML (`agents.toml`, `blueprint.toml`, `workflows/*.toml`).
 - The physical execution module is `janus::tmux` (internalized from the former external `herdr-tether`); its isolated tmux server is `tmux -L metamach-tmux`.
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (8 files, 178 tests total).
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (10 files, 190 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
 - Test names are prefixed with UTC IDs mapped to `SPEC.md` (e.g., `utc_03_03_cold_start_reconcile`).

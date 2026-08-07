@@ -5,7 +5,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
   <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
-  <img alt="Tests: 182" src="https://img.shields.io/badge/tests-182%20(CI%20green)-22c55e.svg">
+  <img alt="Tests: 190" src="https://img.shields.io/badge/tests-190%20(CI%20green)-22c55e.svg">
   <img alt="Version: 0.6.0" src="https://img.shields.io/badge/version-0.6.0-6366f1.svg">
 </p>
 

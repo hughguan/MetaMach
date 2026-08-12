@@ -386,19 +386,6 @@ where
             "tty_devices": env_tty_devices(),
         });
 
-        db.upsert_step_start(
-            &recipe.name,
-            task_id,
-            &step.name,
-            workflow_name,
-            target_sha,
-            &session_name,
-            &env_snapshot,
-        )
-        .await?;
-        db.set_step_running(&recipe.name, task_id, &step.name)
-            .await?;
-
         match step.command.as_deref() {
             Some(_) => {
                 let max_attempts = step.max_correction_attempts.unwrap_or(3);
@@ -617,6 +604,19 @@ where
             None => {
                 // No command -> a manual/placeholder step: no tmux session,
                 // immediate COMPLETED. (Real Agent steps always carry a command.)
+                db.upsert_step_start(
+                    &recipe.name,
+                    task_id,
+                    &step.name,
+                    workflow_name,
+                    target_sha,
+                    &session_name,
+                    &env_snapshot,
+                )
+                .await?;
+                db.set_step_running(&recipe.name, task_id, &step.name)
+                    .await?;
+
                 let env = CheckpointEnvelope::new(
                     task_id,
                     &step.name,

@@ -2,7 +2,7 @@
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
 # All five binaries (janus, janus-daemon, herdr-janus, janush, janus-studio) are built by
-# `compile`. 196 tests (CI-green).
+# `compile`. 197 tests (CI-green).
 
 .PHONY: all bootstrap prereq symlinks compile db-init db-down db-backup db-restore db-migrate health logs uninstall clean ram-disk test lint ci
 

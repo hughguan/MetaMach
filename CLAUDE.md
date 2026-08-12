@@ -65,7 +65,7 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 | `PRD.md` | Product requirements, director journey, functional matrix | User persona, business goals, functional requirement matrix |
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
 | `ADR.md` | 32 Architecture Decision Records (ADR-001 through ADR-032) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook, unified workflow DSL, Canvas Studio |
-| `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 196-test report, system deployment & CI pipeline |
+| `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 197-test report, system deployment & CI pipeline |
 | `PLAN.md` | Execution plan & milestone history (M0 through M5) | Milestone roadmap, physical check-in units, verification gates |
 | `contracts/` | Dependency contracts (`herdr.md`, `absurd.md`, `tmux.md`) | External plugin, database engine, and physical PTY execution contracts |
 

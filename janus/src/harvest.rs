@@ -87,15 +87,15 @@ pub fn snapshot_working_tree_to_ref(
 /// Captures sandbox workspace changes and stores them under Git ref `refs/sandbox/<task_id>-<step_name>`.
 /// Returns the full ref name (e.g. `refs/sandbox/<task_id>-<step_name>`) on success.
 pub fn harvest_sandbox_output(repo_root: &Path, task_id: Uuid, step_name: &str) -> Result<String> {
-    let ref_name = format!("refs/sandbox/{}-{}", task_id.simple(), step_name);
-    let msg = format!("metamach harvest snapshot for step '{}'", step_name);
+    let ref_name = format!("refs/sandbox/{}-{step_name}", task_id.simple());
+    let msg = format!("metamach harvest snapshot for step '{step_name}'");
     snapshot_working_tree_to_ref(repo_root, &ref_name, &msg)?;
     Ok(ref_name)
 }
 
 /// Applies a harvested sandbox ref (`refs/sandbox/<task_id>-<step_name>`) to the working tree.
 pub fn apply_harvest_ref(repo_root: &Path, task_id: Uuid, step_name: &str) -> Result<()> {
-    let ref_name = format!("refs/sandbox/{}-{}", task_id.simple(), step_name);
+    let ref_name = format!("refs/sandbox/{}-{step_name}", task_id.simple());
 
     let out = std::process::Command::new("git")
         .args(["checkout", &ref_name, "--", "."])

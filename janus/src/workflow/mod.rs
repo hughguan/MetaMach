@@ -1135,8 +1135,8 @@ pub fn verify_post_execution_writes(
             unauthorized = ?unauthorized,
             "UNAUTHORIZED_WRITE_GUARD: Step modified paths outside allowed write scope"
         );
-        let ref_name = format!("refs/metamach/rollback/{}-{}", task_id.simple(), step_name);
-        let msg = format!("metamach recovery snapshot for step '{}'", step_name);
+        let ref_name = format!("refs/metamach/rollback/{}-{step_name}", task_id.simple());
+        let msg = format!("metamach recovery snapshot for step '{step_name}'");
 
         if let Err(err) = crate::harvest::snapshot_working_tree_to_ref(repo_root, &ref_name, &msg) {
             tracing::warn!(

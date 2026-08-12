@@ -379,4 +379,20 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
         String::from_utf8_lossy(&show_out.stdout).trim(),
         "forbidden content"
     );
+
+    // Verify prefix boundary matching: package.json.bak must NOT match package.json pattern
+    let _ = std::process::Command::new("git")
+        .args(["clean", "-fd"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["reset", "--hard"])
+        .current_dir(repo_dir)
+        .output();
+
+    std::fs::write(repo_dir.join("apps/web/package.json.bak"), "backup").unwrap();
+    let boundary_guard_passed =
+        verify_post_execution_writes(repo_dir, task_id, "build_web_ui", step.writes.as_deref())
+            .unwrap();
+    assert!(!boundary_guard_passed);
 }

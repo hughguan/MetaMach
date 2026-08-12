@@ -1115,9 +1115,11 @@ pub fn verify_post_execution_writes(
             raw_path.trim()
         };
         let is_allowed = allowed.iter().any(|pattern| {
-            file_path == pattern
-                || file_path.starts_with(pattern)
-                || (pattern.ends_with('/') && file_path.starts_with(pattern))
+            if pattern.ends_with('/') {
+                file_path.starts_with(pattern)
+            } else {
+                file_path == pattern || file_path.starts_with(&format!("{pattern}/"))
+            }
         });
         if !is_allowed {
             unauthorized.push(file_path.to_string());
@@ -1189,10 +1191,20 @@ pub fn verify_post_execution_writes(
             "HEAD".to_string()
         };
 
-        let _ = std::process::Command::new("git")
+        if let Ok(out) = std::process::Command::new("git")
             .args(["update-ref", &ref_name, &target_ref])
             .current_dir(repo_root)
-            .output();
+            .output()
+            && !out.status.success()
+        {
+            tracing::warn!(
+                task_id = %task_id,
+                step = %step_name,
+                ref_name = %ref_name,
+                error = %String::from_utf8_lossy(&out.stderr),
+                "UNAUTHORIZED_WRITE_GUARD: Failed to update recovery ref"
+            );
+        }
         Ok(false)
     }
 }

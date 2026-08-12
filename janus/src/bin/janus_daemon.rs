@@ -402,6 +402,7 @@ async fn handle_request(
                         command: Some(cmd),
                         host: None,
                         toolset: None,
+                        max_correction_attempts: None,
                     }],
                 };
                 match dispatch_workflow(db.clone(), repo_root.to_path_buf(), blueprint, wf).await {

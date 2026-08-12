@@ -968,3 +968,28 @@ fn utc_03_06_step_status_wire_format() {
     assert_eq!(back.exit_code, Some(0));
     assert_eq!(back.stdout_tail.as_deref(), Some("build output..."));
 }
+
+// ── UTC-35-01: Augmented Cold Retry with Correction Context (ADR-035) ─────
+
+#[test]
+fn utc_35_01_augmented_cold_retry_correction_contract() {
+    // Unit verification of WorkflowStep max_correction_attempts parsing & defaulting
+    let toml_str = r#"
+        name = "builder_implement"
+        agent = "builder"
+        command = "cargo build"
+        max_correction_attempts = 5
+    "#;
+    let step: janus::recipe::WorkflowStep = toml::from_str(toml_str).unwrap();
+    assert_eq!(step.name, "builder_implement");
+    assert_eq!(step.max_correction_attempts, Some(5));
+
+    let default_step_toml = r#"
+        name = "builder_implement"
+        agent = "builder"
+        command = "cargo build"
+    "#;
+    let default_step: janus::recipe::WorkflowStep = toml::from_str(default_step_toml).unwrap();
+    assert_eq!(default_step.max_correction_attempts, None);
+    assert_eq!(default_step.max_correction_attempts.unwrap_or(3), 3);
+}

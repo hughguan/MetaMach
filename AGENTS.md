@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.6.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio. 195 tests, CI-green. Current layout:
+MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.6.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio. 196 tests, CI-green. Current layout:
 
 ``` metamach/
 ├── docs/                # ✅ English specs (source of truth) + ADR.md (32 decisions)
@@ -18,7 +18,7 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 │   ├── src/studio_assets/#  Embedded HTML, CSS, JS Canvas Studio assets
 │   ├── src/{agent,coldstart,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
 │   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
-│   └── tests/           #   9 integration test files (195 tests total)
+│   └── tests/           #   9 integration test files (196 tests total)
 ├── templates/           # ✅ `janus init` scaffolds from here
 │   ├── blueprint.toml   #   Default project recipe
 │   ├── agents/          #   Architect, Builder, Tester role templates
@@ -73,7 +73,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (9 files, 195 tests total).
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (9 files, 196 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
 - Test names are prefixed with UTC IDs mapped to `SPEC.md` (e.g., `utc_03_03_cold_start_reconcile`).

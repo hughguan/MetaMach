@@ -100,6 +100,8 @@ pub struct WorkflowStep {
     pub host: Option<String>,
     #[serde(default)]
     pub toolset: Option<Vec<String>>,
+    #[serde(default)]
+    pub max_correction_attempts: Option<u32>,
 }
 
 /// A fully validated recipe ready for Onboard registration.

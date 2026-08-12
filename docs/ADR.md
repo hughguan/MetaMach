@@ -492,7 +492,7 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Cold restart with no error context (status quo). (2) Persistent tmux session with `send-keys` prompt injection — rejected: contradicts the single-use tmux-per-step execution model; `janush` is a proxy shell, not an agent runtime. (3) Augmented cold retry: re-dispatch the same step in a new tmux session with error context injected via `METAMACH_CORRECTION_CONTEXT` environment variable. |
 | **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3): On validation failure, re-dispatch the step with the original command plus `METAMACH_CORRECTION_CONTEXT` env var containing the specific error message. Agent system prompts reference this variable for targeted correction. Retry capped at `max_correction_attempts = 3` (configurable in workflow DSL). Fits the existing `run_steps` tmux-poll execution loop without architectural changes. Full details in `docs/bak/ADR-035-In-Session-Correction.md`. |
 | **Rationale** | Reduces wasted exploration tokens by providing targeted error guidance instead of blind re-execution. Fits the existing tmux-per-step, agent-exits execution model perfectly. No persistent session or agent runtime changes required. Depends on ADR-034 for envelope validation triggers. |
-| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Depends on ADR-034; Amends ADR-019). |
+| **Status** | ✅ Implemented — 0.7.0 (Depends on ADR-034; Amends ADR-019). |
 
 ---
 

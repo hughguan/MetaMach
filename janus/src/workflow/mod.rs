@@ -401,161 +401,215 @@ where
 
         match step.command.as_deref() {
             Some(_) => {
-                let cmd = step_command(step, recipe, task_id, workflow_name, janush, host);
-                let _ = backend.kill_session(&session);
-                if let Err(e) = backend.create_session(&session, &cmd, Some(repo_root)) {
-                    warn!(step = %step.name, %task_id, error = %e, "create_session failed");
-                    db.finalize_step(
+                let max_attempts = step.max_correction_attempts.unwrap_or(3);
+                let mut attempt = 1u32;
+                let mut correction_context: Option<String> = None;
+
+                loop {
+                    let session_id_str = if attempt == 1 {
+                        format!("{}-{}", task_id.simple(), idx)
+                    } else {
+                        format!("{}-{}-corr-{}", task_id.simple(), idx, attempt - 1)
+                    };
+                    let session = SessionId::new_for_task(&session_id_str);
+                    let session_name = session.as_str().to_string();
+
+                    db.upsert_step_start(
                         &recipe.name,
                         task_id,
                         &step.name,
-                        "FAILED",
-                        Some(-1),
-                        Some(&format!("create_session failed: {e}")),
+                        workflow_name,
+                        target_sha,
+                        &session_name,
+                        &env_snapshot,
                     )
                     .await?;
-                    return Ok(StepOutcome::Failed);
-                }
+                    db.set_step_running(&recipe.name, task_id, &step.name)
+                        .await?;
 
-                let exit = poll_exit_with_lease(engine, &*backend, queue, run_id, &session).await;
-                let raw_output = backend.capture_pane(&session).ok();
-                // ADR-025: dual-path log — full raw output to disk, 16KB to PG.
-                if let Some(ref raw) = raw_output {
-                    let _ = write_raw_log(task_id, &step.name, raw);
-                }
-                let stdout_tail = raw_output
-                    .as_deref()
-                    .map(|s| truncate_16k(&filter::clean_pty_output(s)));
-                let _ = backend.kill_session(&session);
-
-                let exit_code = match exit {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let status = db.step_status(&recipe.name, task_id, &step.name).await?;
-                        if matches!(status.as_deref(), Some("STOPPED")) {
-                            tracing::info!(step = %step.name, %task_id, "step stopped by user");
-                            return Ok(StepOutcome::Suspended {
-                                step_idx: idx,
-                                step_name: step.name.clone(),
-                            });
-                        }
-                        // Lease-lost (absurd auto-failed the run) or poll error.
-                        warn!(step = %step.name, %task_id, error = %e, "step poll failed");
+                    let cmd = step_command(
+                        step,
+                        recipe,
+                        task_id,
+                        workflow_name,
+                        janush,
+                        host,
+                        correction_context.as_deref(),
+                    );
+                    let _ = backend.kill_session(&session);
+                    if let Err(e) = backend.create_session(&session, &cmd, Some(repo_root)) {
+                        warn!(step = %step.name, %task_id, error = %e, "create_session failed");
                         db.finalize_step(
                             &recipe.name,
                             task_id,
                             &step.name,
                             "FAILED",
-                            None,
-                            stdout_tail.as_deref(),
+                            Some(-1),
+                            Some(&format!("create_session failed: {e}")),
                         )
                         .await?;
                         return Ok(StepOutcome::Failed);
                     }
-                };
 
-                // Re-read the step status: the daemon's GuardCheck handler may
-                // have flipped it to SUSPENDED (HITL require_approval/blacklist)
-                // while the pane was running - janush exits 126 on BLOCK, but the
-                // authoritative signal is the overlay status (126 alone is
-                // ambiguous: it's also daemon-unreachable fail-closed).
-                let status = db.step_status(&recipe.name, task_id, &step.name).await?;
-                match status.as_deref() {
-                    Some("SUSPENDED") | Some("STOPPED") => {
-                        let target_status = status.as_deref().unwrap_or("SUSPENDED");
-                        db.finalize_step(
-                            &recipe.name,
-                            task_id,
-                            &step.name,
-                            target_status,
-                            None,
-                            stdout_tail.as_deref(),
-                        )
-                        .await?;
-                        return Ok(StepOutcome::Suspended {
-                            step_idx: idx,
-                            step_name: step.name.clone(),
-                        });
+                    let exit =
+                        poll_exit_with_lease(engine, &*backend, queue, run_id, &session).await;
+                    let raw_output = backend.capture_pane(&session).ok();
+                    // ADR-025: dual-path log — full raw output to disk, 16KB to PG.
+                    if let Some(ref raw) = raw_output {
+                        let _ = write_raw_log(task_id, &step.name, raw);
                     }
-                    _ => {
-                        if exit_code == 0 {
-                            // Task 4.4 target_sha enforcement: if HEAD advanced
-                            // mid-step (code was pushed while the step ran),
-                            // the step result is stale - discard it, mark
-                            // SUSPENDED with CONCURRENCY_RACE_ALERT, and let the
-                            // retry loop re-run against the new HEAD.
-                            if target_sha != NULL_SHA {
-                                let current = git_head(repo_root);
-                                if current != *target_sha {
-                                    tracing::warn!(
-                                        task_id = %task_id,
-                                        step = %step.name,
-                                        pinned = %target_sha,
-                                        current = %current,
-                                        "CONCURRENCY_RACE_ALERT: HEAD advanced mid-step"
-                                    );
-                                    db.finalize_step(
-                                        &recipe.name,
-                                        task_id,
-                                        &step.name,
-                                        "SUSPENDED",
-                                        Some(exit_code),
-                                        stdout_tail.as_deref(),
-                                    )
-                                    .await?;
-                                    return Ok(StepOutcome::StaleHead {
-                                        step_name: step.name.clone(),
-                                    });
-                                }
+                    let stdout_tail = raw_output
+                        .as_deref()
+                        .map(|s| truncate_16k(&filter::clean_pty_output(s)));
+                    let _ = backend.kill_session(&session);
+
+                    let exit_code = match exit {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let status = db.step_status(&recipe.name, task_id, &step.name).await?;
+                            if matches!(status.as_deref(), Some("STOPPED")) {
+                                tracing::info!(step = %step.name, %task_id, "step stopped by user");
+                                return Ok(StepOutcome::Suspended {
+                                    step_idx: idx,
+                                    step_name: step.name.clone(),
+                                });
                             }
-                            let env = CheckpointEnvelope::new(
-                                task_id,
-                                &step.name,
-                                "COMPLETED",
-                                Some(0),
-                                None,
-                                json!({"exit": 0}),
-                            );
-                            engine
-                                .set_checkpoint(
-                                    queue,
-                                    task_id,
-                                    &step.name,
-                                    &env.to_checkpoint_value()?,
-                                    run_id,
-                                )
-                                .await?;
-                            db.finalize_step(
-                                &recipe.name,
-                                task_id,
-                                &step.name,
-                                "COMPLETED",
-                                Some(0),
-                                stdout_tail.as_deref(),
-                            )
-                            .await?;
-                        } else {
+                            // Lease-lost (absurd auto-failed the run) or poll error.
+                            warn!(step = %step.name, %task_id, error = %e, "step poll failed");
                             db.finalize_step(
                                 &recipe.name,
                                 task_id,
                                 &step.name,
                                 "FAILED",
-                                Some(exit_code),
+                                None,
                                 stdout_tail.as_deref(),
                             )
                             .await?;
-                            // ADR-022: detect quota exhaustion (429 / rate-limit)
-                            // before failing. If the agent's stdout signals
-                            // quota exhaustion, sleep and retry instead of
-                            // counting it as a hard failure.
-                            if let Some(tail) = stdout_tail.as_deref()
-                                && is_quota_exhausted(tail)
-                            {
-                                return Ok(StepOutcome::QuotaExhausted {
-                                    seconds: quota_sleep_seconds(),
-                                });
-                            }
                             return Ok(StepOutcome::Failed);
+                        }
+                    };
+
+                    // Re-read the step status: the daemon's GuardCheck handler may
+                    // have flipped it to SUSPENDED (HITL require_approval/blacklist)
+                    // while the pane was running - janush exits 126 on BLOCK, but the
+                    // authoritative signal is the overlay status (126 alone is
+                    // ambiguous: it's also daemon-unreachable fail-closed).
+                    let status = db.step_status(&recipe.name, task_id, &step.name).await?;
+                    match status.as_deref() {
+                        Some("SUSPENDED") | Some("STOPPED") => {
+                            let target_status = status.as_deref().unwrap_or("SUSPENDED");
+                            db.finalize_step(
+                                &recipe.name,
+                                task_id,
+                                &step.name,
+                                target_status,
+                                None,
+                                stdout_tail.as_deref(),
+                            )
+                            .await?;
+                            return Ok(StepOutcome::Suspended {
+                                step_idx: idx,
+                                step_name: step.name.clone(),
+                            });
+                        }
+                        _ => {
+                            if exit_code == 0 {
+                                // Task 4.4 target_sha enforcement: if HEAD advanced
+                                // mid-step (code was pushed while the step ran),
+                                // the step result is stale - discard it, mark
+                                // SUSPENDED with CONCURRENCY_RACE_ALERT, and let the
+                                // retry loop re-run against the new HEAD.
+                                if target_sha != NULL_SHA {
+                                    let current = git_head(repo_root);
+                                    if current != *target_sha {
+                                        tracing::warn!(
+                                            task_id = %task_id,
+                                            step = %step.name,
+                                            pinned = %target_sha,
+                                            current = %current,
+                                            "CONCURRENCY_RACE_ALERT: HEAD advanced mid-step"
+                                        );
+                                        db.finalize_step(
+                                            &recipe.name,
+                                            task_id,
+                                            &step.name,
+                                            "SUSPENDED",
+                                            Some(exit_code),
+                                            stdout_tail.as_deref(),
+                                        )
+                                        .await?;
+                                        return Ok(StepOutcome::StaleHead {
+                                            step_name: step.name.clone(),
+                                        });
+                                    }
+                                }
+                                let env = CheckpointEnvelope::new(
+                                    task_id,
+                                    &step.name,
+                                    "COMPLETED",
+                                    Some(0),
+                                    None,
+                                    json!({"exit": 0}),
+                                );
+                                engine
+                                    .set_checkpoint(
+                                        queue,
+                                        task_id,
+                                        &step.name,
+                                        &env.to_checkpoint_value()?,
+                                        run_id,
+                                    )
+                                    .await?;
+                                db.finalize_step(
+                                    &recipe.name,
+                                    task_id,
+                                    &step.name,
+                                    "COMPLETED",
+                                    Some(0),
+                                    stdout_tail.as_deref(),
+                                )
+                                .await?;
+                                break;
+                            } else {
+                                // ADR-022: detect quota exhaustion (429 / rate-limit)
+                                if let Some(tail) = stdout_tail.as_deref()
+                                    && is_quota_exhausted(tail)
+                                {
+                                    return Ok(StepOutcome::QuotaExhausted {
+                                        seconds: quota_sleep_seconds(),
+                                    });
+                                }
+
+                                // ADR-035 Augmented Cold Retry with Correction Context
+                                if attempt < max_attempts {
+                                    let err_msg =
+                                        stdout_tail.as_deref().unwrap_or("Non-zero exit code");
+                                    correction_context = Some(format!(
+                                        "Attempt {}/{}: Step '{}' failed with exit code {}: {}",
+                                        attempt, max_attempts, step.name, exit_code, err_msg
+                                    ));
+                                    attempt += 1;
+                                    tracing::info!(
+                                        task_id = %task_id,
+                                        step = %step.name,
+                                        attempt = attempt,
+                                        max_attempts = max_attempts,
+                                        "ADR-035 Augmented Cold Retry: re-dispatching step in fresh tmux session"
+                                    );
+                                    continue;
+                                }
+
+                                db.finalize_step(
+                                    &recipe.name,
+                                    task_id,
+                                    &step.name,
+                                    "FAILED",
+                                    Some(exit_code),
+                                    stdout_tail.as_deref(),
+                                )
+                                .await?;
+                                return Ok(StepOutcome::Failed);
+                            }
                         }
                     }
                 }
@@ -854,6 +908,7 @@ fn step_command(
     workflow_name: &str,
     janush: &Path,
     host: Option<&str>,
+    correction_context: Option<&str>,
 ) -> String {
     let command = step.command.as_deref().unwrap_or("true");
     // Local: JANUS_SOCK_PATH & HERDR_PLUGIN_STATE_DIR (janush -> state_dir/janus.sock). Remote:
@@ -866,8 +921,12 @@ fn step_command(
         ),
         Some(h) => format!("JANUS_SOCK_PATH=/tmp/mm-{h}.sock"),
     };
+    let corr_env = match correction_context {
+        Some(ctx) => format!(" METAMACH_CORRECTION_CONTEXT={}", shell_quote(ctx)),
+        None => String::new(),
+    };
     format!(
-        "env {sock_env} JANUS_AGENT={agent} \
+        "env {sock_env}{corr_env} JANUS_AGENT={agent} \
          JANUS_BLUEPRINT={blueprint} JANUS_TASK_ID={task_id} JANUS_STEP={step_name} \
          JANUS_WORKFLOW={workflow} \
          JANUS_ENV_TIMESTAMP={timestamp} \
@@ -1093,6 +1152,7 @@ mod tests {
                         command: Some("true".to_string()),
                         host: None,
                         toolset: None,
+                        max_correction_attempts: Some(1),
                     },
                     WorkflowStep {
                         name: "build".to_string(),
@@ -1100,6 +1160,7 @@ mod tests {
                         command: Some("echo ok".to_string()),
                         host: None,
                         toolset: None,
+                        max_correction_attempts: Some(1),
                     },
                 ],
             },
@@ -1180,7 +1241,8 @@ mod tests {
         let db = degraded_db(tmp.path());
         let engine = FakeEngine::new(); // max_attempts: 3
         let factory = FakeFactory::new(&[0, 1, 0]);
-        let recipe = two_step_recipe();
+        let mut recipe = two_step_recipe();
+        recipe.workflow.steps[1].max_correction_attempts = Some(1);
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
             .await
@@ -1213,7 +1275,8 @@ mod tests {
         let db = degraded_db(tmp.path());
         let engine = FakeEngine::with_max_attempts(2);
         let factory = FakeFactory::new(&[0, 1, 1]);
-        let recipe = two_step_recipe();
+        let mut recipe = two_step_recipe();
+        recipe.workflow.steps[1].max_correction_attempts = Some(1);
 
         let task_id = spawn_workflow(&engine, &recipe, "test-flow")
             .await
@@ -1237,6 +1300,39 @@ mod tests {
         // step 2 never completed -> last checkpoint stays at scout.
         let cp = engine.last_checkpoint(task_id).expect("checkpoint");
         assert_eq!(cp.0, "scout");
+    }
+
+    #[tokio::test]
+    async fn test_augmented_cold_retry_in_session_correction() {
+        // ADR-035: step 2 fails on attempt 1 (exit 1), succeeds on attempt 2 (exit 0) within same step loop
+        let tmp = tempfile::tempdir().unwrap();
+        let db = degraded_db(tmp.path());
+        let engine = FakeEngine::new();
+        let factory = FakeFactory::new(&[0, 1, 0]); // scout succeeds, build attempt 1 fails, build attempt 2 succeeds
+        let mut recipe = two_step_recipe();
+        recipe.workflow.steps[1].max_correction_attempts = Some(3);
+
+        let task_id = spawn_workflow(&engine, &recipe, "test-flow")
+            .await
+            .expect("spawn");
+        run_workflow(
+            &db,
+            &engine,
+            &factory,
+            &recipe,
+            "test-flow",
+            tmp.path(),
+            task_id,
+            Path::new("/bin/janush"),
+        )
+        .await
+        .expect("workflow ok");
+
+        assert_eq!(engine.task_state(task_id).as_deref(), Some("completed"));
+        // 3 session creations: scout, build (attempt 0), build-corr-1 (attempt 1)
+        assert_eq!(factory.0.created_count(), 3);
+        let cp = engine.last_checkpoint(task_id).expect("checkpoint");
+        assert_eq!(cp.0, "build");
     }
 
     #[tokio::test]
@@ -1497,6 +1593,7 @@ mod tests {
             command: Some("make flash".to_string()),
             host: None,
             toolset: None,
+            max_correction_attempts: None,
         };
         let recipe = ValidatedRecipe {
             name: "gatemetric".to_string(),
@@ -1515,8 +1612,17 @@ mod tests {
         };
         let janush = PathBuf::from("/bin/janush");
         let task_id = Uuid::nil();
-        let cmd = step_command(&step, &recipe, task_id, "fw", &janush, None);
+        let cmd = step_command(
+            &step,
+            &recipe,
+            task_id,
+            "fw",
+            &janush,
+            None,
+            Some("Previous error"),
+        );
         assert!(cmd.starts_with("env JANUS_SOCK_PATH="));
+        assert!(cmd.contains("METAMACH_CORRECTION_CONTEXT='Previous error'"));
         assert!(cmd.contains("HERDR_PLUGIN_STATE_DIR="));
         assert!(cmd.contains("JANUS_AGENT='deployer'"));
         assert!(cmd.contains("JANUS_BLUEPRINT='gatemetric'"));

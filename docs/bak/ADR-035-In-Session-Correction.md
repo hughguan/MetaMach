@@ -1,6 +1,6 @@
 # ADR-035: Augmented Cold Retry with Correction Context for Step Self-Healing
 
-* **Status:** Proposed (0.7.0 Candidate)
+* **Status:** ✅ Implemented (0.7.0)
 * **Date:** 2026-08-12
 * **Target Version:** MetaMach 0.7.0
 * **Amends:** ADR-019 (Configurable Agents - Provisioning, Quota & Fallback)

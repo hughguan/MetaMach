@@ -1137,9 +1137,9 @@ pub fn verify_post_execution_writes(
         );
         let ref_name = format!("refs/metamach/rollback/{}-{}", task_id.simple(), step_name);
 
-        // Capture actual working tree diff into a commit object for the recovery ref
+        // Capture actual working tree diff (including untracked files) into a commit object
         let stash_out = std::process::Command::new("git")
-            .args(["stash", "create"])
+            .args(["stash", "create", "-u"])
             .current_dir(repo_root)
             .output();
 

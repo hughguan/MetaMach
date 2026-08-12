@@ -380,6 +380,17 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
         "forbidden content"
     );
 
+    // Test tracked file modification in primary git stash create path
+    std::fs::write(
+        repo_dir.join("apps/web/package.json"),
+        "{\"unauthorized\": true}",
+    )
+    .unwrap();
+    let tracked_guard_passed =
+        verify_post_execution_writes(repo_dir, task_id, "build_web_ui", step.writes.as_deref())
+            .unwrap();
+    assert!(!tracked_guard_passed);
+
     // Verify prefix boundary matching: package.json.bak must NOT match package.json pattern
     let _ = std::process::Command::new("git")
         .args(["clean", "-fd"])

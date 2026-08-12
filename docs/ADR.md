@@ -460,6 +460,54 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-033: Dual-Track Execution Isolation & Post-Execution Writes Guard (0.7.0 Candidate)
+
+| Field | Value |
+|---|---|
+| **Context** | MetaMach 0.6.0 enforces host-native physical process safety via `janush` UDS gatekeeping and `janus::tmux`. For pure-software SDLC tasks, forcing bare-metal host execution prevents elastic container scheduling and Best-of-N exploration. Additionally, Tool Guard (ADR-007) intercepts commands pre-execution but lacks post-execution workspace file mutation checks. |
+| **Options Considered** | (1) Keep bare-metal host execution for all tasks, (2) Introduce dual-track isolation (`isolation = "sandbox" \| "bare_metal"`) in unified Workflow DSL with post-execution `writes` path boundary rollback (`PostExecutionGuard`). |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Extend DSL with `isolation` and `writes` whitelist paths. Route pure-software nodes to container/VM sandboxes and hardware nodes to host bare metal. Automatically check Git workspace diffs post-step and execute `git checkout` rollback for unauthorized file path writes. Full details in `docs/bak/ADR-033-Dual-Track-Execution.md`. |
+| **Rationale** | Provides elastic software sandbox exploration while keeping hardware control locked on bare metal. Establishes post-execution defense-in-depth against unauthorized side effects. Default `isolation = "bare_metal"` ensures 100% backward compatibility. Amends ADR-007, ADR-019, and ADR-031. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-007, ADR-019, ADR-031). |
+
+---
+
+## ADR-034: Typed Context Envelopes for Absurd PG Checkpoints (0.7.0 Candidate)
+
+| Field | Value |
+|---|---|
+| **Context** | Step outputs in 0.6.0 are saved to Absurd PostgreSQL checkpoints as raw `serde_json::Value` objects. Unvalidated stdout and agent prompt text bleed into database checkpoints, increasing storage bloat and downstream agent context pollution. |
+| **Options Considered** | (1) Continue saving raw JSON values to Absurd PG, (2) Enforce Serde-typed `TypedEnvelope` schema validation prior to calling `DurableEngine::set_checkpoint()`. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Require cross-step outputs to implement `TypedEnvelope` (`EnvelopeBase`, `BuildEnvelope`, `TestEnvelope`) in `janus/src/workflow/envelope.rs`. Validate schema cleanliness before checkpoint writes. Full details in `docs/bak/ADR-034-Typed-Context-Envelopes.md`. |
+| **Rationale** | Ensures clean data boundaries between agents, lowers token consumption for downstream steps, and prevents unstructured catalog DB bloat. Amends ADR-021 and ADR-031. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-021, ADR-031). |
+
+---
+
+## ADR-035: In-Session Correction Retry Loop for Step Self-Healing (0.7.0 Candidate)
+
+| Field | Value |
+|---|---|
+| **Context** | Process cold restarts for step schema validation errors or gate check failures discard active session context, incurring high token costs and latency for minor syntax fixes. |
+| **Options Considered** | (1) Cold restart on step failure (status quo), (2) In-session correction retry loop (`--session-id`) sending targeted error prompts before process abort. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Retain active session context upon envelope validation or gate failure, appending micro-correction prompts (*"Schema Violation: ... Please re-output valid JSON envelope"*). Cap retries to `max_attempts = 3`. Full details in `docs/bak/ADR-035-In-Session-Correction.md`. |
+| **Rationale** | Cuts self-healing token costs by 70%+ and eliminates process spawn latency for trivial syntax fixes. Amends ADR-019 and ADR-034. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-019, ADR-034). |
+
+---
+
+## ADR-036: Pluggable Credential Provisioning & Herdr Harvest Pipeline (0.7.0 Candidate)
+
+| Field | Value |
+|---|---|
+| **Context** | Concurrent sandbox execution (ADR-033) requires ephemeral credential provisioning to prevent host key leaks and isolated branch harvest workflows to prevent local Git workspace pollution. |
+| **Options Considered** | (1) Pass host environment keys directly to sandboxes and write changes to main branch, (2) Abstract `CredentialProvider` SPI for temporary capped API keys and collect sandbox edits as read-only `refs/sandbox/*` for Herdr TUI review. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Implement `CredentialProvider` SPI in `janus/src/cognitive/credential.rs` with auto-revocation. Harvest sandbox outputs to `refs/sandbox/*` and provide interactive diff preview and merge controls in `herdr-janus` TUI. Full details in `docs/bak/ADR-036-Credential-Provisioning-And-Harvest.md`. |
+| **Rationale** | Eliminates host API credential leakage and keeps local Git branches pristine until human review. Amends ADR-019, ADR-029, and ADR-033. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-019, ADR-029, ADR-033). |
+
+---
+
 ## Appendix: Decision Status Legend
 
 | Status | Meaning |

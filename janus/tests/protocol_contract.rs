@@ -370,7 +370,7 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
     assert!(!ref_commit.is_empty());
 
     let show_out = std::process::Command::new("git")
-        .args(["show", &format!("{}:unauthorized.txt", ref_name)])
+        .args(["show", &format!("{ref_name}:unauthorized.txt")])
         .current_dir(repo_dir)
         .output()
         .unwrap();
@@ -410,7 +410,7 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
 
     // Verify recovery ref captured the tracked modification
     let show_tracked = std::process::Command::new("git")
-        .args(["show", &format!("{}:README.md", ref_name)])
+        .args(["show", &format!("{ref_name}:README.md")])
         .current_dir(repo_dir)
         .output()
         .unwrap();

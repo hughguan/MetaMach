@@ -72,6 +72,11 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 - **Pre-Flight Probes**: Probes hardware interfaces (Serial, USB, SSH) before executing target hardware steps. Outcome: `Bypass`, `RequireApproval`, or `NoProbe`.
 - **Dual-Path Log Pipeline**: Raw PTY output written to `/tmp/metamach/logs/<task_id>.log` (7-day GC); 16 KiB truncated tail stored transactionally in PostgreSQL `metamach_step_meta`.
 
+### Contract 4.7 — Typed Context Envelopes (ADR-034)
+- **Typed Checkpoint Envelope**: Enforces compile-time type safety and Serde schema validation (`TypedEnvelope`, `CheckpointEnvelope`, `EnvelopeBase`, `BuildEnvelope`, `TestEnvelope`) for PostgreSQL task checkpoints.
+- **Legacy Checkpoint Fallback**: Automatically decodes pre-0.7.0 unconstrained JSON checkpoints for backward compatibility.
+- **Scene Isolation**: Envelopes govern persistent Absurd PG task checkpoints (`absurd.c_<queue>`), while progress scene rendering continues using truncated `stdout_tail` under the 16 KiB budget (ADR-008).
+
 ---
 
 # Part 2 — Validation & Test Suite Specifications
@@ -91,6 +96,7 @@ MetaMach maintains 178 automated tests across 8 integration test files and inlin
 | **UTC-05-02** | `onboard_lifecycle.rs` | `janus offboard` smelts operational data and archives audit trail. | Contract 4.4 | Major |
 | **UTC-10-02** | `gateway.rs` | HITL Teams Adaptive Card webhook callback validation and duplicate rejection (`409 Conflict`). | Contract 4.3 | Critical |
 | **UTC-10-04** | `gateway.rs` | HMAC-SHA256 constant-time webhook signature verification. | Contract 4.3 | Blocker |
+| **UTC-34-01** | `protocol_contract.rs` | Typed checkpoint envelope roundtrip serialization, legacy fallback, and domain envelope validation. | Contract 4.7 | Major |
 
 ---
 

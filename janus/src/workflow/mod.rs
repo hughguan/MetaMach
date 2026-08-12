@@ -563,15 +563,15 @@ where
             None => {
                 // No command -> a manual/placeholder step: no tmux session,
                 // immediate COMPLETED. (Real Agent steps always carry a command.)
-                let mut env = CheckpointEnvelope::new(
+                let env = CheckpointEnvelope::new(
                     task_id,
                     &step.name,
                     "COMPLETED",
                     Some(0),
                     None,
                     json!({}),
-                );
-                env.noop = Some(true);
+                )
+                .with_noop(true);
                 engine
                     .set_checkpoint(
                         queue,
@@ -659,6 +659,9 @@ async fn resume_point<E: DurableEngine>(
         return Ok((0, ResumeAction::Run));
     };
     let parsed_env = CheckpointEnvelope::parse_checkpoint(&state, task_id);
+    // Prefer parsed_env.step_name over checkpoint step_name because the structured
+    // envelope's step_name is authoritative, ensuring robust step matching during
+    // legacy state migrations or metadata updates.
     let target_step_name = if !parsed_env.step_name.is_empty() {
         &parsed_env.step_name
     } else {

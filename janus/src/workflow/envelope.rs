@@ -140,6 +140,12 @@ impl CheckpointEnvelope {
         }
     }
 
+    /// Sets the `noop` flag for manual/placeholder steps.
+    pub fn with_noop(mut self, noop: bool) -> Self {
+        self.noop = Some(noop);
+        self
+    }
+
     /// Parses a JSON value into a `CheckpointEnvelope`.
     /// Supports pre-0.7.0 legacy checkpoints for backward compatibility.
     pub fn parse_checkpoint(val: &Value, default_task_id: Uuid) -> Self {

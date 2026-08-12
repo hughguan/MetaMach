@@ -480,7 +480,7 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Continue with ad-hoc JSON checkpoint values (status quo). (2) External schema registries (Protobuf, JSON Schema) — rejected: introduces operational dependencies. (3) Rust Serde-typed `CheckpointEnvelope` structs validated at checkpoint write time. |
 | **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3): Define `CheckpointEnvelope` structs in `janus/src/workflow/envelope.rs` with Serde validation before `DurableEngine::set_checkpoint(queue, task_id: Uuid, step, state: &Value, owner_run: Uuid)`. Envelopes are PG-checkpoint-only; scene snapshots (HITL cards, progress) continue using truncated `stdout_tail` (ADR-008). Full details in `docs/bak/ADR-034-Typed-Context-Envelopes.md`. |
 | **Rationale** | Stronger type guarantees on checkpoint data during cold-start recovery and HITL resumption. Clear separation between durable checkpoint state (Absurd PG, unbounded) and scene rendering (`stdout_tail`, 16 KiB cap). References `docs/contracts/absurd.md` for persistence contract. |
-| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends `docs/contracts/absurd.md`). |
+| **Status** | ✅ Implemented — 0.7.0 (Amends `docs/contracts/absurd.md`). |
 
 ---
 

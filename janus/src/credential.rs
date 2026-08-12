@@ -17,22 +17,6 @@ use uuid::Uuid;
 /// Re-export manual Pin<Box<dyn Future>> alias matching codebase conventions.
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// Error types for credential provisioning operations.
-#[derive(Debug, thiserror::Error)]
-pub enum CredentialError {
-    #[error("Provisioning failed: {0}")]
-    ProvisionFailed(String),
-
-    #[error("Revocation failed: {0}")]
-    RevokeFailed(String),
-
-    #[error("Credential expired for task {0}")]
-    Expired(Uuid),
-
-    #[error("Credential not found for task {0}")]
-    NotFound(Uuid),
-}
-
 /// Dynamic, scoped credential payload issued for task execution.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Credential {

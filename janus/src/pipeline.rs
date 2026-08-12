@@ -31,6 +31,12 @@ pub struct PipelineNode {
     pub workflow: String,
     #[serde(default)]
     pub needs: Vec<String>,
+    #[serde(default)]
+    pub isolation: Option<String>,
+    #[serde(default)]
+    pub best_of_n: Option<u8>,
+    #[serde(default)]
+    pub writes: Option<Vec<String>>,
 }
 
 /// Topologically sorted execution plan. Each level contains nodes that can
@@ -178,16 +184,25 @@ mod tests {
                     id: "compile".into(),
                     workflow: "wf_cargo_build".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "audit".into(),
                     workflow: "wf_cross_audit".into(),
                     needs: vec!["compile".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "flash".into(),
                     workflow: "wf_esptool_flash".into(),
                     needs: vec!["audit".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
             ],
         }
@@ -215,21 +230,33 @@ mod tests {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "b".into(),
                     workflow: "wf_b".into(),
                     needs: vec!["a".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "c".into(),
                     workflow: "wf_c".into(),
                     needs: vec!["a".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "d".into(),
                     workflow: "wf_d".into(),
                     needs: vec!["b".into(), "c".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
             ],
         };
@@ -252,16 +279,25 @@ mod tests {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "b".into(),
                     workflow: "wf_b".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "c".into(),
                     workflow: "wf_c".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
             ],
         };
@@ -282,11 +318,17 @@ mod tests {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec!["b".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "b".into(),
                     workflow: "wf_b".into(),
                     needs: vec!["a".into()],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
             ],
         };
@@ -308,6 +350,9 @@ mod tests {
                 id: "a".into(),
                 workflow: "wf_a".into(),
                 needs: vec!["nonexistent".into()],
+                isolation: None,
+                best_of_n: None,
+                writes: None,
             }],
         };
         let err = config.validate().unwrap_err();
@@ -329,11 +374,17 @@ mod tests {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
                 PipelineNode {
                     id: "a".into(),
                     workflow: "wf_b".into(),
                     needs: vec![],
+                    isolation: None,
+                    best_of_n: None,
+                    writes: None,
                 },
             ],
         };

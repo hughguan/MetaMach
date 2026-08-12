@@ -289,3 +289,38 @@ async fn utc_36_01_credential_provider_spi_contract() {
     assert_eq!(swept_dead, 1); // Revoked
     assert_eq!(mem.active_count(), 0);
 }
+
+#[tokio::test]
+async fn utc_33_01_dual_track_execution_writes_guard_contract() {
+    use janus::recipe::WorkflowStep;
+    use janus::workflow::verify_post_execution_writes;
+
+    let toml_str = r#"
+        name = "build_web_ui"
+        agent = "builder"
+        command = "bun install"
+        isolation = "sandbox"
+        writes = ["apps/web/dist/", "apps/web/package.json"]
+    "#;
+    let step: WorkflowStep = toml::from_str(toml_str).unwrap();
+    assert_eq!(step.name, "build_web_ui");
+    assert_eq!(step.isolation.as_deref(), Some("sandbox"));
+    assert_eq!(
+        step.writes.as_deref(),
+        Some(
+            &[
+                "apps/web/dist/".to_string(),
+                "apps/web/package.json".to_string()
+            ][..]
+        )
+    );
+
+    let tmp = tempfile::tempdir().unwrap();
+    let task_id = Uuid::new_v4();
+
+    // Verification on clean / non-git workspace passes
+    let ok =
+        verify_post_execution_writes(tmp.path(), task_id, "build_web_ui", step.writes.as_deref())
+            .unwrap();
+    assert!(ok);
+}

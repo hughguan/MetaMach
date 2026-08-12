@@ -403,6 +403,9 @@ async fn handle_request(
                         host: None,
                         toolset: None,
                         max_correction_attempts: None,
+                        isolation: None,
+                        best_of_n: None,
+                        writes: None,
                     }],
                 };
                 match dispatch_workflow(db.clone(), repo_root.to_path_buf(), blueprint, wf).await {

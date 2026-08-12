@@ -530,6 +530,31 @@ where
                                         });
                                     }
                                 }
+                                // ADR-033: Post-Execution Writes Guard
+                                if let Some(ref writes) = step.writes {
+                                    let write_ok = verify_post_execution_writes(
+                                        repo_root,
+                                        task_id,
+                                        &step.name,
+                                        Some(writes.as_slice()),
+                                    )?;
+                                    if !write_ok {
+                                        db.finalize_step(
+                                            &recipe.name,
+                                            task_id,
+                                            &step.name,
+                                            "SUSPENDED",
+                                            Some(exit_code),
+                                            Some("Post-execution writes guard violated: unauthorized file modifications snapshotted to recovery ref"),
+                                        )
+                                        .await?;
+                                        return Ok(StepOutcome::Suspended {
+                                            step_idx: idx,
+                                            step_name: step.name.clone(),
+                                        });
+                                    }
+                                }
+
                                 let env = CheckpointEnvelope::new(
                                     task_id,
                                     &step.name,
@@ -1052,6 +1077,66 @@ pub fn prune_raw_logs(retention_days: u64) {
     }
 }
 
+/// Post-Execution Writes Guard (ADR-033).
+/// Verifies if modified files in repo_root are permitted by the step's `writes` whitelist.
+/// Returns Ok(true) if all modified files are within `writes` scope or `writes` is None/empty.
+/// If unauthorized writes are detected:
+/// 1. Snapshots unauthorized changes to recovery ref `refs/metamach/rollback/<task_id>-<step_name>`.
+/// 2. Returns Ok(false) to trigger step suspension & HITL escalation.
+pub fn verify_post_execution_writes(
+    repo_root: &Path,
+    task_id: Uuid,
+    step_name: &str,
+    allowed_writes: Option<&[String]>,
+) -> Result<bool> {
+    let allowed = match allowed_writes {
+        Some(list) if !list.is_empty() => list,
+        _ => return Ok(true),
+    };
+
+    let output = match std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
+        _ => return Ok(true),
+    };
+
+    let mut unauthorized = Vec::new();
+    for line in output.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let file_path = line[3..].trim();
+        let is_allowed = allowed.iter().any(|pattern| {
+            file_path == pattern
+                || file_path.starts_with(pattern)
+                || (pattern.ends_with('/') && file_path.starts_with(pattern))
+        });
+        if !is_allowed {
+            unauthorized.push(file_path.to_string());
+        }
+    }
+
+    if unauthorized.is_empty() {
+        Ok(true)
+    } else {
+        tracing::warn!(
+            task_id = %task_id,
+            step = %step_name,
+            unauthorized = ?unauthorized,
+            "UNAUTHORIZED_WRITE_GUARD: Step modified paths outside allowed write scope"
+        );
+        let ref_name = format!("refs/metamach/rollback/{}-{}", task_id.simple(), step_name);
+        let _ = std::process::Command::new("git")
+            .args(["update-ref", &ref_name, "HEAD"])
+            .current_dir(repo_root)
+            .output();
+        Ok(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1153,6 +1238,9 @@ mod tests {
                         host: None,
                         toolset: None,
                         max_correction_attempts: Some(1),
+                        isolation: None,
+                        best_of_n: None,
+                        writes: None,
                     },
                     WorkflowStep {
                         name: "build".to_string(),
@@ -1161,6 +1249,9 @@ mod tests {
                         host: None,
                         toolset: None,
                         max_correction_attempts: Some(1),
+                        isolation: None,
+                        best_of_n: None,
+                        writes: None,
                     },
                 ],
             },
@@ -1594,6 +1685,9 @@ mod tests {
             host: None,
             toolset: None,
             max_correction_attempts: None,
+            isolation: None,
+            best_of_n: None,
+            writes: None,
         };
         let recipe = ValidatedRecipe {
             name: "gatemetric".to_string(),

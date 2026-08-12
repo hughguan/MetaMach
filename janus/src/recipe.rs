@@ -102,6 +102,12 @@ pub struct WorkflowStep {
     pub toolset: Option<Vec<String>>,
     #[serde(default)]
     pub max_correction_attempts: Option<u32>,
+    #[serde(default)]
+    pub isolation: Option<String>,
+    #[serde(default)]
+    pub best_of_n: Option<u8>,
+    #[serde(default)]
+    pub writes: Option<Vec<String>>,
 }
 
 /// A fully validated recipe ready for Onboard registration.
@@ -214,6 +220,12 @@ struct DagNodeDef {
     pub workflow: Option<String>,
     #[serde(default)]
     pub steps: Option<Vec<WorkflowStep>>,
+    #[serde(default)]
+    pub isolation: Option<String>,
+    #[serde(default)]
+    pub best_of_n: Option<u8>,
+    #[serde(default)]
+    pub writes: Option<Vec<String>>,
 }
 
 /// Helper to parse a DAG workflow file into UnifiedWorkflow::Dag.
@@ -239,6 +251,9 @@ fn parse_dag_workflow(dag: DagWorkflowFile) -> Result<UnifiedWorkflow> {
                     id: node.id,
                     workflow: wf_name,
                     needs: node.needs,
+                    isolation: node.isolation,
+                    best_of_n: node.best_of_n,
+                    writes: node.writes,
                 });
             }
             (None, Some(steps)) => {
@@ -256,6 +271,9 @@ fn parse_dag_workflow(dag: DagWorkflowFile) -> Result<UnifiedWorkflow> {
                     id: node.id,
                     workflow: synthetic_name,
                     needs: node.needs,
+                    isolation: node.isolation,
+                    best_of_n: node.best_of_n,
+                    writes: node.writes,
                 });
             }
             (Some(_), Some(_)) => {

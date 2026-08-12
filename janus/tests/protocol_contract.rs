@@ -381,15 +381,44 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
     );
 
     // Test tracked file modification in primary git stash create path
-    std::fs::write(
-        repo_dir.join("apps/web/package.json"),
-        "{\"unauthorized\": true}",
-    )
-    .unwrap();
+    let _ = std::process::Command::new("git")
+        .args(["clean", "-fd"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["reset", "--hard"])
+        .current_dir(repo_dir)
+        .output();
+
+    std::fs::write(repo_dir.join("README.md"), "initial").unwrap();
+    let _ = std::process::Command::new("git")
+        .args(["add", "README.md"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["commit", "-m", "add readme"])
+        .current_dir(repo_dir)
+        .output();
+
+    // Modify tracked file (not in writes whitelist)
+    std::fs::write(repo_dir.join("README.md"), "unauthorized change").unwrap();
+
     let tracked_guard_passed =
         verify_post_execution_writes(repo_dir, task_id, "build_web_ui", step.writes.as_deref())
             .unwrap();
     assert!(!tracked_guard_passed);
+
+    // Verify recovery ref captured the tracked modification
+    let show_tracked = std::process::Command::new("git")
+        .args(["show", &format!("{}:README.md", ref_name)])
+        .current_dir(repo_dir)
+        .output()
+        .unwrap();
+    assert!(show_tracked.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&show_tracked.stdout).trim(),
+        "unauthorized change"
+    );
 
     // Verify prefix boundary matching: package.json.bak must NOT match package.json pattern
     let _ = std::process::Command::new("git")

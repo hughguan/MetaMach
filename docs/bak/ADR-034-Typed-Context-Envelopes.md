@@ -15,11 +15,11 @@ As the complexity of states restored during execution failures or Human-in-the-L
 
 1. **Continue with Ad-hoc JSON**: Simple, requires no engine changes, but lacks type safety and validation, leading to runtime failures upon resumption.
 2. **Schema Registries**: Use an external schema registry (e.g., Protobuf, JSON Schema) to validate checkpoint states. Overly complex and introduces new operational dependencies.
-3. **Typed Context Envelopes in Rust**: Define Rust structs for checkpoint state with strict serde serialization, directly integrated into the `DurableEngine::set_checkpoint` flow. This leverages the existing PG checkpointing mechanism while providing compile-time safety and runtime validation.
+3. **Typed Context Envelopes in Rust (Chosen)**: Define Rust structs for checkpoint state with strict Serde serialization, directly integrated into the `DurableEngine::set_checkpoint` flow. This leverages the existing PG checkpointing mechanism while providing compile-time safety and runtime validation.
 
 ## 3. Decision
 
-We will implement Typed Context Envelopes in Rust (Option 3). This introduces structured envelopes specifically for the checkpoint state object stored in Absurd PG.
+We will implement Typed Context Envelopes in Rust (Option 3). This introduces structured envelopes specifically for the checkpoint state object stored in Absurd PG. Step-specific envelope subtypes (e.g. `BuildEnvelope`, `TestEnvelope`) are supported via Serde sub-tagging or payload extensions in future iterations. Pre-0.7.0 checkpoints will fall back to an unconstrained JSON decoder for backward compatibility.
 
 Crucially, envelopes are **PG-checkpoint-only**. The logical "step output" that flows through the `protocol.rs` scene (like HITL cards and progress snapshots) will continue to use the existing truncated `stdout_tail` path and remain subject to the 16 KiB cap (ADR-008).
 
@@ -45,13 +45,17 @@ pub struct CheckpointEnvelope {
 
 ### Usage with `DurableEngine`
 
-The checkpoint state will be serialized into this envelope before being passed to `set_checkpoint`. The signature for `set_checkpoint` remains aligned with `DurableEngine`:
+The checkpoint state will be serialized into this envelope before being passed to `set_checkpoint`. The signature for `set_checkpoint` aligns with `DurableEngine` conventions:
 
 ```rust
-use metamach::futures::BoxFut;
+use std::future::Future;
+use std::pin::Pin;
 use anyhow::Result;
 use uuid::Uuid;
 use serde_json::Value;
+use janus::absurd::adapter::DurableEngine;
+
+type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 async fn checkpoint_envelope<'a>(
     engine: &'a dyn DurableEngine,
@@ -80,4 +84,4 @@ This ensures that all checkpoints written to the database conform to the `Checkp
 
 * **Positive**: Stronger guarantees on the shape of checkpoint data during recovery.
 * **Positive**: Clear separation of concerns between state checkpointing and stdout truncation (ADR-008).
-* **Negative**: Requires migrating or handling legacy unstructured checkpoints during the upgrade to 0.7.0.
+* **Negative**: Pre-0.7.0 checkpoints require a fallback decoder during migration.

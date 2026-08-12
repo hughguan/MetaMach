@@ -36,7 +36,10 @@ use crate::protocol::{self, truncate_16k};
 use crate::recipe::ValidatedRecipe;
 use crate::tmux::{BackendFactory, DurableBackend, SESSION_PREFIX, SessionId};
 
+pub mod envelope;
 pub mod filter;
+
+pub use envelope::*;
 
 /// Worker id the engine presents to absurd's `claim_task` (pull-mode lease).
 const WORKER_ID: &str = "janus-daemon";
@@ -505,12 +508,20 @@ where
                                     });
                                 }
                             }
+                            let env = CheckpointEnvelope::new(
+                                task_id,
+                                &step.name,
+                                "COMPLETED",
+                                Some(0),
+                                None,
+                                json!({"exit": 0}),
+                            );
                             engine
                                 .set_checkpoint(
                                     queue,
                                     task_id,
                                     &step.name,
-                                    &json!({"step": step.name, "status": "COMPLETED", "exit": 0}),
+                                    &env.to_checkpoint_value()?,
                                     run_id,
                                 )
                                 .await?;
@@ -552,12 +563,21 @@ where
             None => {
                 // No command -> a manual/placeholder step: no tmux session,
                 // immediate COMPLETED. (Real Agent steps always carry a command.)
+                let mut env = CheckpointEnvelope::new(
+                    task_id,
+                    &step.name,
+                    "COMPLETED",
+                    Some(0),
+                    None,
+                    json!({}),
+                );
+                env.noop = Some(true);
                 engine
                     .set_checkpoint(
                         queue,
                         task_id,
                         &step.name,
-                        &json!({"step": step.name, "status": "COMPLETED", "noop": true}),
+                        &env.to_checkpoint_value()?,
                         run_id,
                     )
                     .await?;
@@ -638,15 +658,21 @@ async fn resume_point<E: DurableEngine>(
     let Some((step_name, state)) = engine.get_last_checkpoint(queue, task_id).await? else {
         return Ok((0, ResumeAction::Run));
     };
+    let parsed_env = CheckpointEnvelope::parse_checkpoint(&state, task_id);
+    let target_step_name = if !parsed_env.step_name.is_empty() {
+        &parsed_env.step_name
+    } else {
+        &step_name
+    };
     let idx = recipe
         .workflow
         .steps
         .iter()
-        .position(|s| s.name == step_name)
+        .position(|s| s.name == *target_step_name)
         .unwrap_or(0);
-    let status = state.get("status").and_then(|v| v.as_str());
-    let verdict = state.get("hitl_verdict").and_then(|v| v.as_str());
-    Ok(if status == Some("COMPLETED") {
+    let status = parsed_env.status.as_str();
+    let verdict = parsed_env.hitl_verdict.as_deref();
+    Ok(if status == "COMPLETED" {
         (idx + 1, ResumeAction::Run)
     } else if matches!(verdict, Some("APPROVED") | Some("OVERRIDDEN")) {
         (idx, ResumeAction::Run)

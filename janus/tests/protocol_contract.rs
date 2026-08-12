@@ -203,3 +203,55 @@ fn response_tags_are_snake_case() {
         .contains(r#""type":"progress""#)
     );
 }
+
+#[test]
+fn utc_34_01_typed_checkpoint_envelope_wire_contract() {
+    use janus::workflow::{BuildEnvelope, CheckpointEnvelope, EnvelopeBase, TypedEnvelope};
+    use serde_json::json;
+
+    let task_id = Uuid::new_v4();
+    let env = CheckpointEnvelope::new(
+        task_id,
+        "builder_implement",
+        "COMPLETED",
+        Some(0),
+        None,
+        json!({"exit": 0}),
+    );
+
+    let val = env
+        .to_checkpoint_value()
+        .expect("valid envelope serialization");
+    assert_eq!(val["version"], 1);
+    assert_eq!(val["step_name"], "builder_implement");
+    assert_eq!(val["status"], "COMPLETED");
+
+    let parsed = CheckpointEnvelope::parse_checkpoint(&val, task_id);
+    assert_eq!(parsed.version, 1);
+    assert_eq!(parsed.step_name, "builder_implement");
+
+    // Test legacy fallback decoder
+    let legacy_json = json!({
+        "step": "architect_design",
+        "status": "SUSPENDED",
+        "hitl_verdict": "APPROVED"
+    });
+    let legacy_parsed = CheckpointEnvelope::parse_checkpoint(&legacy_json, task_id);
+    assert_eq!(legacy_parsed.version, 0);
+    assert_eq!(legacy_parsed.step_name, "architect_design");
+    assert_eq!(legacy_parsed.status, "SUSPENDED");
+    assert_eq!(legacy_parsed.hitl_verdict.as_deref(), Some("APPROVED"));
+
+    // Domain-specific envelope test
+    let build_env = BuildEnvelope {
+        base: EnvelopeBase {
+            status: "COMPLETED".to_string(),
+            summary: "Built binaries".to_string(),
+            artifacts: vec!["target/release/janus".to_string()],
+            notes_for_next_agent: "Run tests".to_string(),
+        },
+        changed_files: vec!["src/lib.rs".to_string()],
+        commit_hash: Some("16f62a4".to_string()),
+    };
+    assert!(build_env.validate().is_ok());
+}

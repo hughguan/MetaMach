@@ -1108,7 +1108,12 @@ pub fn verify_post_execution_writes(
         if line.len() < 4 {
             continue;
         }
-        let file_path = line[3..].trim();
+        let raw_path = &line[3..];
+        let file_path = if let Some((_old_path, new_path)) = raw_path.split_once(" -> ") {
+            new_path.trim()
+        } else {
+            raw_path.trim()
+        };
         let is_allowed = allowed.iter().any(|pattern| {
             file_path == pattern
                 || file_path.starts_with(pattern)
@@ -1129,8 +1134,63 @@ pub fn verify_post_execution_writes(
             "UNAUTHORIZED_WRITE_GUARD: Step modified paths outside allowed write scope"
         );
         let ref_name = format!("refs/metamach/rollback/{}-{}", task_id.simple(), step_name);
+
+        // Capture actual working tree diff into a commit object for the recovery ref
+        let stash_out = std::process::Command::new("git")
+            .args(["stash", "create"])
+            .current_dir(repo_root)
+            .output();
+
+        let commit_sha = match stash_out {
+            Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
+            }
+            _ => String::new(),
+        };
+
+        let commit_sha = if !commit_sha.is_empty() {
+            commit_sha
+        } else {
+            let _ = std::process::Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(repo_root)
+                .output();
+            let tree_sha = match std::process::Command::new("git")
+                .args(["write-tree"])
+                .current_dir(repo_root)
+                .output()
+            {
+                Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                Err(_) => String::new(),
+            };
+            let msg = format!("metamach recovery snapshot for step '{}'", step_name);
+            let commit = if !tree_sha.is_empty() {
+                match std::process::Command::new("git")
+                    .args(["commit-tree", &tree_sha, "-p", "HEAD", "-m", &msg])
+                    .current_dir(repo_root)
+                    .output()
+                {
+                    Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                    Err(_) => String::new(),
+                }
+            } else {
+                String::new()
+            };
+            let _ = std::process::Command::new("git")
+                .args(["reset"])
+                .current_dir(repo_root)
+                .output();
+            commit
+        };
+
+        let target_ref = if !commit_sha.is_empty() {
+            commit_sha
+        } else {
+            "HEAD".to_string()
+        };
+
         let _ = std::process::Command::new("git")
-            .args(["update-ref", &ref_name, "HEAD"])
+            .args(["update-ref", &ref_name, &target_ref])
             .current_dir(repo_root)
             .output();
         Ok(false)

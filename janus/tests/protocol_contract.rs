@@ -323,4 +323,60 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
         verify_post_execution_writes(tmp.path(), task_id, "build_web_ui", step.writes.as_deref())
             .unwrap();
     assert!(ok);
+
+    // Initialize git repo and test unauthorized modification snapshot
+    let repo_dir = tmp.path();
+    let _ = std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.name", "MetaMach Test"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.email", "test@metamach.internal"])
+        .current_dir(repo_dir)
+        .output();
+
+    std::fs::create_dir_all(repo_dir.join("apps/web")).unwrap();
+    std::fs::write(repo_dir.join("apps/web/package.json"), "{}").unwrap();
+    let _ = std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(repo_dir)
+        .output();
+
+    // Create unauthorized write
+    std::fs::write(repo_dir.join("unauthorized.txt"), "forbidden content").unwrap();
+
+    let guard_passed =
+        verify_post_execution_writes(repo_dir, task_id, "build_web_ui", step.writes.as_deref())
+            .unwrap();
+    assert!(!guard_passed);
+
+    // Verify recovery ref snapshot commit was created and holds unauthorized file
+    let ref_name = format!("refs/metamach/rollback/{}-build_web_ui", task_id.simple());
+    let rev_out = std::process::Command::new("git")
+        .args(["rev-parse", &ref_name])
+        .current_dir(repo_dir)
+        .output()
+        .unwrap();
+    assert!(rev_out.status.success());
+    let ref_commit = String::from_utf8_lossy(&rev_out.stdout).trim().to_string();
+    assert!(!ref_commit.is_empty());
+
+    let show_out = std::process::Command::new("git")
+        .args(["show", &format!("{}:unauthorized.txt", ref_name)])
+        .current_dir(repo_dir)
+        .output()
+        .unwrap();
+    assert!(show_out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&show_out.stdout).trim(),
+        "forbidden content"
+    );
 }

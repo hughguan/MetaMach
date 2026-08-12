@@ -100,6 +100,7 @@ pub enum TmuxError {
 pub struct TmuxBackend {
     tmux: PathBuf,
     ssh: Option<SshTarget>,
+    socket: Option<String>,
 }
 
 /// An SSH jump target for a remote `TmuxBackend` (ADR-017).
@@ -123,6 +124,16 @@ impl TmuxBackend {
         Self {
             tmux: resolve_tmux(),
             ssh: None,
+            socket: None,
+        }
+    }
+
+    /// Creates a `TmuxBackend` pointing to a custom isolated tmux socket `-L <socket_name>` (ADR-033).
+    pub fn with_socket(socket_name: String) -> Self {
+        Self {
+            tmux: resolve_tmux(),
+            ssh: None,
+            socket: Some(socket_name),
         }
     }
 
@@ -136,6 +147,7 @@ impl TmuxBackend {
         Self {
             tmux: resolve_tmux(),
             ssh: Some(SshTarget { host, user }),
+            socket: None,
         }
     }
 
@@ -147,8 +159,9 @@ impl TmuxBackend {
     /// Build a `tmux -L metamach-tmux ...` command (local) or
     /// `ssh <flags> [-l user] <host> tmux -L metamach-tmux ...` (remote).
     fn tmux_cmd(&self, args: &[&str]) -> Command {
-        let socket_name =
-            std::env::var("JANUS_TMUX_SOCKET").unwrap_or_else(|_| TMUX_SOCKET.to_string());
+        let socket_name = self.socket.clone().unwrap_or_else(|| {
+            std::env::var("JANUS_TMUX_SOCKET").unwrap_or_else(|_| TMUX_SOCKET.to_string())
+        });
         match &self.ssh {
             None => {
                 let mut cmd = Command::new(&self.tmux);

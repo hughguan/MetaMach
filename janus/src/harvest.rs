@@ -132,3 +132,81 @@ pub fn list_harvest_refs(repo_root: &Path) -> Result<Vec<String>> {
 
     Ok(refs)
 }
+
+/// Creates an isolated Git worktree for sandboxed step execution at `worktree_dir` (ADR-033 Phase 2).
+pub fn create_sandbox_worktree(
+    repo_root: &Path,
+    worktree_dir: &Path,
+    task_id: Uuid,
+    step_name: &str,
+) -> Result<()> {
+    if worktree_dir.exists() {
+        let _ = std::fs::remove_dir_all(worktree_dir);
+    }
+    let branch_name = format!("sandbox-{}-{step_name}", task_id.simple());
+    let out = std::process::Command::new("git")
+        .args([
+            "worktree",
+            "add",
+            "-b",
+            &branch_name,
+            worktree_dir.to_str().unwrap_or(""),
+            "HEAD",
+        ])
+        .current_dir(repo_root)
+        .output()?;
+
+    if !out.status.success() {
+        // Fallback: detach worktree if branch already exists
+        let out_detach = std::process::Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "--detach",
+                worktree_dir.to_str().unwrap_or(""),
+                "HEAD",
+            ])
+            .current_dir(repo_root)
+            .output()?;
+        if !out_detach.status.success() {
+            anyhow::bail!(
+                "Failed to create sandbox worktree at {}: {}",
+                worktree_dir.display(),
+                String::from_utf8_lossy(&out_detach.stderr)
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Cleans up an isolated Git worktree and its associated sandbox branch.
+pub fn cleanup_sandbox_worktree(
+    repo_root: &Path,
+    worktree_dir: &Path,
+    task_id: Uuid,
+    step_name: &str,
+) -> Result<()> {
+    let branch_name = format!("sandbox-{}-{step_name}", task_id.simple());
+
+    let _ = std::process::Command::new("git")
+        .args([
+            "worktree",
+            "remove",
+            "--force",
+            worktree_dir.to_str().unwrap_or(""),
+        ])
+        .current_dir(repo_root)
+        .output();
+
+    let _ = std::process::Command::new("git")
+        .args(["branch", "-D", &branch_name])
+        .current_dir(repo_root)
+        .output();
+
+    if worktree_dir.exists() {
+        let _ = std::fs::remove_dir_all(worktree_dir);
+    }
+
+    Ok(())
+}

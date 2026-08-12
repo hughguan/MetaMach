@@ -2,7 +2,7 @@
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  
-> **Test Status:** ✅ **199 tests — 199 passed, 0 failed, 0 ignored** (139 unit + 60 integration across 9 test files).
+> **Test Status:** ✅ **205 tests — 205 passed, 0 failed, 0 ignored** (145 unit + 60 integration across 9 test files).
 
 ---
 
@@ -102,7 +102,7 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 
 ## 1. Integration Test Catalog (UTC Suite)
 
-MetaMach maintains 199 automated tests across 9 integration test files and inline unit tests:
+MetaMach maintains 205 automated tests across 9 integration test files and inline unit tests:
 
 | Test ID | Module / File | Description | Target Contract | Severity |
 |---|---|---|---|---|

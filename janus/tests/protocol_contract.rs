@@ -498,3 +498,66 @@ async fn utc_36_02_herdr_harvest_pipeline_contract() {
         "harvested content"
     );
 }
+
+#[test]
+fn utc_33_02_sandboxed_tmux_worktree_contract() {
+    use janus::harvest::{cleanup_sandbox_worktree, create_sandbox_worktree};
+    use janus::tmux::TmuxBackend;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let repo_dir = temp_dir.path();
+
+    // Initialize git repository
+    let _ = std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(repo_dir)
+        .output()
+        .unwrap();
+
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.name", "MetaMach Test"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.email", "test@metamach.local"])
+        .current_dir(repo_dir)
+        .output();
+
+    std::fs::write(repo_dir.join("main.txt"), "main branch content").unwrap();
+    let _ = std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["commit", "-m", "initial commit"])
+        .current_dir(repo_dir)
+        .output();
+
+    let task_id = Uuid::new_v4();
+    let step_name = "sandbox_build";
+    let worktree_dir = repo_dir.join(format!(".janus/sandboxes/{}-{step_name}", task_id.simple()));
+
+    // 1. Create sandbox worktree
+    create_sandbox_worktree(repo_dir, &worktree_dir, task_id, step_name).unwrap();
+    assert!(worktree_dir.exists());
+    assert!(worktree_dir.join("main.txt").exists());
+
+    // 2. Perform write inside sandbox worktree (isolated from main workspace)
+    std::fs::write(
+        worktree_dir.join("sandbox_artifact.txt"),
+        "sandbox build output",
+    )
+    .unwrap();
+    assert!(worktree_dir.join("sandbox_artifact.txt").exists());
+    assert!(!repo_dir.join("sandbox_artifact.txt").exists());
+
+    // 3. Verify isolated TmuxBackend constructor
+    let sandbox_backend =
+        TmuxBackend::with_socket(format!("metamach-sandbox-{}", task_id.simple()));
+    assert!(!sandbox_backend.is_remote());
+
+    // 4. Clean up sandbox worktree
+    cleanup_sandbox_worktree(repo_dir, &worktree_dir, task_id, step_name).unwrap();
+    assert!(!worktree_dir.exists());
+    assert!(!repo_dir.join("sandbox_artifact.txt").exists());
+}

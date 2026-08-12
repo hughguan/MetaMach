@@ -407,3 +407,65 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
             .unwrap();
     assert!(!boundary_guard_passed);
 }
+
+#[tokio::test]
+async fn utc_36_02_herdr_harvest_pipeline_contract() {
+    use janus::credential::{harvest_sandbox_output, list_harvest_refs, merge_harvest_ref};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let repo_dir = tmp.path();
+    let task_id = Uuid::new_v4();
+
+    let _ = std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.name", "MetaMach Test"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.email", "test@metamach.internal"])
+        .current_dir(repo_dir)
+        .output();
+
+    std::fs::write(repo_dir.join("README.md"), "# Initial").unwrap();
+    let _ = std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(repo_dir)
+        .output();
+
+    // Create sandbox output changes in working directory
+    std::fs::write(repo_dir.join("harvest_artifact.txt"), "harvested content").unwrap();
+
+    // Harvest output
+    let ref_name = harvest_sandbox_output(repo_dir, task_id, "build_step").unwrap();
+    assert_eq!(
+        ref_name,
+        format!("refs/sandbox/{}-build_step", task_id.simple())
+    );
+
+    // Verify list_harvest_refs includes the harvest ref
+    let refs = list_harvest_refs(repo_dir).unwrap();
+    assert!(refs.contains(&ref_name));
+
+    // Reset workspace to clean HEAD
+    let _ = std::process::Command::new("git")
+        .args(["clean", "-fd"])
+        .current_dir(repo_dir)
+        .output();
+
+    assert!(!repo_dir.join("harvest_artifact.txt").exists());
+
+    // Merge harvest ref into HEAD
+    merge_harvest_ref(repo_dir, task_id, "build_step").unwrap();
+    assert!(repo_dir.join("harvest_artifact.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo_dir.join("harvest_artifact.txt")).unwrap(),
+        "harvested content"
+    );
+}

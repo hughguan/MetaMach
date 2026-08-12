@@ -109,9 +109,138 @@ impl MemoryCredentialProvider {
         self.active_keys.lock().unwrap().len()
     }
 
-    pub fn get_key(&self, task_id: &Uuid) -> Option<Credential> {
-        self.active_keys.lock().unwrap().get(task_id).cloned()
+    /// Returns key string for task if present.
+    pub fn get_key(&self, task_id: &Uuid) -> Option<String> {
+        let st = self.active_keys.lock().expect("mutex lock");
+        st.get(task_id).map(|c| c.key.clone())
     }
+}
+
+// =========================================================================
+// Phase 2: Herdr Harvest Pipeline (ADR-036 Phase 2)
+// =========================================================================
+
+/// Captures sandbox workspace changes and stores them under Git ref `refs/sandbox/<task_id>-<step_name>`.
+/// Returns the full ref name (e.g. `refs/sandbox/<task_id>-<step_name>`) on success.
+pub fn harvest_sandbox_output(
+    repo_root: &std::path::Path,
+    task_id: Uuid,
+    step_name: &str,
+) -> Result<String> {
+    let ref_name = format!("refs/sandbox/{}-{}", task_id.simple(), step_name);
+
+    // Capture actual working tree diff (including untracked files) into a stash commit
+    let stash_out = std::process::Command::new("git")
+        .args(["stash", "create", "-u"])
+        .current_dir(repo_root)
+        .output();
+
+    let commit_sha = match stash_out {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    };
+
+    let commit_sha = if !commit_sha.is_empty() {
+        commit_sha
+    } else {
+        let _ = std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(repo_root)
+            .output();
+        let tree_sha = match std::process::Command::new("git")
+            .args(["write-tree"])
+            .current_dir(repo_root)
+            .output()
+        {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            Err(_) => String::new(),
+        };
+        let msg = format!("metamach harvest snapshot for step '{}'", step_name);
+        let commit = if !tree_sha.is_empty() {
+            match std::process::Command::new("git")
+                .args(["commit-tree", &tree_sha, "-p", "HEAD", "-m", &msg])
+                .current_dir(repo_root)
+                .output()
+            {
+                Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                Err(_) => String::new(),
+            }
+        } else {
+            String::new()
+        };
+        let _ = std::process::Command::new("git")
+            .args(["reset"])
+            .current_dir(repo_root)
+            .output();
+        commit
+    };
+
+    let target_ref = if !commit_sha.is_empty() {
+        commit_sha
+    } else {
+        "HEAD".to_string()
+    };
+
+    let out = std::process::Command::new("git")
+        .args(["update-ref", &ref_name, &target_ref])
+        .current_dir(repo_root)
+        .output()?;
+
+    if !out.status.success() {
+        anyhow::bail!(
+            "Failed to create harvest ref {}: {}",
+            ref_name,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    Ok(ref_name)
+}
+
+/// Merges a harvested sandbox ref (`refs/sandbox/<task_id>-<step_name>`) into `HEAD`.
+pub fn merge_harvest_ref(
+    repo_root: &std::path::Path,
+    task_id: Uuid,
+    step_name: &str,
+) -> Result<()> {
+    let ref_name = format!("refs/sandbox/{}-{}", task_id.simple(), step_name);
+
+    let out = std::process::Command::new("git")
+        .args(["checkout", &ref_name, "--", "."])
+        .current_dir(repo_root)
+        .output()?;
+
+    if !out.status.success() {
+        anyhow::bail!(
+            "Failed to merge harvest ref {}: {}",
+            ref_name,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+/// Lists all harvested sandbox refs under `refs/sandbox/*`.
+pub fn list_harvest_refs(repo_root: &std::path::Path) -> Result<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .args(["for-each-ref", "--format=%(refname)", "refs/sandbox/*"])
+        .current_dir(repo_root)
+        .output()?;
+
+    if !out.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let refs = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    Ok(refs)
 }
 
 impl CredentialProvider for MemoryCredentialProvider {

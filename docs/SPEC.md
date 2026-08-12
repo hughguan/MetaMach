@@ -2,7 +2,7 @@
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  
-> **Test Status:** ✅ **198 tests — 198 passed, 0 failed, 0 ignored** (139 unit + 59 integration across 9 test files).
+> **Test Status:** ✅ **199 tests — 199 passed, 0 failed, 0 ignored** (139 unit + 60 integration across 9 test files).
 
 ---
 
@@ -92,13 +92,17 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 - **Post-Execution Writes Guard (`verify_post_execution_writes`)**: Verifies post-execution workspace diffs against allowed `writes` scope.
 - **HITL Escalation & Recovery Ref**: Unauthorized file modifications snapshot to `refs/metamach/rollback/<task_id>-<step_name>`, suspend the step, and trigger HITL escalation without destructive auto-rollback.
 
+### Contract 4.11 — Herdr TUI Harvest Pipeline (ADR-036 Phase 2)
+- **Sandbox Diff Collection (`harvest_sandbox_output`)**: Collects working directory diffs into stash/tree commits under Git ref `refs/sandbox/<task_id>-<step_name>`.
+- **Harvest Ref Management (`list_harvest_refs` & `merge_harvest_ref`)**: Discovers harvested sandbox refs and merges approved sandbox outputs back into `HEAD`.
+
 ---
 
 # Part 2 — Validation & Test Suite Specifications
 
 ## 1. Integration Test Catalog (UTC Suite)
 
-MetaMach maintains 198 automated tests across 9 integration test files and inline unit tests:
+MetaMach maintains 199 automated tests across 9 integration test files and inline unit tests:
 
 | Test ID | Module / File | Description | Target Contract | Severity |
 |---|---|---|---|---|
@@ -115,6 +119,7 @@ MetaMach maintains 198 automated tests across 9 integration test files and inlin
 | **UTC-34-01** | `protocol_contract.rs` | Typed checkpoint envelope roundtrip serialization, legacy fallback, and domain envelope validation. | Contract 4.7 | Major |
 | **UTC-35-01** | `step_workflow.rs` | Augmented Cold Retry WorkflowStep max_correction_attempts parsing, defaulting, and retry contract. | Contract 4.9 | Major |
 | **UTC-36-01** | `protocol_contract.rs` | CredentialProvider SPI lifecycle, provisioning, revocation, and cold-start sweep contract. | Contract 4.8 | Major |
+| **UTC-36-02** | `protocol_contract.rs` | Herdr TUI harvest pipeline sandbox diff collection, ref listing, and merge contract. | Contract 4.11 | Major |
 
 ---
 

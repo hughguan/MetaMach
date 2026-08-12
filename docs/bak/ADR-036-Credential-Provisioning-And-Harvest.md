@@ -1,6 +1,6 @@
 # ADR-036: Pluggable Credential Provisioning & Herdr Harvest Pipeline
 
-* **Status:** Proposed (0.7.0 Candidate)
+* **Status:** 🔄 Phase 1 Implemented / Phase 2 Spec'd Only (0.7.0)
 * **Date:** 2026-08-12
 * **Target Version:** MetaMach 0.7.0
 * **Amends:** ADR-010 (Cognitive Provider SPI), ADR-019 (Configurable Agents - Provisioning, Quota & Fallback)

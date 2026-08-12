@@ -170,8 +170,27 @@ pub async fn reconcile(
     Ok(spawned)
 }
 
+/// Reconcile and clean up active credentials on cold start (ADR-036 Phase 1).
+/// Revokes orphaned or expired keys for tasks that are no longer active.
+pub async fn reconcile_credentials<P: crate::credential::CredentialProvider>(
+    provider: &P,
+    active_task_ids: &[uuid::Uuid],
+) -> Result<usize> {
+    let revoked = provider.cleanup_sweep(active_task_ids).await?;
+    if revoked > 0 {
+        info!(
+            revoked = revoked,
+            "cold-start: revoked orphaned/expired credentials"
+        );
+    }
+    Ok(revoked)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::credential::{CredentialProvider, MemoryCredentialProvider};
+
     #[test]
     fn session_name_shape() {
         // Cold-start resumes into a fresh tmux-janus-task-<task_id>-<idx> session
@@ -180,5 +199,27 @@ mod tests {
         assert!(s.starts_with("tmux-janus-task-1042-"));
         // simple() UUID has no dashes, so only the 4 name separators remain.
         assert_eq!(s.matches('-').count(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_credentials_cleans_orphans() {
+        let provider = MemoryCredentialProvider::new();
+        let active_task = uuid::Uuid::new_v4();
+        let dead_task = uuid::Uuid::new_v4();
+
+        provider
+            .provision(active_task, &["read".into()], 600)
+            .await
+            .unwrap();
+        provider
+            .provision(dead_task, &["read".into()], 600)
+            .await
+            .unwrap();
+
+        let revoked = reconcile_credentials(&provider, &[active_task])
+            .await
+            .unwrap();
+        assert_eq!(revoked, 1);
+        assert_eq!(provider.active_count(), 1);
     }
 }

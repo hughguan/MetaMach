@@ -15,6 +15,7 @@ pub mod absurd;
 pub mod agent;
 pub mod cognitive;
 pub mod coldstart;
+pub mod credential;
 pub mod gateway;
 pub mod lifecycle;
 pub mod paths;

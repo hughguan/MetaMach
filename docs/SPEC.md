@@ -2,7 +2,7 @@
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  
-> **Test Status:** ✅ **194 tests — 194 passed, 0 failed, 0 ignored** (136 unit + 58 integration across 9 test files).
+> **Test Status:** ✅ **195 tests — 195 passed, 0 failed, 0 ignored** (137 unit + 58 integration across 9 test files).
 
 ---
 
@@ -77,6 +77,11 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 - **Legacy Checkpoint Fallback**: Automatically decodes pre-0.7.0 unconstrained JSON checkpoints for backward compatibility.
 - **Scene Isolation**: Envelopes govern persistent Absurd PG task checkpoints (`absurd.c_<queue>`), while progress scene rendering continues using truncated `stdout_tail` under the 16 KiB budget (ADR-008).
 
+### Contract 4.8 — Pluggable Credential Provisioning SPI (ADR-036 Phase 1)
+- **CredentialProvider SPI (`janus::credential`)**: Vendor-agnostic trait (`provision`, `revoke`, `cleanup_sweep`) for dynamic, scoped API keys and token lifecycle management.
+- **BoxFut Async Conventions**: Implements `Pin<Box<dyn Future>>` manual desugaring for codebase consistency with `DurableEngine`.
+- **Cold-Start Sweep (`janus::coldstart::reconcile_credentials`)**: Daemon cold start scans active credential records and revokes orphaned keys from dead or expired tasks.
+
 ---
 
 # Part 2 — Validation & Test Suite Specifications
@@ -97,6 +102,7 @@ MetaMach maintains 178 automated tests across 8 integration test files and inlin
 | **UTC-10-02** | `gateway.rs` | HITL Teams Adaptive Card webhook callback validation and duplicate rejection (`409 Conflict`). | Contract 4.3 | Critical |
 | **UTC-10-04** | `gateway.rs` | HMAC-SHA256 constant-time webhook signature verification. | Contract 4.3 | Blocker |
 | **UTC-34-01** | `protocol_contract.rs` | Typed checkpoint envelope roundtrip serialization, legacy fallback, and domain envelope validation. | Contract 4.7 | Major |
+| **UTC-36-01** | `protocol_contract.rs` | CredentialProvider SPI lifecycle, provisioning, revocation, and cold-start sweep contract. | Contract 4.8 | Major |
 
 ---
 

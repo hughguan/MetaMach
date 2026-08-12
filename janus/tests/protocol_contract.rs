@@ -255,3 +255,37 @@ fn utc_34_01_typed_checkpoint_envelope_wire_contract() {
     };
     assert!(build_env.validate().is_ok());
 }
+
+#[tokio::test]
+async fn utc_36_01_credential_provider_spi_contract() {
+    use janus::credential::{CredentialProvider, MemoryCredentialProvider, NoopCredentialProvider};
+
+    let task_id = Uuid::new_v4();
+
+    // Noop provider contract
+    let noop = NoopCredentialProvider;
+    let cred = noop
+        .provision(task_id, &["read".into()], 300)
+        .await
+        .unwrap();
+    assert_eq!(cred.task_id, task_id);
+    assert!(cred.key.starts_with("noop-key-"));
+    assert!(noop.revoke(task_id).await.is_ok());
+
+    // Memory provider contract & sweep
+    let mem = MemoryCredentialProvider::new();
+    let cred_mem = mem
+        .provision(task_id, &["read".into(), "write".into()], 600)
+        .await
+        .unwrap();
+    assert_eq!(cred_mem.task_id, task_id);
+    assert_eq!(mem.active_count(), 1);
+
+    // Reconcile / sweep active tasks
+    let swept = mem.cleanup_sweep(&[task_id]).await.unwrap();
+    assert_eq!(swept, 0); // Still active
+
+    let swept_dead = mem.cleanup_sweep(&[]).await.unwrap();
+    assert_eq!(swept_dead, 1); // Revoked
+    assert_eq!(mem.active_count(), 0);
+}

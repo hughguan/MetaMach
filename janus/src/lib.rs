@@ -17,6 +17,7 @@ pub mod cognitive;
 pub mod coldstart;
 pub mod credential;
 pub mod gateway;
+pub mod harvest;
 pub mod lifecycle;
 pub mod paths;
 pub mod pipeline;

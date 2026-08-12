@@ -504,7 +504,7 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 | **Options Considered** | (1) Pass host environment keys directly to sandboxes (status quo — insecure). (2) Hardcoded credential managers (AWS STS, Vault) — rejected: too rigid for diverse deployments. (3) Pluggable `CredentialProvider` SPI with ephemeral keys and lifecycle management, plus Herdr TUI harvest pipeline for sandbox output review. |
 | **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3), split into two sequenced phases. **Phase 1 (Credential SPI, independent):** Implement `CredentialProvider` trait in `janus/src/credential.rs` (top-level module, not cognitive/) using `BoxFut` pattern (matching `DurableEngine` conventions). Auto-revoke on task completion; cold-start sweep in `coldstart.rs` revokes orphaned keys from crashed tasks. **Phase 2 (Harvest Pipeline, depends on ADR-033):** Collect sandbox diffs as `refs/sandbox/*` with Herdr TUI diff preview (`[H]`) and merge control (`[M]`). Full details in `docs/bak/ADR-036-Credential-Provisioning-And-Harvest.md`. |
 | **Rationale** | Pluggable SPI avoids vendor lock-in. Phase split allows Credential SPI to ship independently. Cold-start key sweep prevents orphaned credential leaks. Amends ADR-010 (Cognitive Provider SPI) and ADR-019 (Agent Provisioning) for credential concern separation; Phase 2 depends on ADR-033. |
-| **Status** | ✅ Implemented — 0.7.0 (Amends ADR-010, ADR-019; Phase 2 depends on ADR-033). |
+| **Status** | 🔄 Phase 1 & Phase 2 Harvest Engine Implemented / TUI Keybindings Spec'd Only — 0.7.0 (Amends ADR-010, ADR-019; Phase 2 depends on ADR-033). |
 
 ---
 

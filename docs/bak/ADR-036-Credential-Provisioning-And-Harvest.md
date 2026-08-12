@@ -1,6 +1,6 @@
 # ADR-036: Pluggable Credential Provisioning & Herdr Harvest Pipeline
 
-* **Status:** ✅ Implemented (0.7.0)
+* **Status:** 🔄 Phase 1 & Phase 2 Harvest Engine Implemented / TUI Keybindings Spec'd Only (0.7.0)
 * **Date:** 2026-08-12
 * **Target Version:** MetaMach 0.7.0
 * **Amends:** ADR-010 (Cognitive Provider SPI), ADR-019 (Configurable Agents - Provisioning, Quota & Fallback)

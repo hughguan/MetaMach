@@ -439,7 +439,7 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
 
 #[tokio::test]
 async fn utc_36_02_herdr_harvest_pipeline_contract() {
-    use janus::credential::{harvest_sandbox_output, list_harvest_refs, merge_harvest_ref};
+    use janus::harvest::{apply_harvest_ref, harvest_sandbox_output, list_harvest_refs};
 
     let tmp = tempfile::tempdir().unwrap();
     let repo_dir = tmp.path();
@@ -490,8 +490,8 @@ async fn utc_36_02_herdr_harvest_pipeline_contract() {
 
     assert!(!repo_dir.join("harvest_artifact.txt").exists());
 
-    // Merge harvest ref into HEAD
-    merge_harvest_ref(repo_dir, task_id, "build_step").unwrap();
+    // Apply harvest ref into working tree
+    apply_harvest_ref(repo_dir, task_id, "build_step").unwrap();
     assert!(repo_dir.join("harvest_artifact.txt").exists());
     assert_eq!(
         std::fs::read_to_string(repo_dir.join("harvest_artifact.txt")).unwrap(),

@@ -3,76 +3,80 @@
 * **Status:** Proposed (0.7.0 Candidate)
 * **Date:** 2026-08-12
 * **Target Version:** MetaMach 0.7.0
-* **Author:** MetaMach Architecture Group
-* **Amends/Extends:** ADR-019 (Agent Provisioning), ADR-029 (.janus Directory Consolidation), ADR-033 (Dual-Track Isolation)
-
----
+* **Amends:** ADR-025 (Cognitive Provider SPI)
+* **Depends On:** ADR-033 (Sandbox Track) - for Harvest Pipeline only
 
 ## 1. Context & Problem Statement
 
-Running concurrent software sandboxes (ADR-033) introduces two security and workflow requirements:
-1. **Credential Exposure Risk**: Passing long-lived host API keys directly to untrusted or isolated sandbox containers risks key leaks and unbudgeted API overuse.
-2. **Branch Pollution**: Parallel Best-of-N sandbox runs modifying local host Git branches directly cause merge conflicts and dirty workspace history.
+Agents require dynamic, scoped credentials to interact with external systems. Storing long-lived credentials in plaintext or environment variables is a security risk. Furthermore, we need a mechanism to securely harvest outputs from the sandbox environments.
 
----
+We need a standardized Service Provider Interface (SPI) for dynamic credential provisioning, and a subsequent pipeline (Harvest) to securely extract data.
 
-## 2. Decision
+## 2. Options Considered
 
-We decide to implement **Pluggable Credential Provisioning (`CredentialProvider`)** and the **Herdr Harvest Pipeline (`refs/sandbox/*`)** in MetaMach 0.7.0.
+1. **Environment Variables**: Simple, but long-lived and insecure for dynamic task execution.
+2. **Hardcoded Credential Managers**: Tightly coupling to AWS STS or HashiCorp Vault. Too rigid for our diverse deployment environments.
+3. **Pluggable Credential SPI & Harvest Pipeline**: A custom SPI for credential generation, allowing different backends, combined with a secure harvest pipeline for sandboxed data. This provides maximum flexibility and security.
 
-### Key Resolution Points:
+## 3. Decision
 
-1. **Pluggable Credential Provider SPI**: Abstract credential generation behind a `CredentialProvider` trait in `janus/src/cognitive/credential.rs`. Supports ephemeral key provisioning backends (e.g. OpenRouter capped keys, Volcengine temp tokens, local environment keys) with configurable usage limits (e.g. `$50` cap).
-2. **Ephemeral Key Lifecycle**: `janus-daemon` provisions temporary credentials when spawning a sandbox task and automatically revokes them upon step completion or termination.
-3. **Read-Only Harvest Git References**: Modifications produced inside sandboxes are collected as read-only Git references under `refs/sandbox/<sandbox-id>`.
-4. **Herdr TUI Harvest Viewport**: Extend `herdr-janus` TUI with a Harvest diff preview card (`[H]`) and one-key merge control (`[M]`) to review and merge candidate sandbox runs into the main branch.
+We will implement Option 3. To accommodate dependencies, this initiative is explicitly split into two sequenced phases:
 
----
+1. **Credential SPI**: An independent, standalone module for credential provisioning that can be shipped immediately.
+2. **Herdr Harvest Pipeline**: A data extraction pipeline that strictly depends on the sandbox track established in ADR-033. This cannot ship until ADR-033 is finalized.
 
-## 3. Detailed Specification
+## 4. Detailed Specification
 
-### 3.1 Credential Provider SPI (`janus/src/cognitive/credential.rs`)
+### Phase 1: Credential SPI
+
+The Credential SPI will be placed as a top-level module at `janus/src/credential.rs` (distinct from the cognitive module).
+
+It will utilize the `BoxFut` pattern consistent with the existing codebase conventions rather than `async_trait`.
 
 ```rust
-#[async_trait::async_trait]
-pub trait CredentialProvider: Send + Sync {
-    async fn provision_key(&self, max_cost_usd: f64) -> Result<EphemeralKey, CredentialError>;
-    async fn revoke_key(&self, key_id: &str) -> Result<(), CredentialError>;
-}
+use metamach::futures::BoxFut;
+use anyhow::Result;
+use uuid::Uuid;
 
-pub struct EphemeralKey {
-    pub key_id: String,
+pub struct Credential {
+    pub key: String,
     pub secret: String,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub token: Option<String>,
+    pub expires_at: i64,
+}
+
+pub trait CredentialProvider: Send + Sync {
+    fn provision<'a>(
+        &'a self,
+        task_id: Uuid,
+        scopes: &'a [String],
+    ) -> BoxFut<'a, Result<Credential>>;
+
+    fn revoke<'a>(
+        &'a self,
+        task_id: Uuid,
+    ) -> BoxFut<'a, Result<()>>;
 }
 ```
 
-### 3.2 Harvest Ref Collection & TUI Integration
+#### Crash Recovery & Orphaned Keys
 
-```text
- [Host Central Control]
-   │
-   ├── 1. Provision Key ──► CredentialProvider::provision_key($50 Cap) ──► Inject to Sandbox Env
-   │
-   ├── 2. Run Sandbox ──► Parallel execution (sandbox-01, sandbox-02)
-   │
-   └── 3. Harvest ──────► Collect diff as `git fetch refs/sandbox/sandbox-01`
-                               │
-                               ▼
-                   ┌────────────────────────┐
-                   │ Herdr TUI Viewport     │
-                   │ [H] Harvest Diff Card  │
-                   │ [M] Merge to Main      │
-                   └────────────────────────┘
-```
+If the daemon crashes mid-task, provisioned credentials might become orphaned and fail to revoke. To handle this, we will introduce a startup sweep and key Time-To-Live (TTL). 
 
----
+During daemon cold-start reconciliation (in `coldstart.rs`), the system will:
+1. Scan for all active credential records.
+2. Check the running status of their associated `task_id`.
+3. Revoke any credentials whose associated task is no longer running or has exceeded its TTL.
 
-## 4. Consequences
+### Phase 2: Herdr Harvest Pipeline
 
-### Positive:
-- **Zero Host Key Exposure**: Ephemeral, capped API keys isolate sandbox compute from host billing credentials.
-- **Clean Git History**: Main workspace remains pristine until changes are visually inspected and merged via Herdr TUI.
+*(Note: This phase requires ADR-033 to be completed.)*
 
-### Negative / Cost:
-- **SPI Implementation**: Requires cloud provider credential management backends.
+The Harvest Pipeline will securely extract artifacts from the sandbox once the task completes, utilizing the scoped credentials provisioned by the SPI to upload artifacts to durable storage.
+
+## 5. Consequences
+
+* **Positive**: Agents can operate with short-lived, least-privilege credentials.
+* **Positive**: Clean separation between credential provisioning and sandbox execution.
+* **Positive**: Resilient to daemon crashes with explicit cold-start cleanup.
+* **Negative**: Adds complexity to daemon initialization (cold start reconciliation).

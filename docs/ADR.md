@@ -464,11 +464,11 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 | Field | Value |
 |---|---|
-| **Context** | MetaMach 0.6.0 enforces host-native physical process safety via `janush` UDS gatekeeping and `janus::tmux`. For pure-software SDLC tasks, forcing bare-metal host execution prevents elastic container scheduling and Best-of-N exploration. Additionally, Tool Guard (ADR-007) intercepts commands pre-execution but lacks post-execution workspace file mutation checks. |
-| **Options Considered** | (1) Keep bare-metal host execution for all tasks, (2) Introduce dual-track isolation (`isolation = "sandbox" \| "bare_metal"`) in unified Workflow DSL with post-execution `writes` path boundary rollback (`PostExecutionGuard`). |
-| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Extend DSL with `isolation` and `writes` whitelist paths. Route pure-software nodes to container/VM sandboxes and hardware nodes to host bare metal. Automatically check Git workspace diffs post-step and execute `git checkout` rollback for unauthorized file path writes. Full details in `docs/bak/ADR-033-Dual-Track-Execution.md`. |
-| **Rationale** | Provides elastic software sandbox exploration while keeping hardware control locked on bare metal. Establishes post-execution defense-in-depth against unauthorized side effects. Default `isolation = "bare_metal"` ensures 100% backward compatibility. Amends ADR-007, ADR-019, and ADR-031. |
-| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-007, ADR-019, ADR-031). |
+| **Context** | MetaMach 0.6.0 executes all workflow steps on the host bare-metal node via `janush` UDS gatekeeping and `janus::tmux`. Pure-software SDLC tasks (React builds, Python tests) do not require hardware locks but cannot leverage parallel exploration. Tool Guard (ADR-007) intercepts commands pre-execution but cannot audit file-system side effects post-execution. |
+| **Options Considered** | (1) Keep bare-metal host execution for all tasks (status quo). (2) Introduce Docker/podman container sandboxes — rejected: contradicts ADR-001 De-containerization and the "No Docker required" competitive moat. (3) Host-native isolation via separate tmux servers (`tmux -L metamach-sandbox-<id>`), unprivileged OS users, and per-run Git worktrees, with post-execution `writes` path boundary checks. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3): Extend unified DSL with `isolation` (`"sandbox"` / `"bare_metal"`, default `"bare_metal"`) and `writes` path whitelist on `DagNodeDef`. Sandbox track uses host-native isolation (separate tmux server, unprivileged user, Git worktree) — no container engine dependency. `PostExecutionGuard` checks Git workspace diffs post-step; unauthorized file writes are snapshotted to `refs/metamach/rollback/<step_id>`, the step is suspended, and HITL escalation is triggered (no destructive auto-rollback). Guard restricted to linear-mode steps unless DAG nodes use per-node worktrees. Preserves existing `DagNodeDef.workflow` field for ADR-031 Hybrid Node Composition. Full details in `docs/bak/ADR-033-Dual-Track-Execution.md`. |
+| **Rationale** | Extends ADR-001 de-containerization philosophy with host-native sandboxing. Post-execution guard provides defense-in-depth complementing pre-execution Tool Guard. HITL-escalation-on-violation aligns with ADR-026/027 governance philosophy. Default `"bare_metal"` ensures 100% backward compatibility. ADR-036 Harvest Pipeline depends on this ADR. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-001, ADR-007, ADR-031). |
 
 ---
 
@@ -476,23 +476,23 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 | Field | Value |
 |---|---|
-| **Context** | Step outputs in 0.6.0 are saved to Absurd PostgreSQL checkpoints as raw `serde_json::Value` objects. Unvalidated stdout and agent prompt text bleed into database checkpoints, increasing storage bloat and downstream agent context pollution. |
-| **Options Considered** | (1) Continue saving raw JSON values to Absurd PG, (2) Enforce Serde-typed `TypedEnvelope` schema validation prior to calling `DurableEngine::set_checkpoint()`. |
-| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Require cross-step outputs to implement `TypedEnvelope` (`EnvelopeBase`, `BuildEnvelope`, `TestEnvelope`) in `janus/src/workflow/envelope.rs`. Validate schema cleanliness before checkpoint writes. Full details in `docs/bak/ADR-034-Typed-Context-Envelopes.md`. |
-| **Rationale** | Ensures clean data boundaries between agents, lowers token consumption for downstream steps, and prevents unstructured catalog DB bloat. Amends ADR-021 and ADR-031. |
-| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-021, ADR-031). |
+| **Context** | Step checkpoint state in 0.6.0 is stored via `DurableEngine::set_checkpoint()` as ad-hoc `serde_json::Value` objects (e.g., `json!({"step": name, "status": "COMPLETED"})`). Raw stdout is captured separately in `metamach_step_meta.stdout_tail` (16 KiB cap, ADR-008). As checkpoint complexity grows (HITL verdicts, multi-field error contexts), ad-hoc JSON risks runtime failures on state resumption. |
+| **Options Considered** | (1) Continue with ad-hoc JSON checkpoint values (status quo). (2) External schema registries (Protobuf, JSON Schema) — rejected: introduces operational dependencies. (3) Rust Serde-typed `CheckpointEnvelope` structs validated at checkpoint write time. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3): Define `CheckpointEnvelope` structs in `janus/src/workflow/envelope.rs` with Serde validation before `DurableEngine::set_checkpoint(queue, task_id: Uuid, step, state: &Value, owner_run: Uuid)`. Envelopes are PG-checkpoint-only; scene snapshots (HITL cards, progress) continue using truncated `stdout_tail` (ADR-008). Full details in `docs/bak/ADR-034-Typed-Context-Envelopes.md`. |
+| **Rationale** | Stronger type guarantees on checkpoint data during cold-start recovery and HITL resumption. Clear separation between durable checkpoint state (Absurd PG, unbounded) and scene rendering (`stdout_tail`, 16 KiB cap). References `docs/contracts/absurd.md` for persistence contract. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends `docs/contracts/absurd.md`). |
 
 ---
 
-## ADR-035: In-Session Correction Retry Loop for Step Self-Healing (0.7.0 Candidate)
+## ADR-035: Augmented Cold Retry with Correction Context for Step Self-Healing (0.7.0 Candidate)
 
 | Field | Value |
 |---|---|
-| **Context** | Process cold restarts for step schema validation errors or gate check failures discard active session context, incurring high token costs and latency for minor syntax fixes. |
-| **Options Considered** | (1) Cold restart on step failure (status quo), (2) In-session correction retry loop (`--session-id`) sending targeted error prompts before process abort. |
-| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Retain active session context upon envelope validation or gate failure, appending micro-correction prompts (*"Schema Violation: ... Please re-output valid JSON envelope"*). Cap retries to `max_attempts = 3`. Full details in `docs/bak/ADR-035-In-Session-Correction.md`. |
-| **Rationale** | Cuts self-healing token costs by 70%+ and eliminates process spawn latency for trivial syntax fixes. Amends ADR-019 and ADR-034. |
-| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-019, ADR-034). |
+| **Context** | When a step fails envelope validation (ADR-034) or gate checks, the current model discards the run entirely and re-dispatches from scratch with no error guidance. MetaMach's execution model (`run_steps` in `workflow/mod.rs`) uses single-use tmux sessions per step — the agent runs to completion, exits, stdout is captured, and the session is cleaned up. There is no persistent interactive session to "append prompts to." |
+| **Options Considered** | (1) Cold restart with no error context (status quo). (2) Persistent tmux session with `send-keys` prompt injection — rejected: contradicts the single-use tmux-per-step execution model; `janush` is a proxy shell, not an agent runtime. (3) Augmented cold retry: re-dispatch the same step in a new tmux session with error context injected via `METAMACH_CORRECTION_CONTEXT` environment variable. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3): On validation failure, re-dispatch the step with the original command plus `METAMACH_CORRECTION_CONTEXT` env var containing the specific error message. Agent system prompts reference this variable for targeted correction. Retry capped at `max_correction_attempts = 3` (configurable in workflow DSL). Fits the existing `run_steps` tmux-poll execution loop without architectural changes. Full details in `docs/bak/ADR-035-In-Session-Correction.md`. |
+| **Rationale** | Reduces wasted exploration tokens by providing targeted error guidance instead of blind re-execution. Fits the existing tmux-per-step, agent-exits execution model perfectly. No persistent session or agent runtime changes required. Depends on ADR-034 for envelope validation triggers. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Depends on ADR-034; Amends ADR-019). |
 
 ---
 
@@ -500,11 +500,11 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 | Field | Value |
 |---|---|
-| **Context** | Concurrent sandbox execution (ADR-033) requires ephemeral credential provisioning to prevent host key leaks and isolated branch harvest workflows to prevent local Git workspace pollution. |
-| **Options Considered** | (1) Pass host environment keys directly to sandboxes and write changes to main branch, (2) Abstract `CredentialProvider` SPI for temporary capped API keys and collect sandbox edits as read-only `refs/sandbox/*` for Herdr TUI review. |
-| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (2): Implement `CredentialProvider` SPI in `janus/src/cognitive/credential.rs` with auto-revocation. Harvest sandbox outputs to `refs/sandbox/*` and provide interactive diff preview and merge controls in `herdr-janus` TUI. Full details in `docs/bak/ADR-036-Credential-Provisioning-And-Harvest.md`. |
-| **Rationale** | Eliminates host API credential leakage and keeps local Git branches pristine until human review. Amends ADR-019, ADR-029, and ADR-033. |
-| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-019, ADR-029, ADR-033). |
+| **Context** | Agents require dynamic, scoped credentials for external API access. Long-lived host credentials injected into sandbox environments risk key leaks and unbudgeted overuse. Sandbox outputs (ADR-033) need a secure extraction path to avoid polluting host Git branches. |
+| **Options Considered** | (1) Pass host environment keys directly to sandboxes (status quo — insecure). (2) Hardcoded credential managers (AWS STS, Vault) — rejected: too rigid for diverse deployments. (3) Pluggable `CredentialProvider` SPI with ephemeral keys and lifecycle management, plus Herdr TUI harvest pipeline for sandbox output review. |
+| **Decision** | **Adopted as Candidate ADR (0.7.0)** — Option (3), split into two sequenced phases. **Phase 1 (Credential SPI, independent):** Implement `CredentialProvider` trait in `janus/src/credential.rs` (top-level module, not cognitive/) using `BoxFut` pattern (matching `DurableEngine` conventions). Auto-revoke on task completion; cold-start sweep in `coldstart.rs` revokes orphaned keys from crashed tasks. **Phase 2 (Harvest Pipeline, depends on ADR-033):** Collect sandbox diffs as `refs/sandbox/*` with Herdr TUI diff preview (`[H]`) and merge control (`[M]`). Full details in `docs/bak/ADR-036-Credential-Provisioning-And-Harvest.md`. |
+| **Rationale** | Pluggable SPI avoids vendor lock-in. Phase split allows Credential SPI to ship independently. Cold-start key sweep prevents orphaned credential leaks. Amends ADR-025 (Cognitive Provider SPI) for credential concern separation; Phase 2 depends on ADR-033. |
+| **Status** | 📋 Spec'd Only — 0.7.0 Candidate (Amends ADR-025; Phase 2 depends on ADR-033). |
 
 ---
 

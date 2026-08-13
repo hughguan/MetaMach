@@ -90,8 +90,7 @@ metamach/
 │   │   ├── tool_guard/          #   Rule engine + webhook dispatch
 │   │   ├── gateway/             #   HITL Gateway (Teams, HMAC)
 │   │   ├── cognitive/           #   Cognitive Provider SPI (MCP)
-│   │   ├── workflow/            #   Workflow engine + stream filter
-│   │   ├── pipeline.rs          #   DAG engine (topological sort, ADR-031)
+│   │   ├── workflow/            #   Workflow engine (mod.rs), DAG engine (dag.rs), stream filter
 │   │   ├── lifecycle.rs         #   Onboard / Offboard lifecycle
 │   │   ├── coldstart.rs         #   Cold-start self-healing
 │   │   ├── recipe.rs            #   Blueprint recipe validation
@@ -99,7 +98,7 @@ metamach/
 │   │   ├── paths.rs             #   Path resolution (Herdr + standalone)
 │   │   └── protocol.rs          #   Shared UDS types (Contracts 3.x/4.x)
 │   ├── migrations/              #   SQL (001_catalog, 002_blueprint, ...)
-│   └── tests/                   #   Integration & E2E tests (177 total)
+│   └── tests/                   #   Integration & E2E tests (206 total)
 ├── templates/                   # `janus init` scaffolds from here
 │   ├── blueprint.toml           #   Default project recipe
 │   ├── agents/                  #   Architect, Builder, Tester roles
@@ -231,7 +230,7 @@ agent = "tester"
 command = "cargo test"
 ```
 
-For complex pipelines, use `[[nodes]]` with `needs` edges for parallel execution.
+For complex workflows, use `[[nodes]]` with `needs` edges for parallel execution.
 Nodes can reference external workflow files (`workflow = "..."`) or define inline
 `steps = [...]`. See `templates/workflows/req2spec.toml` for a full DAG example.
 

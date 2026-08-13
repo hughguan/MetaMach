@@ -12,7 +12,7 @@ The **English specs directly under `docs/` are the sole version-controlled spec 
 
 ## Repository status
 
-This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.7.0-candidate** (~14,100 LOC, 208 tests, CI-green). All milestones M0–M4 plus M5 integration tests and M6 candidate features are complete, including the 0.3.0 de-containerization consensus, 0.4.0 gateway/ecosystem delta, ADR-031 DSL unification, ADR-032 MetaMach Studio, and ADR-033–036 host-native isolation & harvest pipeline.
+This is an **implemented Rust workspace plus specs** — not documentation-only. The codebase is at **version 0.7.0-candidate** (~14,100 LOC, 206 tests, CI-green). All milestones M0–M4 plus M5 integration tests and M6 candidate features are complete, including the 0.3.0 de-containerization consensus, 0.4.0 gateway/ecosystem delta, ADR-031 DSL unification, ADR-032 MetaMach Studio, and ADR-033–036 host-native isolation & harvest pipeline.
 
 **Implemented and tested:**
 - **M0:** Herdr 0.7.3 plugin contract validated.
@@ -20,7 +20,7 @@ This is an **implemented Rust workspace plus specs** — not documentation-only.
 - **M2:** `janus-daemon` resident brain, UDS twin-process protocol, `progress` primitive, `janus::tmux` (internalized from `herdr-tether`), F1 multi-DB fan-out.
 - **M3:** `janush` proxy shell + Tool Guard rule engine (ALLOW/BLOCK/REWRITE, hot-reload, 30s fail-closed timeout).
 - **M4:** Init/Offboard lifecycle, LLM-smelt `production_report.md`, cold-start resume, `target_sha` optimistic locking, workflow engine (absurd pull-mode, checkpointing, retry-claim loop), HITL resume loop, cross-host SSH reverse tunnel transport (ADR-017).
-- **M5:** Integration test suite (9 files, 208 tests total: 142 unit + 66 integration), PG-gated blocking CI gate.
+- **M5:** Integration test suite (9 files, 206 tests total: 130 unit + 76 integration), PG-gated blocking CI gate.
 - **M6 (0.7.0):** Dual-track execution isolation & post-execution writes guard (ADR-033 Phase 1 & 2a), typed checkpoint envelopes (ADR-034), augmented cold retries with correction context (ADR-035), pluggable credential provider SPI (ADR-036 Phase 1), and Herdr harvest pipeline (ADR-036 Phase 2).
 - **0.4.0:** HITL Gateway (Teams Adaptive Cards, HMAC-SHA256), Cognitive Provider SPI (MCP), loopback HTTP callback listener.
 - **0.4.5–0.4.9:** Pipeline DAG engine (Kahn's topological sort), stream filter (ANSI stripping), configurable agents, observer panel TUI, environmental snapshot, dual-path log pipeline, hardware pre-flight probes, E2E pipeline tests.

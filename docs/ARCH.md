@@ -196,15 +196,13 @@ metamach/ (Single monorepo — silicon factory headquarters)
 │       │
 │       ├── tmux/                 # PTY session engine (remain-on-exit tmux server)
 │       ├── gateway/              # 🌐 HITL Gateway (Teams Adaptive Cards, HMAC, callback)
-│       ├── cognitive/            # 🔌 Cognitive Provider SPI (MCP plugins, OpenWiki)
 │       ├── tool_guard/           # In-memory command rule engine & allowlist filter
 │       ├── absurd/               # Absurd Postgres pool, catalog DB, fallback ring buffer
-│       ├── workflow/             # Workflow execution engine, step dispatch, stream filter
+│       ├── workflow/             # Workflow execution engine, DAG engine (dag.rs), stream filter
 │       ├── agent.rs              # Agent pool configuration & capability resolution
 │       ├── coldstart.rs          # Daemon boot cold-start reconciliation
 │       ├── lifecycle.rs          # Project onboard & offboard lifecycle management
 │       ├── paths.rs              # System path resolution (UDS socket, state dirs)
-│       ├── pipeline.rs           # Pipeline DAG engine (Kahn's topo-sort level barrier)
 │       ├── protocol.rs           # UDS request/response wire protocol definitions
 │       ├── recipe.rs             # Blueprint & workflow TOML recipe parser/validator
 │       ├── spawn.rs              # Daemon process launcher & PID lock manager

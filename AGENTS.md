@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.7.0-candidate spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio + ADR-033 Dual-Track Isolation + ADR-034 Typed Envelopes + ADR-035 Cold Retry + ADR-036 Harvest Pipeline. 208 tests, CI-green. Current layout:
+MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.7.0-candidate spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio + ADR-033 Dual-Track Isolation + ADR-034 Typed Envelopes + ADR-035 Cold Retry + ADR-036 Harvest Pipeline. 206 tests, CI-green. Current layout:
 
 ``` metamach/
 ├── docs/                # ✅ English specs (source of truth) + ADR.md (36 decisions)
@@ -14,11 +14,11 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 │   ├── src/tool_guard/  #   Rule engine + webhook dispatch
 │   ├── src/gateway/     #   HITL Gateway (Teams Adaptive Cards, HMAC)
 │   ├── src/cognitive/   #   Cognitive Provider SPI (MCP)
-│   ├── src/workflow/    #   Workflow engine + stream filter
+│   ├── src/workflow/    #   Workflow engine (mod.rs), DAG engine (dag.rs), stream filter
 │   ├── src/studio_assets/#  Embedded HTML, CSS, JS Canvas Studio assets
-│   ├── src/{agent,coldstart,credential,harvest,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
+│   ├── src/{agent,coldstart,credential,harvest,lifecycle,paths,protocol,recipe,spawn,uds}.rs
 │   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
-│   └── tests/           #   9 integration test files (208 tests total)
+│   └── tests/           #   9 integration test files (206 tests total)
 ├── templates/           # ✅ `janus init` scaffolds from here
 │   ├── blueprint.toml   #   Default project recipe
 │   ├── agents/          #   Architect, Builder, Tester role templates
@@ -26,7 +26,7 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 ├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
 ├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
-├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 208 tests)
+├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 206 tests)
 ├── Makefile             # ✅ bootstrap/db-init/db-backup/health/uninstall/...
 ├── CLAUDE.md            # AI agent guidance for Claude Code
 └── AGENTS.md            # This file
@@ -73,7 +73,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (9 files, 208 tests total).
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (9 files, 206 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
 - Test names are prefixed with UTC IDs mapped to `SPEC.md` (e.g., `utc_03_03_cold_start_reconcile`).
@@ -96,7 +96,7 @@ MetaMach 0.6.0 is a durable AI software factory OS. Core components:
 - **`janus::gateway`** - HITL Gateway with Teams Adaptive Card dispatch, HMAC-SHA256 webhook validation, loopback HTTP callback listener.
 - **`janus::cognitive`** - Cognitive Provider SPI: opt-in MCP plugins (`codebase-memory-mcp`), advisory command validation.
 - **`janus::workflow`** - Workflow engine driving blueprint steps via absurd pull-mode queue. Checkpointing, lease renewal, retry-claim loop.
-- **`janus::pipeline`** - Pipeline DAG engine with Kahn's algorithm topological sort, parallel level execution.
+- **`janus::workflow::dag`** - DAG workflow engine with Kahn's algorithm topological sort, parallel level execution.
 - **Absurd Postgres** - catalog DB (`metamach_db`) plus one DB per active blueprint (`metamach_blueprint_<name>`); the F1 multi-DB fan-out. SQLite fallback ring buffer for PG outage survival.
 
 Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: Init ↔ Offboard.

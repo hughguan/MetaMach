@@ -352,7 +352,13 @@ fn utc_03_01b_dispatch_step_transitions() {
     // `make db-init` binds a Unix socket and sqlx's `from_str` mis-parses the
     // `?host=` URL form, so the daemon is driven by METAMACH_PG_SOCKET_DIR. psql
     // (libpq) handles `?host=` fine, so build whichever URL fits the environment.
-    let (pg_target, bp_db) = match std::env::var("DATABASE_URL") {
+    enum PsqlTarget {
+        Url(String),
+        Socket { host: String, db: String },
+    }
+
+    let bp_db = format!("metamach_blueprint_{name}");
+    let psql_target = match std::env::var("DATABASE_URL") {
         Ok(url) if url.contains("host=") => {
             let socket_dir = url
                 .split("host=")
@@ -365,47 +371,79 @@ fn utc_03_01b_dispatch_step_transitions() {
             } else {
                 socket_dir
             };
-            (dir, format!("metamach_blueprint_{name}"))
-        }
-        Ok(url) => {
-            let decoded = url.replace("%2F", "/").replace("%2f", "/");
-            if let Some(host_part) = decoded.strip_prefix("postgres://metamach_admin@") {
-                let socket_dir = host_part.trim_end_matches("/metamach_db");
-                let dir = if socket_dir.is_empty() {
-                    std::env::var("PGHOST").unwrap_or_else(|_| "/tmp".to_string())
-                } else {
-                    socket_dir.to_string()
-                };
-                (dir, format!("metamach_blueprint_{name}"))
-            } else {
-                (decoded, format!("metamach_blueprint_{name}"))
+            PsqlTarget::Socket {
+                host: dir,
+                db: bp_db,
             }
         }
-        Err(_) => {
+        Ok(url)
+            if (url.starts_with("postgres://") || url.starts_with("postgresql://"))
+                && (url.contains(":5432")
+                    || url.contains("127.0.0.1")
+                    || url.contains("localhost")) =>
+        {
+            let target_url = if url.contains("/metamach_db") {
+                url.replace("/metamach_db", &format!("/{bp_db}"))
+            } else {
+                format!("{url}/{bp_db}")
+            };
+            PsqlTarget::Url(target_url)
+        }
+        Ok(url) if url.starts_with("postgres://") || url.starts_with("postgresql://") => {
+            if let Some(host_part) = url.split('@').nth(1) {
+                let raw_path = host_part.split('/').next().unwrap_or("");
+                let decoded_path = raw_path.replace("%2F", "/").replace("%2f", "/");
+                let dir = if decoded_path.is_empty() {
+                    std::env::var("PGHOST").unwrap_or_else(|_| "/tmp".to_string())
+                } else {
+                    decoded_path
+                };
+                PsqlTarget::Socket {
+                    host: dir,
+                    db: bp_db,
+                }
+            } else {
+                let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
+                    .or_else(|_| std::env::var("PGHOST"))
+                    .unwrap_or_else(|_| "/tmp".to_string());
+                PsqlTarget::Socket {
+                    host: socket,
+                    db: bp_db,
+                }
+            }
+        }
+        _ => {
             let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
                 .or_else(|_| std::env::var("PGHOST"))
                 .unwrap_or_else(|_| "/tmp".to_string());
-            (socket, format!("metamach_blueprint_{name}"))
+            PsqlTarget::Socket {
+                host: socket,
+                db: bp_db,
+            }
         }
     };
     let psql = |sql: String| {
         for attempt in 0..15 {
             let mut cmd = std::process::Command::new("psql");
             cmd.args(["-t", "-A", "-U", "metamach_admin"]);
-            if pg_target.starts_with("postgres://") || pg_target.starts_with("postgresql://") {
-                cmd.arg(&pg_target);
-            } else {
-                cmd.args(["-h", &pg_target, "-d", &bp_db]);
+            match &psql_target {
+                PsqlTarget::Url(url) => {
+                    cmd.arg(url);
+                }
+                PsqlTarget::Socket { host, db } => {
+                    cmd.args(["-h", host, "-d", db]);
+                }
             }
             let out = cmd.args(["-c", &sql]).output().expect("psql");
             if out.status.success() {
                 return out;
             }
-            if attempt < 14 {
-                std::thread::sleep(Duration::from_millis(150));
-            } else {
+            if attempt == 14 {
+                let err = String::from_utf8_lossy(&out.stderr);
+                eprintln!("psql failed (attempt {attempt}): {err}");
                 return out;
             }
+            std::thread::sleep(Duration::from_millis(150));
         }
         panic!("psql execution failed after 15 attempts");
     };

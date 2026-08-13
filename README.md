@@ -39,8 +39,7 @@ make bootstrap          # One command: checks prereqs, compiles binaries, initia
 
 ```bash
 cd my-project
-janus init              # Scaffolds .janus/, validates recipe, initializes project database
-janus daemon -d         # Starts the resident background control-plane daemon (detached)
+janus init              # Scaffolds .janus/, auto-starts daemon, validates & registers
 janus start             # Runs the workflow with checkpointing & safety gates
 ```
 
@@ -289,8 +288,8 @@ The authoritative technical specifications live under `docs/`:
 
 If `janus` commands report `janus-daemon not reachable`, start the resident background daemon:
 ```bash
-janus daemon -d                        # Launch background daemon
-make health                            # Verify daemon socket & PG connection
+janus daemon                            # Launch daemon in foreground (Ctrl+C to stop)
+make health                             # Verify daemon socket & PG connection
 ```
 </details>
 

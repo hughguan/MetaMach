@@ -15,52 +15,40 @@ pub fn snapshot_working_tree_to_ref(
     ref_name: &str,
     commit_msg: &str,
 ) -> Result<String> {
-    // Capture actual working tree diff (including untracked files) into a stash commit
-    let stash_out = std::process::Command::new("git")
-        .args(["stash", "create", "-u"])
+    // Capture actual working tree diff (tracked + untracked files) into a tree commit
+    let _ = std::process::Command::new("git")
+        .args(["add", "-A"])
         .current_dir(repo_root)
         .output();
 
-    let commit_sha = match stash_out {
-        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
+    let tree_sha = match std::process::Command::new("git")
+        .args(["write-tree"])
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         _ => String::new(),
     };
 
-    let commit_sha = if !commit_sha.is_empty() {
-        commit_sha
-    } else {
-        let _ = std::process::Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(repo_root)
-            .output();
-        let tree_sha = match std::process::Command::new("git")
-            .args(["write-tree"])
+    let commit_sha = if !tree_sha.is_empty() {
+        match std::process::Command::new("git")
+            .args(["commit-tree", &tree_sha, "-p", "HEAD", "-m", commit_msg])
             .current_dir(repo_root)
             .output()
         {
-            Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            Err(_) => String::new(),
-        };
-        let commit = if !tree_sha.is_empty() {
-            match std::process::Command::new("git")
-                .args(["commit-tree", &tree_sha, "-p", "HEAD", "-m", commit_msg])
-                .current_dir(repo_root)
-                .output()
-            {
-                Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-                Err(_) => String::new(),
+            Ok(out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
             }
-        } else {
-            String::new()
-        };
-        let _ = std::process::Command::new("git")
-            .args(["reset"])
-            .current_dir(repo_root)
-            .output();
-        commit
+            _ => String::new(),
+        }
+    } else {
+        String::new()
     };
+
+    let _ = std::process::Command::new("git")
+        .args(["reset"])
+        .current_dir(repo_root)
+        .output();
 
     let target_ref = if !commit_sha.is_empty() {
         commit_sha
@@ -93,14 +81,38 @@ pub fn harvest_sandbox_output(repo_root: &Path, task_id: Uuid, step_name: &str) 
     Ok(ref_name)
 }
 
-/// Applies a harvested sandbox ref (`refs/sandbox/<task_id>-<step_name>`) to the working tree.
-pub fn apply_harvest_ref(repo_root: &Path, task_id: Uuid, step_name: &str) -> Result<()> {
-    let ref_name = format!("refs/sandbox/{}-{step_name}", task_id.simple());
-
+/// Applies a harvested sandbox ref by full ref name to the working tree.
+pub fn apply_harvest_ref_by_name(repo_root: &Path, ref_name: &str) -> Result<bool> {
     let out = std::process::Command::new("git")
-        .args(["checkout", &ref_name, "--", "."])
+        .args(["checkout", ref_name, "--", "."])
         .current_dir(repo_root)
         .output()?;
+
+    // Check out all files present in ref_name's commit tree (including paths not in current index)
+    let ls_out = std::process::Command::new("git")
+        .args(["ls-tree", "-r", "--name-only", ref_name])
+        .current_dir(repo_root)
+        .output();
+
+    if let Ok(ls) = ls_out
+        && ls.status.success()
+    {
+        let files: Vec<&str> = std::str::from_utf8(&ls.stdout)
+            .unwrap_or("")
+            .lines()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !files.is_empty() {
+            let mut cmd = std::process::Command::new("git");
+            cmd.arg("checkout")
+                .arg(ref_name)
+                .arg("--")
+                .args(&files)
+                .current_dir(repo_root);
+            let _ = cmd.output();
+        }
+    }
 
     if !out.status.success() {
         anyhow::bail!(
@@ -110,7 +122,13 @@ pub fn apply_harvest_ref(repo_root: &Path, task_id: Uuid, step_name: &str) -> Re
         );
     }
 
-    Ok(())
+    Ok(true)
+}
+
+/// Applies a harvested sandbox ref (`refs/sandbox/<task_id>-<step_name>`) to the working tree.
+pub fn apply_harvest_ref(repo_root: &Path, task_id: Uuid, step_name: &str) -> Result<()> {
+    let ref_name = format!("refs/sandbox/{}-{step_name}", task_id.simple());
+    apply_harvest_ref_by_name(repo_root, &ref_name).map(|_| ())
 }
 
 /// Lists all harvested sandbox refs under `refs/sandbox/*`.
@@ -209,4 +227,78 @@ pub fn cleanup_sandbox_worktree(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn setup_temp_git_repo() -> TempDir {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path();
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(repo_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.name", "MetaMach Test"])
+            .current_dir(repo_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@metamach.internal"])
+            .current_dir(repo_dir)
+            .output()
+            .unwrap();
+
+        std::fs::write(repo_dir.join("README.md"), "# Test Repo").unwrap();
+
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(repo_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial commit"])
+            .current_dir(repo_dir)
+            .output()
+            .unwrap();
+
+        temp_dir
+    }
+
+    #[test]
+    fn test_snapshot_and_list_harvest_refs() {
+        let repo = setup_temp_git_repo();
+        let task_id = Uuid::new_v4();
+
+        // Modify file
+        std::fs::write(repo.path().join("README.md"), "# Modified Test Repo").unwrap();
+        // Add untracked file
+        std::fs::write(repo.path().join("output.txt"), "harvest result").unwrap();
+
+        let ref_name = harvest_sandbox_output(repo.path(), task_id, "build").unwrap();
+        assert!(ref_name.starts_with("refs/sandbox/"));
+
+        let refs = list_harvest_refs(repo.path()).unwrap();
+        assert!(refs.contains(&ref_name));
+
+        // Clean working tree
+        std::process::Command::new("git")
+            .args(["reset", "--hard", "HEAD"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        std::fs::remove_file(repo.path().join("output.txt")).ok();
+
+        // Apply harvest ref
+        apply_harvest_ref(repo.path(), task_id, "build").unwrap();
+        assert!(repo.path().join("output.txt").exists());
+    }
 }

@@ -1,4 +1,4 @@
-# MetaMach 0.6.0 — Target Specifications & Quality Matrix
+# MetaMach 0.7.0-candidate — Target Specifications & Quality Matrix
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  

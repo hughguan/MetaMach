@@ -77,12 +77,17 @@ pub enum Request {
         name: String,
     },
     /// Validate and save workflow TOML content to `.janus/workflows/<name>.toml` (ADR-032 / Studio API).
+    /// Validate and save workflow TOML content to `.janus/workflows/<name>.toml` (ADR-032 / Studio API).
     SaveWorkflow {
         #[serde(skip_serializing_if = "Option::is_none")]
         blueprint: Option<String>,
         name: String,
         content: String,
     },
+    /// List harvested sandbox output Git refs (`refs/sandbox/*`) (ADR-036 Phase 2).
+    ListHarvestRefs,
+    /// Apply a harvested sandbox ref back into the working tree (ADR-036 Phase 2).
+    ApplyHarvestRef { ref_name: String },
 }
 
 /// Daemon -> client response.
@@ -102,6 +107,13 @@ pub enum Response {
     WorkflowContent {
         name: String,
         content: String,
+    },
+    HarvestRefs {
+        refs: Vec<String>,
+    },
+    HarvestApplied {
+        ref_name: String,
+        applied: bool,
     },
     /// Daemon -> `janush`: verdict (Contract 3.4). `verdict` is
     /// `"ALLOW"` | `"BLOCK"` | `"REWRITE"`; `rewritten_argv` is set on REWRITE.

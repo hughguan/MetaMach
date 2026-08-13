@@ -106,12 +106,15 @@ impl MemoryCredentialProvider {
     }
 
     pub fn active_count(&self) -> usize {
-        self.active_keys.lock().unwrap().len()
+        self.active_keys
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 
     /// Returns key string for task if present.
     pub fn get_key(&self, task_id: &Uuid) -> Option<String> {
-        let st = self.active_keys.lock().expect("mutex lock");
+        let st = self.active_keys.lock().unwrap_or_else(|e| e.into_inner());
         st.get(task_id).map(|c| c.key.clone())
     }
 }
@@ -135,7 +138,7 @@ impl CredentialProvider for MemoryCredentialProvider {
             };
             self.active_keys
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(task_id, cred.clone());
             Ok(cred)
         })
@@ -143,14 +146,17 @@ impl CredentialProvider for MemoryCredentialProvider {
 
     fn revoke<'a>(&'a self, task_id: Uuid) -> BoxFut<'a, Result<()>> {
         Box::pin(async move {
-            self.active_keys.lock().unwrap().remove(&task_id);
+            self.active_keys
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&task_id);
             Ok(())
         })
     }
 
     fn cleanup_sweep<'a>(&'a self, active_task_ids: &'a [Uuid]) -> BoxFut<'a, Result<usize>> {
         Box::pin(async move {
-            let mut keys = self.active_keys.lock().unwrap();
+            let mut keys = self.active_keys.lock().unwrap_or_else(|e| e.into_inner());
             let now = Utc::now();
             let mut revoked = 0usize;
             keys.retain(|id, cred| {

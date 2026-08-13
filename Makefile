@@ -1,4 +1,4 @@
-# MetaMach 0.6.0 - Factory master switch (docs/SPEC.md Part 4)
+# MetaMach 0.7.0 - Factory master switch (docs/SPEC.md Part 4)
 #
 # Native PG, no Docker. make db-init launches PG and runs the catalog migration.
 # All five binaries (janus, janus-daemon, herdr-janus, janush, janus-studio) are built by
@@ -42,7 +42,7 @@ prereq:
 # 3. Supreme one-command bootstrap primitive.
 bootstrap: prereq symlinks compile db-init
 	@echo "================================================================="
-	@echo "🪐 MetaMach 0.6.0 successfully bootstrapped!"
+	@echo "🪐 MetaMach 0.7.0 successfully bootstrapped!"
 	@echo "🔌 Run 'prefix+j' inside Herdr to open Dispatcher Console."
 	@echo "================================================================="
 

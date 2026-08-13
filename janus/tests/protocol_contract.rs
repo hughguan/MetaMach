@@ -435,6 +435,50 @@ async fn utc_33_01_dual_track_execution_writes_guard_contract() {
         verify_post_execution_writes(repo_dir, task_id, "build_web_ui", step.writes.as_deref())
             .unwrap();
     assert!(!boundary_guard_passed);
+
+    // Test mixed tracked modification + untracked file (git stash create -u path)
+    let _ = std::process::Command::new("git")
+        .args(["clean", "-fd"])
+        .current_dir(repo_dir)
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["reset", "--hard"])
+        .current_dir(repo_dir)
+        .output();
+
+    std::fs::write(repo_dir.join("README.md"), "mixed tracked change").unwrap();
+    std::fs::write(
+        repo_dir.join("untracked_mixed.txt"),
+        "mixed untracked change",
+    )
+    .unwrap();
+
+    let mixed_guard_passed =
+        verify_post_execution_writes(repo_dir, task_id, "build_web_ui", step.writes.as_deref())
+            .unwrap();
+    assert!(!mixed_guard_passed);
+
+    let show_mixed_tracked = std::process::Command::new("git")
+        .args(["show", &format!("{ref_name}:README.md")])
+        .current_dir(repo_dir)
+        .output()
+        .unwrap();
+    assert!(show_mixed_tracked.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&show_mixed_tracked.stdout).trim(),
+        "mixed tracked change"
+    );
+
+    let show_mixed_untracked = std::process::Command::new("git")
+        .args(["show", &format!("{ref_name}:untracked_mixed.txt")])
+        .current_dir(repo_dir)
+        .output()
+        .unwrap();
+    assert!(show_mixed_untracked.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&show_mixed_untracked.stdout).trim(),
+        "mixed untracked change"
+    );
 }
 
 #[tokio::test]

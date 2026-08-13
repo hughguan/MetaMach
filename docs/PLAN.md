@@ -1,6 +1,6 @@
-# MetaMach 0.6.0 — Project Plan & Execution History
+# MetaMach 0.7.0-candidate — Project Plan & Execution History
 
-> **Scope:** Milestone roadmap (M0–M5) and execution plan covering all physical check-in units, verification gates, and milestone achievements from 0.1.0 through 0.6.0.  
+> **Scope:** Milestone roadmap (M0–M6) and execution plan covering all physical check-in units, verification gates, and milestone achievements from 0.1.0 through 0.7.0-candidate.  
 > **Status:** Fully Implemented & CI-Green.
 
 ---

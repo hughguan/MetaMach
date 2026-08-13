@@ -592,6 +592,20 @@ async fn handle_request(
                 },
             }
         }
+        Request::ListHarvestRefs => match janus::harvest::list_harvest_refs(repo_root) {
+            Ok(refs) => Response::HarvestRefs { refs },
+            Err(e) => Response::Error {
+                message: format!("list harvest refs: {e}"),
+            },
+        },
+        Request::ApplyHarvestRef { ref_name } => {
+            match janus::harvest::apply_harvest_ref_by_name(repo_root, &ref_name) {
+                Ok(applied) => Response::HarvestApplied { ref_name, applied },
+                Err(e) => Response::Error {
+                    message: format!("apply harvest ref: {e}"),
+                },
+            }
+        }
     }
 }
 

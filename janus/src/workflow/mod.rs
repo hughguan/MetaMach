@@ -637,6 +637,20 @@ where
                                     }
                                 }
 
+                                // ADR-036: Harvest Pipeline Engine
+                                if is_sandbox
+                                    && let Err(e) = crate::harvest::harvest_sandbox_output(
+                                        repo_root, task_id, &step.name,
+                                    )
+                                {
+                                    tracing::warn!(
+                                        task_id = %task_id,
+                                        step = %step.name,
+                                        error = %e,
+                                        "failed to harvest sandbox output ref"
+                                    );
+                                }
+
                                 let env = CheckpointEnvelope::new(
                                     task_id,
                                     &step.name,
@@ -1165,6 +1179,11 @@ pub fn prune_raw_logs(retention_days: u64) {
 /// If unauthorized writes are detected:
 /// 1. Snapshots unauthorized changes to recovery ref `refs/metamach/rollback/<task_id>-<step_name>`.
 /// 2. Returns Ok(false) to trigger step suspension & HITL escalation.
+///
+/// Note on `git status --porcelain` (v1 format):
+/// Parses standard v1 status line format `XY path` (including renamed paths `old -> new`).
+/// Filenames containing unescaped spaces or quotation marks are trimmed and matched against exact
+/// path boundaries (`file_path == pattern || file_path.starts_with(&format!("{pattern}/"))`).
 pub fn verify_post_execution_writes(
     repo_root: &Path,
     task_id: Uuid,

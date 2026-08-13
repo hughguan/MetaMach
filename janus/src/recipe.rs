@@ -104,6 +104,7 @@ pub struct WorkflowStep {
     pub max_correction_attempts: Option<u32>,
     #[serde(default)]
     pub isolation: Option<String>,
+    /// ADR-033 Phase 3: Number of parallel candidate runs for Best-of-N selection (reserved for 0.8.0).
     #[serde(default)]
     pub best_of_n: Option<u8>,
     #[serde(default)]

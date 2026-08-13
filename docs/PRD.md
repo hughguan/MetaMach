@@ -1,10 +1,10 @@
-# MetaMach 0.6.0 — Product Requirements
+# MetaMach 0.7.0 — Product Requirements
 
 > A business guide for the Factory Director: blueprint onboarding, workflow dispatch, HITL gates, and production reports.
 
 ## Director's Note
 
-This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.6.0 feature landscape from a business perspective.
+This specification is crafted for the **Factory Director** (business end-user). You need not understand Rust, UDS sockets, or PostgreSQL internals. Your core responsibilities are: **registering new products (Blueprints), dispatching SOP workflows, approving high-risk operations (HITL Gate), and reviewing final quality inspection reports (Production Report)**. This document dissects the MetaMach 0.7.0 feature landscape from a business perspective.
 
 ## 1. Business Vision & Core Pain Points
 

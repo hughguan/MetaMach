@@ -36,7 +36,11 @@ pub async fn reconcile(
     let tasks = db.cold_start_running_tasks(blueprint).await?;
     let active_task_ids: Vec<uuid::Uuid> = tasks.iter().map(|t| t.task_id).collect();
     let cred_provider = crate::credential::MemoryCredentialProvider::new();
-    let _ = reconcile_credentials(&cred_provider, &active_task_ids).await;
+    if let Ok(revoked) = reconcile_credentials(&cred_provider, &active_task_ids).await
+        && revoked > 0
+    {
+        info!(revoked, "cold-start: revoked orphaned credentials");
+    }
 
     if tasks.is_empty() {
         info!("cold-start: no non-terminal tasks to resume");

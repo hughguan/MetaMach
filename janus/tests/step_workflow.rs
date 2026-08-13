@@ -357,10 +357,15 @@ fn utc_03_01b_dispatch_step_transitions() {
             let socket_dir = url.split("host=").nth(1).unwrap_or("").replace("%2F", "/");
             (socket_dir, format!("metamach_blueprint_{name}"))
         }
-        Ok(url) => (
-            url.replace("metamach_db", &format!("metamach_blueprint_{name}")),
-            format!("metamach_blueprint_{name}"),
-        ),
+        Ok(url) => {
+            let decoded = url.replace("%2F", "/").replace("%2f", "/");
+            if let Some(host_part) = decoded.strip_prefix("postgres://metamach_admin@") {
+                let socket_dir = host_part.trim_end_matches("/metamach_db");
+                (socket_dir.to_string(), format!("metamach_blueprint_{name}"))
+            } else {
+                (decoded, format!("metamach_blueprint_{name}"))
+            }
+        }
         Err(_) => {
             let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
                 .expect("DATABASE_URL or METAMACH_PG_SOCKET_DIR must be set");
@@ -368,7 +373,7 @@ fn utc_03_01b_dispatch_step_transitions() {
         }
     };
     let psql = |sql: String| {
-        for attempt in 0..10 {
+        for attempt in 0..15 {
             let mut cmd = std::process::Command::new("psql");
             cmd.args(["-t", "-A", "-U", "metamach_admin"]);
             if pg_target.starts_with("postgres://") || pg_target.starts_with("postgresql://") {
@@ -380,18 +385,13 @@ fn utc_03_01b_dispatch_step_transitions() {
             if out.status.success() {
                 return out;
             }
-            let err_msg = String::from_utf8_lossy(&out.stderr);
-            if err_msg.contains("too many clients") && attempt < 14 {
-                std::thread::sleep(Duration::from_millis(250));
-                continue;
-            }
             if attempt < 14 {
                 std::thread::sleep(Duration::from_millis(150));
             } else {
                 return out;
             }
         }
-        unreachable!()
+        panic!("psql execution failed after 15 attempts");
     };
 
     // While step 1 (sleep 3) runs, Progress must report tmux_alive=true at least

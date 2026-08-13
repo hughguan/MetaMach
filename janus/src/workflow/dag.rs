@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Parsed DAG workflow definition.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DagConfig {
-    #[serde(alias = "pipeline", alias = "workflow")]
+    #[serde(alias = "workflow")]
     pub meta: DagMeta,
     #[serde(default)]
     pub nodes: Vec<DagNode>,

@@ -110,7 +110,7 @@ metamach/
 │   └── global_rules.md          #   Shared rules
 ├── scripts/
 │   └── pre-push                 #   Git hook: fmt + clippy + test + PG E2E
-├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 208 tests
+├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 206 tests
 └── Makefile                     #   bootstrap, db-init, health, clean
 ```
 
@@ -361,8 +361,8 @@ trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 
 ## CI & Testing
 
-- **208 tests**: all pass, 0 ignored
-- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (208 tests)
+- **206 tests**: all pass, 0 ignored
+- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (206 tests)
 - **E2E tests**: init → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests

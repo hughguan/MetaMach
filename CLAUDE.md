@@ -52,7 +52,7 @@ MetaMach 0.6.0 is a durable AI "software factory" OS. The core mental model (spr
 - **`janus::gateway` (HITL Gateway):** Teams Adaptive Card dispatch, non-blocking verdict thread, HMAC-SHA256 loopback HTTP callback listener. Unified `JANUS_HITL_TIMEOUT_SECS` deadline; late callbacks get `410 Gone`.
 - **`janus::cognitive` (Cognitive Provider SPI):** opt-in per-blueprint `[cognitive]` config, `McpProvider` (`codebase-memory-mcp` over stdio JSON-RPC; 2s advisory timeout), `NoopProvider` fail-open default.
 - **`janus::workflow` (Workflow engine):** drives blueprint steps via absurd pull-mode queue. Per-step tmux sessions under `janush`, exit-code capture, per-step checkpoints, lease renewal (10s), retry-claim loop (`max_attempts: 3`), HITL resume.
-- **`janus::pipeline` (Pipeline DAG engine):** `.janus/workflows/<name>.toml` with `[nodes]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution (ADR-031).
+- **`janus::workflow::dag` (DAG workflow engine):** `.janus/workflows/<name>.toml` with `[[nodes]]` + `needs` edges. Kahn's algorithm topological sort, parallel level execution (ADR-031).
 - **OpenWiki (external):** federated RAG; `production_report.md` from Offboard is recycled as few-shot `## Previous Incidents` on the next Init.
 
 Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/agents/`), **Workflows** (`templates/workflows/` + `.janus/workflows/`), **Blueprints** (`.janus/blueprint.toml`). Lifecycle: **Init** (scaffold + validate + register) ↔ **Offboard** (LLM-smelt `production_report.md` -> `melt_blueprint_data` deletes large JSON rows).
@@ -66,7 +66,7 @@ Three customization dimensions: **Agent Pool** (`configs/agents.toml` + `.janus/
 | `PRD.md` | Product requirements, director journey, functional matrix | User persona, business goals, functional requirement matrix |
 | `ARCH.md` | Architecture, topology, monorepo tree, resilience invariants | §3 CLI & binary architecture; §5 directory tree; §6 invariants |
 | `ADR.md` | 36 Architecture Decision Records (ADR-001 through ADR-036) | De-containerization, multi-DB, tmux internalization, fail-closed timeout, SSH transport, pipeline DAG, project-based templates, CI & pre-push hook, unified workflow DSL, Canvas Studio, Dual-Track Isolation, Typed Envelopes, Cold Retry, Harvest Pipeline |
-| `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 208-test report, system deployment & CI pipeline |
+| `SPEC.md` | Technical specifications, test catalog, test report & deployment/CI ops | Feature Contracts 3.x/4.x, UTC test catalog, 206-test report, system deployment & CI pipeline |
 | `PLAN.md` | Execution plan & milestone history (M0 through M6) | Milestone roadmap, physical check-in units, verification gates |
 | `contracts/` | Dependency contracts (`herdr.md`, `absurd.md`, `tmux.md`) | External plugin, database engine, and physical PTY execution contracts |
 

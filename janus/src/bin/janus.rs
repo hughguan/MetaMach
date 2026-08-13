@@ -817,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_pipeline_rejects_cycle() {
+    fn validate_dag_rejects_cycle() {
         let dir = tempfile::tempdir().unwrap();
         let wf_dir = dir.path().join(".janus/workflows");
         std::fs::create_dir_all(&wf_dir).unwrap();
@@ -833,7 +833,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_pipeline_accepts_valid() {
+    fn validate_dag_accepts_valid() {
         let dir = tempfile::tempdir().unwrap();
         let wf_dir = dir.path().join(".janus/workflows");
         std::fs::create_dir_all(&wf_dir).unwrap();

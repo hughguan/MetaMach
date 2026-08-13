@@ -79,13 +79,25 @@ pub async fn reconcile(
                 if t.workflow_name != r.default_workflow {
                     match recipe::load_unified_workflow(&t.workflow_name, repo_root.as_path()) {
                         Ok(recipe::UnifiedWorkflow::Linear(wf)) => r.workflow = wf,
-                        Ok(recipe::UnifiedWorkflow::Dag { config, .. }) => {
-                            warn!(
+                        Ok(recipe::UnifiedWorkflow::Dag {
+                            config,
+                            inline_register,
+                        }) => {
+                            info!(
                                 task_id = %t.task_id,
-                                "cold-start: `{}` is a DAG workflow; skipping direct step resume",
-                                config.pipeline.name
+                                blueprint = %t.blueprint,
+                                pipeline = %config.pipeline.name,
+                                "cold-start: resuming DAG workflow task"
                             );
-                            continue;
+                            if let Some(first_node) = config.nodes.first() {
+                                if let Some(inline_wf) = inline_register.get(&first_node.workflow) {
+                                    r.workflow = inline_wf.clone();
+                                } else if let Ok(loaded) =
+                                    recipe::load_workflow(&first_node.workflow, repo_root.as_path())
+                                {
+                                    r.workflow = loaded;
+                                }
+                            }
                         }
                         Err(e) => {
                             warn!(

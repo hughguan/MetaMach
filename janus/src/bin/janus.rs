@@ -123,6 +123,24 @@ enum CliCommand {
         #[arg(short, long)]
         detach: bool,
     },
+    /// Manage harvested sandbox workspace refs (ADR-036 Harvest Pipeline Engine).
+    Harvest {
+        #[command(subcommand)]
+        cmd: HarvestCmd,
+    },
+}
+
+/// `janus harvest` subcommands.
+#[derive(Subcommand)]
+enum HarvestCmd {
+    /// List all harvested sandbox Git refs (`refs/sandbox/*`).
+    List,
+    /// Apply a harvested sandbox ref back into the working tree.
+    Apply {
+        /// Ref name (e.g. refs/sandbox/<task_id>-<step_name>).
+        #[arg(short, long)]
+        ref_name: String,
+    },
 }
 
 /// `janus tmux` subcommands.
@@ -207,6 +225,50 @@ fn main() -> Result<()> {
             plan_pipeline(&bp, &description, &repo_root)
         }
         CliCommand::Studio { bind, port, detach } => studio_cmd(&bind, port, detach),
+        CliCommand::Harvest { cmd } => harvest_cmd(cmd),
+    }
+}
+
+fn harvest_cmd(cmd: HarvestCmd) -> Result<()> {
+    if let Err(e) = spawn::ensure_daemon(Duration::from_secs(5)) {
+        bail!("janus-daemon not reachable: {e}\n  start it with `janus daemon`");
+    }
+    match cmd {
+        HarvestCmd::List => {
+            let resp = uds::request(&Request::ListHarvestRefs)?;
+            match resp {
+                Response::HarvestRefs { refs } => {
+                    if refs.is_empty() {
+                        println!("No harvested sandbox refs found.");
+                    } else {
+                        println!("Harvested sandbox refs ({}):", refs.len());
+                        for r in refs {
+                            println!("  {r}");
+                        }
+                    }
+                    Ok(())
+                }
+                Response::Error { message } => bail!(message),
+                other => bail!("unexpected daemon response: {other:?}"),
+            }
+        }
+        HarvestCmd::Apply { ref_name } => {
+            let resp = uds::request(&Request::ApplyHarvestRef {
+                ref_name: ref_name.clone(),
+            })?;
+            match resp {
+                Response::HarvestApplied { ref_name, applied } => {
+                    if applied {
+                        println!("Successfully applied harvest ref '{ref_name}' to working tree.");
+                    } else {
+                        println!("Failed to apply harvest ref '{ref_name}'.");
+                    }
+                    Ok(())
+                }
+                Response::Error { message } => bail!(message),
+                other => bail!("unexpected daemon response: {other:?}"),
+            }
+        }
     }
 }
 

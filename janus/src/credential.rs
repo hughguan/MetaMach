@@ -93,6 +93,10 @@ impl CredentialProvider for NoopCredentialProvider {
 }
 
 /// Thread-safe in-memory credential provider for local testing and task tracking.
+///
+/// NOTE: `MemoryCredentialProvider` is ephemeral and starts with an empty map on daemon initialization.
+/// TODO(0.8.0): Implement a durable `PostgresCredentialProvider` / Secret Store SPI provider
+/// to persist dynamic credential metadata across daemon restarts.
 #[derive(Debug, Default, Clone)]
 pub struct MemoryCredentialProvider {
     active_keys: Arc<Mutex<HashMap<Uuid, Credential>>>,

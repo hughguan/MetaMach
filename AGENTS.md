@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.7.0-candidate spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio + ADR-033 Dual-Track Isolation + ADR-034 Typed Envelopes + ADR-035 Cold Retry + ADR-036 Harvest Pipeline. 205 tests, CI-green. Current layout:
+MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.7.0-candidate spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio + ADR-033 Dual-Track Isolation + ADR-034 Typed Envelopes + ADR-035 Cold Retry + ADR-036 Harvest Pipeline. 206 tests, CI-green. Current layout:
 
 ``` metamach/
 ├── docs/                # ✅ English specs (source of truth) + ADR.md (36 decisions)

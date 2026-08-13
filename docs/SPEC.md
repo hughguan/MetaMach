@@ -2,7 +2,7 @@
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  
-> **Test Status:** ✅ **205 tests — 205 passed, 0 failed, 0 ignored** (139 unit + 66 integration across 9 test files).
+> **Test Status:** ✅ **206 tests — 206 passed, 0 failed, 0 ignored** (140 unit + 66 integration across 9 test files).
 
 ---
 
@@ -102,7 +102,7 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 
 ## 1. Integration Test Catalog (UTC Suite)
 
-MetaMach maintains 205 automated tests across 9 integration test files and inline unit tests:
+MetaMach maintains 206 automated tests across 9 integration test files and inline unit tests:
 
 | Test ID | Module / File | Description | Target Contract | Severity |
 |---|---|---|---|---|
@@ -137,27 +137,11 @@ MetaMach maintains 205 automated tests across 9 integration test files and inlin
 
 ## 1. Test Execution Summary
 
-- **Total Workspace Tests**: **205 passed, 0 failed, 0 ignored**
-- **Test Breakdown**:
-  - **Unit Tests (`janus/src/`)**: 139 tests (129 lib + 10 binary unit tests)
-  - **Integration Tests (`janus/tests/`)**: 66 tests across 9 files
+- **Total Workspace Tests**: **206 passed, 0 failed, 0 ignored** (140 unit + 66 integration across 9 test files).
 - **Execution Speed**: ~3.5 seconds total workspace test runtime.
 - **Coverage Strategy**:
   - PG-gated tests use **runtime-skip** (detects PostgreSQL liveness, avoiding hard failures on environment mismatch).
   - All test waits use bounded polling loops (`wait_ready()`, 100ms interval, 5–15s max timeout). Hardcoded `sleep(12)` calls have been completely eliminated.
-
-## 2. Integration Suite File Breakdown
-
-| File | Test Count | Scope |
-|---|---|---|
-| `uds_contract.rs` | 9 | Daemon binding, PID lock, 30s timeout, protocol fuzzing, status CLI |
-| `onboard_lifecycle.rs` | 8 | Init/Offboard, multi-DB fanout, incident inheritance, budget truncation |
-| `step_workflow.rs` | 7 | Step state transitions, cold-start reconcile, concurrent workflow isolation |
-| `e2e_pipeline.rs` | 6 | Multi-step workflows, DAG level barriers, failing node abortion, stop/continue |
-| `config_contract.rs` | 6 | Herdr plugin manifest parsing, fallback paths, min version check |
-| `protocol_contract.rs` | 5 | JSON serialization tag conventions, GuardCheck/Verdict round-tripping |
-| `tmux.rs` | 4 | Tmux PTY session creation, remain-on-exit survival, pane output capture |
-| `gateway.rs` | 2 | Webhook HTTP callbacks, constant-time HMAC validation |
 
 ---
 

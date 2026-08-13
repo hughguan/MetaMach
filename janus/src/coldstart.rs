@@ -89,6 +89,8 @@ pub async fn reconcile(
                                 pipeline = %config.pipeline.name,
                                 "cold-start: resuming DAG workflow task"
                             );
+                            // NOTE: Current DAG cold-start resume loads the active entry node workflow.
+                            // TODO(0.8.0): Wire full DAG topological checkpoint reconciler to resume directly at the active topological level.
                             if let Some(first_node) = config.nodes.first() {
                                 if let Some(inline_wf) = inline_register.get(&first_node.workflow) {
                                     r.workflow = inline_wf.clone();

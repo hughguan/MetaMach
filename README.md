@@ -5,8 +5,8 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
   <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
-  <img alt="Tests: 206" src="https://img.shields.io/badge/tests-206%20(CI%20green)-22c55e.svg">
-  <img alt="Version: 0.6.0" src="https://img.shields.io/badge/version-0.6.0-6366f1.svg">
+  <img alt="Tests: 208" src="https://img.shields.io/badge/tests-208%20(CI%20green)-22c55e.svg">
+  <img alt="Version: 0.7.0-candidate" src="https://img.shields.io/badge/version-0.7.0--candidate-6366f1.svg">
 </p>
 
 > **MetaMach is NOT an AI agent framework. It is a durable AI Software Factory OS —**
@@ -110,7 +110,7 @@ metamach/
 │   └── global_rules.md          #   Shared rules
 ├── scripts/
 │   └── pre-push                 #   Git hook: fmt + clippy + test + PG E2E
-├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 206 tests
+├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 208 tests
 └── Makefile                     #   bootstrap, db-init, health, clean
 ```
 
@@ -361,8 +361,8 @@ trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
 
 ## CI & Testing
 
-- **206 tests**: all pass, 0 ignored
-- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (206 tests)
+- **208 tests**: all pass, 0 ignored
+- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (208 tests)
 - **E2E tests**: init → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
 - **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
 - **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests

@@ -1842,4 +1842,78 @@ mod tests {
         assert!(cmd.contains("JANUS_ENV_TTY_DEVICES="));
         assert!(cmd.contains("'/bin/janush' -c 'make flash'"));
     }
+
+    #[test]
+    fn test_create_sandbox_worktree_fallback_behavior() {
+        let non_repo = tempfile::tempdir().unwrap();
+        let target_path = non_repo.path().join("invalid/path/worktree");
+        let step = WorkflowStep {
+            name: "test_step".to_string(),
+            agent: "builder".to_string(),
+            command: Some("echo hi".to_string()),
+            host: None,
+            toolset: None,
+            max_correction_attempts: None,
+            isolation: Some("sandbox".to_string()),
+            best_of_n: None,
+            writes: None,
+        };
+        let res = crate::harvest::create_sandbox_worktree(
+            non_repo.path(),
+            &target_path,
+            Uuid::nil(),
+            &step.name,
+        );
+        assert!(
+            res.is_err(),
+            "create_sandbox_worktree on non-git dir should return Err"
+        );
+    }
+
+    #[test]
+    fn test_correction_context_env_formatting() {
+        let step = WorkflowStep {
+            name: "fix".to_string(),
+            agent: "builder".to_string(),
+            command: Some("cargo test".to_string()),
+            host: None,
+            toolset: None,
+            max_correction_attempts: Some(3),
+            isolation: None,
+            best_of_n: None,
+            writes: None,
+        };
+        let recipe = ValidatedRecipe {
+            name: "bp".to_string(),
+            default_workflow: "wf".to_string(),
+            remote_host: None,
+            remote_user: None,
+            openwiki_scope: vec![],
+            config_text: String::new(),
+            workflow: Workflow {
+                workflow: WorkflowSection {
+                    name: "wf".to_string(),
+                    description: None,
+                },
+                steps: vec![step.clone()],
+            },
+        };
+        let janush = PathBuf::from("/bin/janush");
+        let correction_msg = "Correction (attempt 2/3): syntax error at line 42";
+        let cmd = step_command(
+            &step,
+            &recipe,
+            Uuid::nil(),
+            "wf",
+            &janush,
+            None,
+            Some(correction_msg),
+        );
+        assert!(
+            cmd.contains(
+                "METAMACH_CORRECTION_CONTEXT='Correction (attempt 2/3): syntax error at line 42'"
+            ),
+            "step command must contain exact formatted correction context"
+        );
+    }
 }

@@ -2,7 +2,7 @@
 
 > **Scope:** Unified technical specification converging Feature Specifications, Test Suite Specifications, Test Report, and Deployment/CI Specifications.  
 > **Status:** Fully Implemented.  
-> **Test Status:** ✅ **205 tests — 205 passed, 0 failed, 0 ignored** (145 unit + 60 integration across 9 test files).
+> **Test Status:** ✅ **205 tests — 205 passed, 0 failed, 0 ignored** (139 unit + 66 integration across 9 test files).
 
 ---
 
@@ -137,10 +137,10 @@ MetaMach maintains 205 automated tests across 9 integration test files and inlin
 
 ## 1. Test Execution Summary
 
-- **Total Workspace Tests**: **178 passed, 0 failed, 0 ignored**
+- **Total Workspace Tests**: **205 passed, 0 failed, 0 ignored**
 - **Test Breakdown**:
-  - **Unit Tests (`janus/src/`)**: 131 tests
-  - **Integration Tests (`janus/tests/`)**: 47 tests across 8 files
+  - **Unit Tests (`janus/src/`)**: 139 tests (129 lib + 10 binary unit tests)
+  - **Integration Tests (`janus/tests/`)**: 66 tests across 9 files
 - **Execution Speed**: ~3.5 seconds total workspace test runtime.
 - **Coverage Strategy**:
   - PG-gated tests use **runtime-skip** (detects PostgreSQL liveness, avoiding hard failures on environment mismatch).

@@ -351,6 +351,27 @@ where
 /// `COMPLETED` step. Returns the outcome; the caller ([`run_workflow`]) does the
 /// `complete_run`/`fail_run`. `start_idx > 0` skips steps already `COMPLETED` in
 /// a prior attempt (resume).
+/// RAII guard ensuring sandbox worktree cleanup runs on all exit paths (ADR-033).
+struct SandboxWorktreeGuard<'a> {
+    repo_root: &'a Path,
+    worktree_dir: Option<std::path::PathBuf>,
+    task_id: Uuid,
+    step_name: &'a str,
+}
+
+impl Drop for SandboxWorktreeGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(ref path) = self.worktree_dir {
+            let _ = crate::harvest::cleanup_sandbox_worktree(
+                self.repo_root,
+                path,
+                self.task_id,
+                self.step_name,
+            );
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // mirrors run_workflow; all args are genuinely needed.
 async fn run_steps<E, F>(
     db: &AbsurdDb,
@@ -383,23 +404,51 @@ where
         let backend = factory.get(host);
 
         let is_sandbox = step.isolation.as_deref() == Some("sandbox");
-        let (effective_cwd, sandbox_worktree_path) = if is_sandbox {
+        let (effective_cwd, _sandbox_guard) = if is_sandbox {
             let worktree_dir = repo_root.join(format!(
                 ".janus/sandboxes/{}-{}",
                 task_id.simple(),
                 step.name
             ));
-            if let Err(e) = crate::harvest::create_sandbox_worktree(
+            match crate::harvest::create_sandbox_worktree(
                 repo_root,
                 &worktree_dir,
                 task_id,
                 &step.name,
             ) {
-                tracing::warn!(step = %step.name, %task_id, error = %e, "create_sandbox_worktree failed");
+                Ok(()) => {
+                    let guard = SandboxWorktreeGuard {
+                        repo_root,
+                        worktree_dir: Some(worktree_dir.clone()),
+                        task_id,
+                        step_name: &step.name,
+                    };
+                    (worktree_dir, guard)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        step = %step.name,
+                        %task_id,
+                        error = %e,
+                        "create_sandbox_worktree failed, falling back to bare_metal mode"
+                    );
+                    let guard = SandboxWorktreeGuard {
+                        repo_root,
+                        worktree_dir: None,
+                        task_id,
+                        step_name: &step.name,
+                    };
+                    (repo_root.to_path_buf(), guard)
+                }
             }
-            (worktree_dir.clone(), Some(worktree_dir))
         } else {
-            (repo_root.to_path_buf(), None)
+            let guard = SandboxWorktreeGuard {
+                repo_root,
+                worktree_dir: None,
+                task_id,
+                step_name: &step.name,
+            };
+            (repo_root.to_path_buf(), guard)
         };
 
         let effective_backend: Arc<dyn DurableBackend> = if is_sandbox {
@@ -467,11 +516,6 @@ where
                             Some(&format!("create_session failed: {e}")),
                         )
                         .await?;
-                        if let Some(ref path) = sandbox_worktree_path {
-                            let _ = crate::harvest::cleanup_sandbox_worktree(
-                                repo_root, path, task_id, &step.name,
-                            );
-                        }
                         return Ok(StepOutcome::Failed);
                     }
 
@@ -506,8 +550,8 @@ where
                                 task_id,
                                 &step.name,
                                 "FAILED",
-                                None,
-                                stdout_tail.as_deref(),
+                                Some(-1),
+                                Some(&format!("step poll failed: {e}")),
                             )
                             .await?;
                             return Ok(StepOutcome::Failed);
@@ -586,11 +630,6 @@ where
                                             Some("Post-execution writes guard violated: unauthorized file modifications snapshotted to recovery ref"),
                                         )
                                         .await?;
-                                        if let Some(ref path) = sandbox_worktree_path {
-                                            let _ = crate::harvest::cleanup_sandbox_worktree(
-                                                repo_root, path, task_id, &step.name,
-                                            );
-                                        }
                                         return Ok(StepOutcome::Suspended {
                                             step_idx: idx,
                                             step_name: step.name.clone(),
@@ -630,11 +669,6 @@ where
                                 if let Some(tail) = stdout_tail.as_deref()
                                     && is_quota_exhausted(tail)
                                 {
-                                    if let Some(ref path) = sandbox_worktree_path {
-                                        let _ = crate::harvest::cleanup_sandbox_worktree(
-                                            repo_root, path, task_id, &step.name,
-                                        );
-                                    }
                                     return Ok(StepOutcome::QuotaExhausted {
                                         seconds: quota_sleep_seconds(),
                                     });
@@ -668,20 +702,10 @@ where
                                     stdout_tail.as_deref(),
                                 )
                                 .await?;
-                                if let Some(ref path) = sandbox_worktree_path {
-                                    let _ = crate::harvest::cleanup_sandbox_worktree(
-                                        repo_root, path, task_id, &step.name,
-                                    );
-                                }
                                 return Ok(StepOutcome::Failed);
                             }
                         }
                     }
-                }
-                if let Some(ref path) = sandbox_worktree_path {
-                    let _ = crate::harvest::cleanup_sandbox_worktree(
-                        repo_root, path, task_id, &step.name,
-                    );
                 }
             }
             None => {

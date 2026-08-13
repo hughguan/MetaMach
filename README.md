@@ -3,19 +3,156 @@
 <p align="center">
   <a href="https://github.com/hughguan/MetaMach/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hughguan/MetaMach/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0f766e.svg"></a>
-  <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B-172033.svg"></a>
+  <a href="https://github.com/ogulcancelik/herdr"><img alt="Herdr 0.7.3+" src="https://img.shields.io/badge/Herdr-0.7.3%2B%20(Optional)-172033.svg"></a>
   <img alt="macOS & Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-475569.svg">
   <img alt="Tests: 206" src="https://img.shields.io/badge/tests-206%20(CI%20green)-22c55e.svg">
   <img alt="Version: 0.7.0-candidate" src="https://img.shields.io/badge/version-0.7.0--candidate-6366f1.svg">
 </p>
 
-> **MetaMach is NOT an AI agent framework. It is a durable AI Software Factory OS —**
-> a bare-metal safety harness and execution engine that orchestrates autonomous agents
-> inside survivable engineering pipelines with physical hardware access.
+> **MetaMach is a durable AI Software Factory OS —**
+> a bare-metal safety harness and execution engine that orchestrates autonomous AI agents (Claude Code, Codex, Aider, etc.) inside survivable engineering workflows with checkpoints, Human-in-the-Loop (HITL) approval gates, and sandboxed execution.
 
 ---
 
-## Architecture
+## Quick Start
+
+### 1. Prerequisites
+
+| Dependency | Requirement | Purpose |
+|---|---|---|
+| **Rust** | 1.88+ (Edition 2024) | Required — compiles MetaMach binaries |
+| **PostgreSQL** | 16+ (host-native, no Docker) | Required — durable state machine & task queue |
+| **tmux** | 3.3+ | Required — isolated PTY session engine |
+| **Herdr** | 0.7.3+ | *Optional* — terminal TUI dashboard (`herdr-janus`) |
+
+> **Note:** MetaMach runs 100% standalone via `janus` CLI and Web Studio (`janus studio`). Herdr is an optional plugin host if you want a terminal overlay.
+
+### 2. Installation & Bootstrap (30-second setup)
+
+```bash
+git clone https://github.com/hughguan/MetaMach.git
+cd MetaMach
+make bootstrap          # One command: checks prereqs, compiles binaries, initializes host PG
+```
+
+### 3. Initialize & Run Your First Project
+
+```bash
+cd my-project
+janus init              # Scaffolds .janus/, validates recipe, initializes project database
+janus start             # Runs the workflow with checkpointing & safety gates
+```
+
+---
+
+## Workflow Lifecycle
+
+Every project managed by MetaMach follows a simple 6-verb lifecycle:
+
+`init → plan → dry-run → start → monitor → offboard`
+
+| Step | Command | Description |
+|---|---|---|
+| **init** | `janus init` | Scaffold `.janus/`, validate blueprint, register project database with daemon |
+| **plan** | `janus plan --description "..."` | Generate or edit a workflow definition (`.janus/workflows/*.toml`) |
+| **dry-run** | `janus start --dry-run` | Preview execution plan & DAG topology without running commands |
+| **start** | `janus start` | Execute workflow with automatic step checkpointing & tool reconciliation |
+| **monitor** | `janus status` / `stop` / `continue` | Check real-time progress, pause, or resume interrupted workflows |
+| **harvest** | `janus harvest list` / `apply` | Inspect and apply outputs from sandboxed execution tasks |
+| **offboard** | `janus offboard --blueprint <name>` | Archive audit log, generate production report, purge transient runtime data |
+
+> **LLM-Assisted Planning:** Generate a workflow directly from natural language:  
+> `janus plan --blueprint my-project --description "Build Rust binary, run test suite, deploy"`
+
+---
+
+## Workflow DSL & Safety Rail Examples
+
+MetaMach uses a unified **Workflow DSL** (`.janus/workflows/<name>.toml`) supporting both linear sequential steps and multi-node DAG workflows.
+
+### Linear Workflow (Sequential Steps)
+
+```toml
+# .janus/workflows/ci.toml
+[workflow]
+name = "ci"
+description = "Build and test suite"
+
+[[steps]]
+name = "build"
+agent = "builder"
+command = "cargo build --release"
+
+[[steps]]
+name = "test"
+agent = "tester"
+command = "cargo test"
+max_correction_attempts = 3      # re-dispatches with error context on failure
+```
+
+### DAG Workflow (Parallel Execution & Dual-Track Isolation)
+
+DAG workflows organize work into dependent nodes (`needs`), running non-interdependent nodes in parallel. Nodes can also declare **sandbox isolation** and **allowed write paths**:
+
+```toml
+# .janus/workflows/fullstack_iot.toml
+[workflow]
+name = "fullstack_iot"
+description = "Parallel web build and firmware flashing"
+
+[[nodes]]
+id = "build_web_ui"
+isolation = "sandbox"            # runs in an isolated Git worktree & sandbox tmux
+writes = ["apps/web/dist/"]      # whitelist: post-execution guard flags writes outside this directory
+steps = [{ name = "install", command = "bun install && bun run build" }]
+
+[[nodes]]
+id = "flash_esp32"
+isolation = "bare_metal"         # host-native, janush-protected physical execution
+needs = ["build_web_ui"]
+steps = [{ name = "flash", command = "esptool.py write_flash 0x0 target/firmware.bin" }]
+```
+
+---
+
+## Monitoring, Web Studio & Harvest
+
+### CLI Monitoring & Task Control
+
+```bash
+janus status                             # Snapshot active task status
+janus status --json                      # Machine-readable output
+janus stop --blueprint my-project        # Pause active tasks for a project
+janus continue --blueprint my-project    # Resume paused or interrupted tasks from last checkpoint
+```
+
+### MetaMach Studio (Visual Canvas & Web Observer)
+
+Launch the interactive web observer sidecar:
+
+```bash
+janus studio                             # Starts Web Studio at http://127.0.0.1:8444
+janus studio -d                          # Launch detached in the background
+```
+
+- 🎨 **Visual DAG Canvas**: Drag-and-drop workflow editor and execution plan graph.
+- 📡 **Real-Time Stream**: Live WebSocket observer streaming step state transitions.
+- 🛡️ **HITL Web Interlocks**: One-click human-in-the-loop approval center for high-risk operations.
+
+### Sandbox Harvest Pipeline
+
+Review and apply outputs from sandboxed steps without risking main workspace contamination:
+
+```bash
+janus harvest list                                       # List all harvested sandbox refs
+janus harvest apply --ref-name refs/sandbox/<id>-<step>   # Apply approved sandbox output to working directory
+```
+
+---
+
+## Architecture & Project Structure
+
+### System Architecture
 
 ```
                          ═══════════════════════════════════════════
@@ -35,417 +172,135 @@
                          ┌──────────────────────────────────────────┐
                          │        janus-daemon  (MM-CORE)           │
                          │  • Master state machine & UDS router     │
-                         │  • Workflow engine (absurd pull-mode)    │
-                         │  • DAG engine (workflow/dag.rs)          │
-                         │  • Dual-track isolation (sandbox + metal)│
-                         │  • Post-execution writes guard           │
-                         │  • HITL Gateway + Teams Adaptive Cards   │
-                         │  • Cold-start resume & checkpoint/recover│
+                         │  • Workflow engine & durable checkpoints │
+                         │  • DAG engine (topological sort)         │
+                         │  • HITL Gateway & Webhooks               │
+                         │  • Cold-start resume & self-healing      │
                          └──┬─────────────┬─────────────┬──────────┘
                             │             │             │
                    ┌────────┘             │             └──────────┐
                    ▼                      ▼                        ▼
      ┌─────────────────────┐  ┌───────────────────┐  ┌──────────────────────┐
-     │  janus::tmux         │  │  Absurd Postgres  │  │  janus::gateway       │
+     │  janus::tmux         │  │  PostgreSQL       │  │  janus::gateway       │
      │  • tmux -L mm-tmux   │  │  • catalog DB     │  │  • HITL dispatch      │
-     │  • sandbox tmux      │  │  • per-blueprint DB│  │  • Hermes /v1/runs     │
-     │  • SSH reverse tunnel│  │  • SQLite fallback │  │  • HMAC webhooks      │
+     │  • remain-on-exit    │  │  • per-blueprint DB│  │  • Webhook ingress    │
+     │  • SSH reverse tunnel│  │  • SQLite fallback │  │  • HMAC verification  │
      └──────────────────────┘  └───────────────────┘  └──────────────────────┘
                    ▲                                           ▲
                    │ (reattach view)                           │ UDS proxying
      ┌──────────────────────┐                  ┌──────────────────────────────┐
-     │  herdr-janus (TUI)    │                  │  janus-studio (Web Observer) │  ← http://127.0.0.1:8444
-     │  • Dispatch / Progress│                  │  • Visual DAG Canvas Editor  │     Decoupled Axum sidecar
-     │  • Harvest viewport   │                  │  • Real-Time WS Streamer     │     Zero daemon web dep
-     └──────────────────────┘                  │  • HITL Gateway Interlocks   │
+     │  herdr-janus (TUI)    │                  │  janus-studio (Web Observer) │
+     │  • Terminal dashboard│                  │  • Visual DAG Canvas Editor  │
+     └──────────────────────┘                  │  • Real-Time WS Streamer     │
                                                └──────────────────────────────┘
 ```
+> *MetaMach Studio runs decoupled as an Axum sidecar server on `http://127.0.0.1:8444`.*
 
----
-
-> **0.7.0 Candidate Extras:** `janus::harvest` (sandbox diff → `refs/sandbox/*`),
-> `janus::credential` (CredentialProvider SPI), `janus::workflow::envelope`
-> (typed checkpoint envelopes), `janus::workflow::dag` (DAG engine).
-
----
-
-## Project Structure
-
-### MetaMach source repo
+### MetaMach Workspace Layout
 
 ```
 metamach/
-├── docs/                        # English specs (5 core fundamental specs + contracts)
-│   ├── PRD.md                   #   Product Requirements Document
-│   ├── ARCH.md                  #   High-level Architecture
-│   ├── ADR.md                   #   Architecture Decision Records
-│   ├── SPEC.md                  #   Target Specifications, Test Catalog & Deployment
-│   ├── PLAN.md                  #   Execution Plan & Milestone History
-│   └── contracts/               #   Dependency Contracts (herdr.md, absurd.md)
-├── janus/                       # Rust workspace (~14,300 LOC)
-│   ├── Cargo.toml
-│   ├── herdr-plugin.toml        #   Herdr 0.7.3 plugin manifest
+├── docs/                        # Specifications (source of truth) & ADR index
+├── janus/                       # Core Rust workspace (~14,100 LOC)
+│   ├── src/bin/                 #   5 Binaries: janus, janus-daemon, herdr-janus, janush, janus-studio
 │   ├── src/
-│   │   ├── bin/
-│   │   │   ├── janus_daemon.rs  #   Control-plane daemon
-│   │   │   ├── herdr_janus.rs   #   Herdr shadow TUI client
-│   │   │   ├── janush.rs        #   Proxy shell (Tool Guard)
-│   │   │   ├── janus_studio.rs  #   MetaMach Studio sidecar (Axum REST/WS)
-│   │   │   └── janus.rs         #   CLI: init, start, status, studio, stop, continue, offboard
-│   │   ├── studio_assets/       #   Embedded HTML/CSS/JS Canvas UI
-│   │   ├── absurd/              #   Postgres adapter + SQLite fallback
-│   │   ├── tmux/                #   PTY session engine
-│   │   ├── tool_guard/          #   Rule engine + webhook dispatch
-│   │   ├── gateway/             #   HITL Gateway (Teams, HMAC)
-│   │   ├── cognitive/           #   Cognitive Provider SPI (MCP)
-│   │   ├── workflow/            #   Workflow engine (mod.rs), DAG engine (dag.rs), stream filter, typed envelopes
-│   │   ├── credential.rs        #   CredentialProvider SPI
-│   │   ├── harvest.rs           #   Sandbox harvest pipeline (refs/sandbox/*)
-│   │   ├── lifecycle.rs         #   Onboard / Offboard lifecycle
-│   │   ├── coldstart.rs         #   Cold-start self-healing + credential sweep
-│   │   ├── recipe.rs            #   Blueprint recipe validation
-│   │   ├── agent.rs             #   Agent pool & provisioning
-│   │   ├── paths.rs             #   Path resolution (Herdr + standalone)
+│   │   ├── absurd/              #   Durable PostgreSQL pool & SQLite fallback ring
+│   │   ├── tmux/                #   PTY session engine & isolated tmux server
+│   │   ├── tool_guard/          #   Rule engine & permission interceptor
+│   │   ├── gateway/             #   HITL Gateway (Teams Adaptive Cards, HMAC)
+│   │   ├── cognitive/           #   Cognitive Provider SPI (MCP plugins)
+│   │   ├── workflow/            #   Workflow engine (mod.rs), DAG engine (dag.rs), typed envelopes
+│   │   ├── credential.rs        #   Pluggable CredentialProvider SPI
+│   │   ├── harvest.rs           #   Sandbox harvest pipeline
+│   │   ├── lifecycle.rs         #   Project onboarding & offboarding
+│   │   ├── coldstart.rs         #   Daemon restart self-healing
+│   │   ├── recipe.rs            #   Recipe parser & validator
+│   │   ├── agent.rs             #   Agent pool configuration
+│   │   ├── paths.rs             #   Path resolution
 │   │   └── protocol.rs          #   Shared UDS types (Contracts 3.x/4.x)
-│   ├── migrations/              #   SQL (001_catalog, 002_blueprint, ...)
-│   └── tests/                   #   Integration & E2E tests (206 total)
-├── templates/                   # `janus init` scaffolds from here
-│   ├── blueprint.toml           #   Default project recipe
-│   ├── agents/                  #   Architect, Builder, Tester roles
-│   └── workflows/               #   15 workflow templates (12 linear + 3 DAG)
-├── configs/                     # Factory defaults
-│   ├── agents.toml              #   Global agent pool
-│   ├── offboard.toml            #   Offboard configuration
-│   └── global_rules.md          #   Shared rules
-├── scripts/
-│   └── pre-push                 #   Git hook: fmt + clippy + test + PG E2E
-├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 206 tests
-└── Makefile                     #   bootstrap, db-init, health, clean
+│   └── tests/                   #   Integration test suite (9 files, 206 tests)
+├── templates/                   # Default templates for `janus init`
+│   ├── blueprint.toml           #   Default blueprint recipe
+│   ├── agents/                  #   architecture.toml, builder.toml, tester.toml
+│   └── workflows/               #   15 workflow templates (linear + DAG)
+└── Makefile                     # Bootstrap, database setup, health check
 ```
 
-### Per-project (after `janus init`)
+### Per-Project Layout (after `janus init`)
 
 ```
 my-project/
-├── .janus/                      # All MetaMach config for this project
-│   ├── blueprint.toml           #   [blueprint] name, default_workflow, [remote]
-│   ├── agents/                  #   Project-specific agent overrides
+├── .janus/                      # Project-specific MetaMach configuration
+│   ├── blueprint.toml           #   Project recipe & default workflow selection
+│   ├── agents/                  #   Agent role overrides
 │   │   ├── architecture.toml
 │   │   ├── builder.toml
 │   │   └── tester.toml
-│   └── workflows/               #   Workflow definitions (linear + DAG)
+│   └── workflows/               #   Project workflows (linear + DAG)
 │       ├── wf_architect_design.toml
 │       ├── wf_builder_implement.toml
-│       ├── wf_tester_validate.toml
 │       ├── req2spec.toml
 │       └── spec2software.toml
-│   └── openwiki/                #   RAG knowledge scope (per-blueprint)
-│       └── production_report.md #   Generated on offboard
-└── src/                         # Your project source
+│   └── openwiki/                #   RAG knowledge scope & production reports
+└── src/                         # Your project source code
 ```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-| Dependency | Version | Check |
-|---|---|---|
-| Rust | 1.88+ (Edition 2024) | `rustc --version` |
-| PostgreSQL | 16+ (host-native, no Docker) | `pg_config --version` |
-| tmux | 3.3+ | `tmux -V` |
-| Herdr | 0.7.3+ (plugin host) | `herdr --version` |
-
-### Bootstrap
-
-```bash
-git clone https://github.com/hughguan/MetaMach.git
-cd MetaMach
-make bootstrap          # prereq → symlinks → compile → db-init
-```
-
-`make bootstrap` auto-provisions:
-1. Checks prerequisites (`pg_config`, `tmux`, `cargo`)
-2. Compiles 5 binaries in release mode
-3. Initializes native Postgres at `~/.metamach/db/`
-4. Applies catalog migration (`001_catalog.sql`)
-
-### Lifecycle
-
-Every blueprint follows a consistent lifecycle. Each verb maps to one `janus` command:
-
-```
-init ──→ plan ──→ dry-run ──→ start ──→ monitor ──→ offboard
- │                                      │
- └── LLM-assisted ──────────────────────┘
-      (janus plan --description "...")
-```
-
-| Step | Command | What it does |
-|---|---|---|
-| **init** | `janus init` | Scaffold `.janus/`, validate blueprint, register with daemon |
-| **plan** | edit `.toml` or `janus plan --description "..."` | Define the workflow — linear `[[steps]]` or DAG `[[nodes]]` |
-| **dry-run** | `janus start --dry-run` | Preview the execution plan without dispatching — verify steps, agents, and DAG topology |
-| **start** | `janus start` | Execute the workflow — every step is checkpointed for crash recovery |
-| **monitor** | `janus status` / `stop` / `continue` | Observe progress, pause, resume, or inspect task output |
-| **offboard** | `janus offboard --blueprint <name>` | Archive audit trail, commit `production_report.md`, mark inactive |
-
----
-
-### Initialize a project
-
-```bash
-cd my-project
-janus init
-```
-
-Scaffolds `.janus/` (if new), validates the blueprint and default workflow,
-creates a dedicated PG database, and registers the blueprint with the daemon —
-all in one step. Idempotent: re-running on an existing project re-validates
-without overwriting files.
-
-```bash
-janus init --dry-run                  # scaffold + validate, skip daemon registration
-```
-
-The scaffold includes:
-- `blueprint.toml` — edit the `name` and `default_workflow` fields
-- `agents/` — architect, builder, tester role templates
-- `workflows/` — 15 workflow templates (12 linear + 3 DAG: `req2spec`, `spec2software`, `adr-process`)
-
-### Plan a workflow
-
-MetaMach uses a **unified Workflow DSL** — a single file format for both
-simple linear steps and complex multi-agent DAGs. All workflows live under
-`.janus/workflows/`. Two ways to create one:
-
-**Manual** — edit a `.toml` file directly. Linear mode for sequential steps,
-DAG mode for multi-node dependency graphs:
-
-```toml
-# .janus/workflows/ci.toml
-[workflow]
-name = "ci"
-description = "Build, test, and lint"
-
-[[steps]]
-name = "build"
-agent = "builder"
-command = "cargo build --release"
-
-[[steps]]
-name = "test"
-agent = "tester"
-command = "cargo test"
-```
-
-For complex workflows, use `[[nodes]]` with `needs` edges for parallel execution.
-Nodes can reference external workflow files (`workflow = "..."`) or define inline
-`steps = [...]`. See `templates/workflows/req2spec.toml` for a full DAG example.
-
-**Dual-track isolation.** Each step/node can declare an `isolation`
-track — `"bare_metal"` (default, host-native `janus::tmux` + `janush` gate) or
-`"sandbox"` (isolated Git worktree + dedicated `tmux -L metamach-sandbox-<id>`):
-
-```toml
-# .janus/workflows/fullstack_iot.toml
-[workflow]
-name = "fullstack_iot"
-
-[[nodes]]
-id = "build_web_ui"
-isolation = "sandbox"          # runs in an isolated Git worktree + sandbox tmux
-writes = ["apps/web/dist/"]    # post-execution writes whitelist
-steps = [{ name = "install", command = "bun install" }]
-
-[[nodes]]
-id = "flash_esp32"
-isolation = "bare_metal"       # default — host-native, janush-protected
-needs = ["build_web_ui"]
-steps = [{ name = "flash", command = "esptool.py write_flash 0x0 target/firmware.bin" }]
-```
-
-Steps also accept `max_correction_attempts` — the number of
-re-dispatches with `$METAMACH_CORRECTION_CONTEXT` injected on failure
-(defaults to 3, or set to 1 to disable retries).
-
-**LLM-assisted** — generate a workflow from natural language:
-
-```bash
-janus plan --blueprint my-project --description "Build, test, and deploy via SSH"
-```
-
-This produces a validated workflow `.toml` file. Edit it further, then
-dry-run to verify the execution plan.
-
-### Dry-run a workflow
-
-Validate and preview a workflow's execution plan without starting:
-
-```bash
-janus start --dry-run                               # preview default workflow
-janus start --workflow spec2software --dry-run      # preview DAG execution plan
-```
-
-For DAG workflows, this prints the topologically sorted execution levels
-and per-node step breakdown — useful for verifying `needs` edges before
-committing to execution.
-
-### Start a workflow
-
-Execute a workflow. The daemon auto-detects the shape and routes accordingly:
-
-```bash
-janus start                                         # uses .janus/blueprint.toml defaults
-janus start --blueprint my-project                  # explicit blueprint, default workflow
-janus start --workflow ci                           # override workflow (linear or DAG)
-```
-
-Linear mode runs directly via `handle_dispatch → spawn_workflow`. DAG mode
-runs via topological sort with level-parallel execution. Every step is
-checkpointed in Absurd PG for crash recovery.
-
-```bash
-# Inline command: quick one-off step
-janus start --inline "cargo test"                   # auto-generates transient workflow
-```
-
-### Monitor
-
-```bash
-janus status                           # all active blueprints
-janus status --blueprint my-project    # one blueprint
-janus status --json                    # machine-readable
-```
-
-Pause and resume running workflows:
-
-```bash
-janus stop --blueprint my-project                      # stop all active tasks for blueprint
-janus stop --task-id <uuid>                            # stop specific task
-janus continue --blueprint my-project                  # resume stopped/crashed tasks via cold-start
-```
-
-Review harvested sandbox outputs:
-
-```bash
-janus harvest list                                    # list refs/sandbox/* (harvested sandbox diffs)
-janus harvest apply --ref-name refs/sandbox/<id>-<step> # apply a harvested ref into the working tree
-```
-
-> **Herdr TUI:** `herdr plugin link ./janus` then `prefix+j` opens the
-> Dispatcher overlay for a terminal progress view.
-
-### Launch MetaMach Studio (Web Observer & Visual Canvas)
-
-MetaMach 0.6.0 includes a zero-dependency web dashboard running as a standalone `janus-studio` sidecar binary over UDS (`janus.sock`):
-
-```bash
-janus studio                           # launch interactive sidecar on http://127.0.0.1:8444
-janus studio -d                        # launch detached in background
-janus studio --port 9000               # custom HTTP port
-```
-
-**Key Features**:
-- 🎨 **Visual DAG Canvas**: Interactive drag-and-drop workflow authoring, node dependencies, and execution plan visualization.
-- 📡 **Real-Time Web Observer**: Live WebSocket stream (`/runs/:id/stream`) delivering step state transitions (`SNAPSHOT` and diff `DELTA` events).
-- 🛡️ **HITL Gateway Approval Center**: Web-based one-click interlock approval (`/api/v1/gates/:task_id/verdict`) for high-risk agent operations.
-- 🔐 **Token Security**: Auto-generates `~/.metamach/studio.token` with header validation (`X-Janus-Studio-Token`).
-- ⚡ **Zero-Dependency Core**: Decoupled Axum sidecar leaves core `janus-daemon` zero-web-dependency.
-
----
-
-## 0.7.0 Candidate Features
-
-### 🏖️ Dual-Track Execution Isolation
-
-Steps and DAG nodes can run on one of two tracks:
-
-- **`bare_metal`** (default): host-native execution on `janus::tmux` sessions behind the `janush` Tool Guard — physical hardware access, fail-closed safety.
-- **`sandbox`**: host-native isolation for untrusted/experimental steps — a dedicated Git worktree (`.janus/sandboxes/<task_id>-<step_name>`) and a separate `tmux -L metamach-sandbox-<id>` server, so the main workspace is never touched. No Docker (host-native de-containerization).
-
-**Post-Execution Writes Guard:** each step/node can declare a `writes = [...]` whitelist. After the step completes, the guard diffs the workspace and flags any modification outside the allowed paths. Unauthorized changes are snapshotted to a recovery ref (`refs/metamach/rollback/<task_id>-<step_name>`), the step is **suspended**, and the HITL gateway escalates for human review — no destructive auto-rollback.
-
-### 📦 Typed Context Envelopes
-
-Cross-step checkpoint state in Absurd PG is now a validated, strongly-typed envelope (`CheckpointEnvelope`) instead of ad-hoc JSON:
-
-```json
-{ "version": 1, "task_id": "...", "step_name": "builder_implement", "status": "COMPLETED", "exit_code": 0, "state_data": { "exit": 0 } }
-```
-
-- Serde validation runs before `DurableEngine::set_checkpoint()` — malformed output fails fast.
-- Backward-compatible legacy decoder handles pre-0.7.0 checkpoints.
-- Envelopes are PG-checkpoint-only; the 16 KB `stdout_tail` scene cap is unchanged.
-
-### 🔄 Augmented Cold Retry with Correction Context
-
-When a step fails, instead of a blind cold restart, MetaMach re-dispatches the step in a fresh tmux session with the error injected as `$METAMACH_CORRECTION_CONTEXT`:
-
-- Retries capped at `max_correction_attempts` (default 3, per-step configurable).
-- Each attempt gets its own session (`tmux-janus-task-<id>-<idx>-corr-<n>`) — no persistent-session hacks.
-- Agents reference the env var in their system prompt for targeted self-correction.
-
-### 🔑 Pluggable Credential Provisioning & Harvest Pipeline
-
-- **Credential SPI** (`janus::credential`): a vendor-agnostic `CredentialProvider` trait (`provision`/`revoke`/`cleanup_sweep`) for short-lived, scoped API keys. Ships with `NoopCredentialProvider` + `MemoryCredentialProvider`; a cold-start sweep revokes orphaned keys from dead tasks.
-- **Harvest Pipeline** (`janus::harvest`): sandbox outputs are captured as Git refs under `refs/sandbox/<task_id>-<step_name>`. Review via `janus harvest list` / `janus harvest apply` — see Monitor above.
-
-### Offboard a blueprint
-
-Purges operational data from the per-blueprint database, archives the audit
-trail, git-commits `production_report.md`, and marks the blueprint `OFFBOARDED`.
-
----
-
-## Customization Dimensions
-
-| Dimension | Location | Description |
-|---|---|---|
-| **Agent Pool** | `configs/agents.toml` + `.janus/agents/` | Permissions, provisioning, quota, fallback chains, pre-flight probes |
-| **Workflows** | `templates/workflows/` + `.janus/workflows/` | Linear step sequences or DAG node graphs with `needs` dependencies (unified DSL) |
-| **Blueprints** | `.janus/blueprint.toml` | Per-project recipe: name, default workflow, openwiki scope, remote host |
 
 ---
 
 ## Core Principles
 
 ### 🛡️ Safety First
-- **Fail-closed**: 30s timeout → BLOCK (never pass-through on uncertainty)
-- **Dual 16KB budget**: truncation at both `janush` (stream) and `janus-daemon` (DB insert)
-- **Tool Guard**: ALLOW / BLOCK / REWRITE rules per agent role, with hot-reload
-- **Post-execution writes guard**: workspace diffs checked against the step's `writes` whitelist; violations snapshot to a recovery ref and escalate to HITL
-- **Sandbox isolation**: untrusted steps run in dedicated Git worktrees + `tmux -L metamach-sandbox-<id>`, never touching the main workspace
-- **HITL Gateway**: high-risk ops freeze → Teams Adaptive Card → Approve/Reject → resume/fail
+- **Fail-closed security**: Unrecognized commands or 30-second decision timeouts default to `BLOCK`.
+- **Dual budget streaming**: 16 KiB PTY output truncation prevents memory bloat while capturing full logs on disk (`/tmp/metamach/logs/`).
+- **Post-execution writes guard**: Automatically detects workspace file changes outside a step's declared `writes` scope, snapshotting recovery refs and escalating to HITL before damage occurs.
+- **Sandboxed isolation**: Untrusted steps execute in isolated Git worktrees (`.janus/sandboxes/`), keeping your primary workspace untouched.
 
 ### ⚙️ Uncompromising Stability
-- **Daemon-owned state**: TUI is transient; state survives UI crashes and SSH drops
-- **Dual-track survival**: primary Absurd PG → SQLite fallback ring on PG outage → auto-replay
-- **Cold-start resume**: daemon restart picks up from last `COMPLETED` checkpoint (DAG nodes resume from first-node workflow)
-- **Typed checkpoint envelopes**: validated, versioned step state in Absurd PG — no ad-hoc JSON drift
-- **Augmented cold retry**: failed steps re-dispatch with `$METAMACH_CORRECTION_CONTEXT` instead of blind restart
-- **De-containerized**: native PostgreSQL at `~/.metamach/db/`, no Docker
+- **Daemon-owned state**: All state resides in the background daemon — terminal crashes, SSH drops, or TUI exits never lose work.
+- **Dual-track resilience**: Primary PostgreSQL database automatically falls back to an in-memory SQLite ring buffer during database outages.
+- **Cold-start recovery**: Restarting the daemon automatically resumes interrupted tasks from the last verified checkpoint.
 
 ### 🔌 Pure Decoupling
-- **tmux isolation**: `tmux -L metamach-tmux`, sessions survive agent disconnection
-- **Cognitive SPI**: opt-in MCP plugins (`codebase-memory-mcp`, OpenWiki) — async, advisory only
-- **HITL Gateway**: external webhook latency never blocks PTY execution
+- **Agent-agnostic**: Works seamlessly with any AI coding agent (Claude Code, Codex, Pi, Aider, Roo Code).
+- **Bare-metal performance**: Direct PTY execution on native PostgreSQL and tmux — no heavy container overhead required.
 
-### 🔄 Universal Reusability
-- **Agent-agnostic**: works with any CLI agent (Claude Code, Codex, Pi, Aider, Roo Code)
-- **Cross-host**: SSH `-R` reverse tunnels for remote compilation targets
-- **Single-binary bootstrap**: `make bootstrap` → ready to deploy
+---
+
+## Troubleshooting & FAQ
+
+<details>
+<summary><b>Daemon not reachable (janus-daemon)</b></summary>
+
+If `janus` commands report `janus-daemon not reachable`, start the resident background daemon:
+```bash
+janus daemon                           # Launch daemon in foreground / check logs
+# Or check liveness with make health
+make health
+```
+</details>
+
+<details>
+<summary><b>PostgreSQL database connection issues</b></summary>
+
+MetaMach uses a host-native PostgreSQL instance (no Docker). If the database is down or uninitialized:
+```bash
+make db-init                           # Initialize PG cluster at ~/.metamach/db/ & run catalog migrations
+```
+</details>
+
+<details>
+<summary><b>Is MetaMach a replacement for Docker or CI runners?</b></summary>
+
+No. MetaMach is an **AI Software Factory OS** designed to safely host autonomous AI coding agents on local or remote dev machines with hardware access, strong checkpoints, and human approval gates.
+</details>
 
 ---
 
 ## CI & Testing
 
-- **206 tests**: all pass, 0 ignored
-- **CI gates**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (206 tests)
-- **E2E tests**: init → start → multi-step workflow completion, DAG parallel execution, stop/continue, Tool Guard interception
-- **Herder contract tests**: manifest parse, version check, E2E smoke (PG + tmux + Herdr)
-- **Pre-push hook**: `scripts/pre-push` auto-provisions PG and runs E2E tests
+- **206 Workspace Tests**: 100% passing (130 unit tests + 76 integration tests across 9 files).
+- **CI Gates**: Every commit passes `cargo fmt`, `cargo clippy -D warnings`, and `cargo test --workspace`.
+- **Pre-Push Hook**: `./scripts/pre-push` auto-provisions local PostgreSQL and validates E2E workflow dispatches.
 
 ---
 

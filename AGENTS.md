@@ -18,7 +18,7 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 │   ├── src/studio_assets/#  Embedded HTML, CSS, JS Canvas Studio assets
 │   ├── src/{agent,coldstart,credential,harvest,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
 │   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
-│   └── tests/           #   9 integration test files (205 tests total)
+│   └── tests/           #   9 integration test files (208 tests total)
 ├── templates/           # ✅ `janus init` scaffolds from here
 │   ├── blueprint.toml   #   Default project recipe
 │   ├── agents/          #   Architect, Builder, Tester role templates
@@ -26,7 +26,7 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 ├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
 ├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
-├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 205 tests)
+├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 208 tests)
 ├── Makefile             # ✅ bootstrap/db-init/db-backup/health/uninstall/...
 ├── CLAUDE.md            # AI agent guidance for Claude Code
 └── AGENTS.md            # This file
@@ -73,7 +73,7 @@ The Rust workspace lives under `janus/` - either `cd janus` first or pass `--man
 
 ## Testing Guidelines
 
-- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (9 files, 205 tests total).
+- Unit tests in `#[cfg(test)]` modules alongside source; integration tests in `janus/tests/` (9 files, 208 tests total).
 - CI gates: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`. All must pass before merge.
 - PG-gated tests use **runtime-skip** (check `DATABASE_URL` at test start) rather than `#[ignore]` — they run automatically when PG is available (CI) and skip gracefully when it is not (local dev without `make db-init`).
 - Test names are prefixed with UTC IDs mapped to `SPEC.md` (e.g., `utc_03_03_cold_start_reconcile`).

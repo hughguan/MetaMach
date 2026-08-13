@@ -5,9 +5,9 @@
 MetaMach is a **specification-first repository with a working Rust implementation**. Version 0.6.0 spans M0–M4 + the 0.3.0 de-containerization consensus + the 0.4.0 gateway/ecosystem delta + ADR-029 project-based templates + ADR-031 DSL unification + ADR-032 Studio. 205 tests, CI-green. Current layout:
 
 ``` metamach/
-├── docs/                # ✅ English specs (source of truth) + ADR.md (32 decisions)
+├── docs/                # ✅ English specs (source of truth) + ADR.md (36 decisions)
 ├── docs/CH/             # ❌ gitignored - Chinese translations & audit artifacts
-├── janus/               # ✅ Rust workspace (5 binaries + shared lib, ~12,000 LOC)
+├── janus/               # ✅ Rust workspace (5 binaries + shared lib, ~14,100 LOC)
 │   ├── src/bin/         #   janus, janus-daemon, herdr-janus, janush, janus-studio
 │   ├── src/absurd/      #   Postgres adapter + SQLite fallback ring
 │   ├── src/tmux/        #   PTY session engine (remain-on-exit)
@@ -16,7 +16,7 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 │   ├── src/cognitive/   #   Cognitive Provider SPI (MCP)
 │   ├── src/workflow/    #   Workflow engine + stream filter
 │   ├── src/studio_assets/#  Embedded HTML, CSS, JS Canvas Studio assets
-│   ├── src/{agent,coldstart,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
+│   ├── src/{agent,coldstart,credential,harvest,lifecycle,paths,pipeline,protocol,recipe,spawn,uds}.rs
 │   ├── migrations/      #   001_catalog, 002_blueprint, 003_hitl_verdict, 004_env_snapshot
 │   └── tests/           #   9 integration test files (205 tests total)
 ├── templates/           # ✅ `janus init` scaffolds from here
@@ -26,7 +26,7 @@ MetaMach is a **specification-first repository with a working Rust implementatio
 ├── configs/             # ✅ agents.toml, global_rules.md, offboard.toml
 ├── scripts/             # ✅ pre-push git hook (fmt + clippy + test + PG E2E)
 ├── bin/                 # ✅ compiled plugin binaries (gitignored build output)
-├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 178 tests)
+├── .github/workflows/   # ✅ ci.yml (native PG + tmux + Herdr, all 205 tests)
 ├── Makefile             # ✅ bootstrap/db-init/db-backup/health/uninstall/...
 ├── CLAUDE.md            # AI agent guidance for Claude Code
 └── AGENTS.md            # This file

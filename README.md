@@ -70,7 +70,7 @@ metamach/
 ├── docs/                        # English specs (5 core fundamental specs + contracts)
 │   ├── PRD.md                   #   Product Requirements Document
 │   ├── ARCH.md                  #   High-level Architecture
-│   ├── ADR.md                   #   31 Architecture Decision Records
+│   ├── ADR.md                   #   36 Architecture Decision Records
 │   ├── SPEC.md                  #   Target Specifications, Test Catalog & Deployment
 │   ├── PLAN.md                  #   Execution Plan & Milestone History
 │   └── contracts/               #   Dependency Contracts (herdr.md, absurd.md)
@@ -110,7 +110,7 @@ metamach/
 │   └── global_rules.md          #   Shared rules
 ├── scripts/
 │   └── pre-push                 #   Git hook: fmt + clippy + test + PG E2E
-├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 178 tests
+├── .github/workflows/ci.yml     #   CI: PG + tmux + Herdr, all 205 tests
 └── Makefile                     #   bootstrap, db-init, health, clean
 ```
 

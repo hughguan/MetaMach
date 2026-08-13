@@ -94,7 +94,7 @@ All communication between MetaMach binaries (`janush` proxy shell, `herdr-janus`
 
 ### Contract 4.11 — Herdr TUI Harvest Pipeline (ADR-036 Phase 2)
 - **Sandbox Diff Collection (`harvest_sandbox_output`)**: Collects working directory diffs into stash/tree commits under Git ref `refs/sandbox/<task_id>-<step_name>`.
-- **Harvest Ref Management (`list_harvest_refs` & `merge_harvest_ref`)**: Discovers harvested sandbox refs and merges approved sandbox outputs back into `HEAD`.
+- **Harvest Ref Management (`list_harvest_refs` & `apply_harvest_ref`)**: Discovers harvested sandbox refs and applies approved sandbox outputs back into `HEAD`.
 
 ---
 

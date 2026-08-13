@@ -330,6 +330,17 @@ herdr plugin pane open --plugin metamach.janus --entrypoint dispatcher  # manual
 
 ---
 
+## ADR-021: Pipeline DAG Engine — Parallel Level Execution (Superseded by ADR-031)
+
+| Field | Value |
+|---|---|
+| **Context** | Earlier MetaMach 0.4.x versions used a separate `Pipeline` TOML format and execution model for DAG workflows. ADR-031 unified linear workflows and DAG node compositions under a single Workflow DSL. |
+| **Options Considered** | (1) Keep separate Pipeline and Workflow DSLs, (2) Unify Pipeline and Workflow into a single Workflow DSL (`.janus/workflows/`). |
+| **Decision** | **Superseded by ADR-031** — Option (2): Consolidated Pipeline DAG execution into the unified `recipe::UnifiedWorkflow` engine. |
+| **Status** | 🟡 Superseded by ADR-031 (0.5.0). |
+
+---
+
 ## ADR-022: Time-Driven Suspension — Quota Exhaustion & Scheduled Sleep (0.5.0)
 
 | Field | Value |

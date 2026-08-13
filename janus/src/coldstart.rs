@@ -34,6 +34,10 @@ pub async fn reconcile(
     blueprint: Option<&str>,
 ) -> Result<usize> {
     let tasks = db.cold_start_running_tasks(blueprint).await?;
+    let active_task_ids: Vec<uuid::Uuid> = tasks.iter().map(|t| t.task_id).collect();
+    let cred_provider = crate::credential::MemoryCredentialProvider::new();
+    let _ = reconcile_credentials(&cred_provider, &active_task_ids).await;
+
     if tasks.is_empty() {
         info!("cold-start: no non-terminal tasks to resume");
         return Ok(0);

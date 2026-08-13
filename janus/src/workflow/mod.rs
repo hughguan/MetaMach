@@ -37,6 +37,8 @@ use crate::protocol::{self, truncate_16k};
 use crate::recipe::ValidatedRecipe;
 use crate::tmux::{BackendFactory, DurableBackend, SESSION_PREFIX, SessionId};
 
+pub mod dag;
+pub use dag::*;
 pub mod envelope;
 pub mod filter;
 

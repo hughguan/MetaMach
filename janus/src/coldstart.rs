@@ -86,7 +86,7 @@ pub async fn reconcile(
                             info!(
                                 task_id = %t.task_id,
                                 blueprint = %t.blueprint,
-                                pipeline = %config.pipeline.name,
+                                dag = %config.meta.name,
                                 "cold-start: resuming DAG workflow task"
                             );
                             // NOTE: Current DAG cold-start resume loads the active entry node workflow.

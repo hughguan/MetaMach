@@ -19,9 +19,9 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
-use janus::pipeline::PipelineConfig;
 use janus::protocol::{ActiveTask, ProgressPayload, Request, Response};
 use janus::tmux::DurableBackend;
+use janus::workflow::dag::DagConfig;
 use janus::{spawn, tmux, uds};
 use uuid::Uuid;
 
@@ -107,7 +107,7 @@ enum CliCommand {
         /// Blueprint name (defaults to current directory name).
         #[arg(short, long)]
         blueprint: Option<String>,
-        /// Natural-language description of the desired pipeline.
+        /// Natural-language description of the desired workflow.
         #[arg(long)]
         description: String,
     },
@@ -222,7 +222,7 @@ fn main() -> Result<()> {
         } => {
             let bp = resolve_blueprint_name(blueprint)?;
             let repo_root = janus::paths::repo_root();
-            plan_pipeline(&bp, &description, &repo_root)
+            plan_workflow(&bp, &description, &repo_root)
         }
         CliCommand::Studio { bind, port, detach } => studio_cmd(&bind, port, detach),
         CliCommand::Harvest { cmd } => harvest_cmd(cmd),
@@ -368,12 +368,9 @@ fn start(
                 config,
                 inline_register,
             } => {
-                println!(
-                    "DAG Workflow Execution Plan Dry-Run: {}",
-                    config.pipeline.name
-                );
+                println!("DAG Workflow Execution Plan Dry-Run: {}", config.meta.name);
                 println!("  Blueprint: {blueprint}");
-                if let Some(ref desc) = config.pipeline.description {
+                if let Some(ref desc) = config.meta.description {
                     println!("  Description: {desc}");
                 }
                 let plan = config.plan()?;
@@ -615,9 +612,9 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-// ── Pipeline commands (ADR-021/ADR-022) ─────────────────────────────────
+// ── DAG workflow commands (ADR-031) ─────────────────────────────────
 
-fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> {
+fn plan_workflow(name: &str, description: &str, repo_root: &Path) -> Result<()> {
     // Discover available workflows.
     let catalog = discover_workflows(repo_root)?;
     if catalog.is_empty() {
@@ -672,7 +669,7 @@ fn plan_pipeline(name: &str, description: &str, repo_root: &Path) -> Result<()> 
         .context("LLM response missing content")?;
 
     // Validate the generated TOML as a Unified Workflow.
-    let config: PipelineConfig =
+    let config: DagConfig =
         toml::from_str(toml_text).context("LLM generated invalid workflow TOML")?;
     config
         .validate()

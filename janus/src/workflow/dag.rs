@@ -1,8 +1,6 @@
-//! Pipeline DAG engine (ADR-021, 0.4.9). A Pipeline composes Workflows into
+//! Workflow DAG engine (ADR-031). A DAG Workflow composes Workflows into
 //! a directed acyclic graph: nodes declare their dependencies via `needs`, the
 //! engine topologically sorts them, and nodes at the same level can run in parallel.
-//!
-//! Format: `pipelines/<name>.toml`
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -10,23 +8,24 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-/// Parsed `pipelines/<name>.toml`.
+/// Parsed DAG workflow definition.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PipelineConfig {
-    pub pipeline: PipelineMeta,
+pub struct DagConfig {
+    #[serde(alias = "pipeline", alias = "workflow")]
+    pub meta: DagMeta,
     #[serde(default)]
-    pub nodes: Vec<PipelineNode>,
+    pub nodes: Vec<DagNode>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PipelineMeta {
+pub struct DagMeta {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PipelineNode {
+pub struct DagNode {
     pub id: String,
     pub workflow: String,
     #[serde(default)]
@@ -42,12 +41,12 @@ pub struct PipelineNode {
 /// Topologically sorted execution plan. Each level contains nodes that can
 /// run in parallel.
 #[derive(Debug)]
-pub struct ExecutionPlan {
-    pub levels: Vec<Vec<PipelineNode>>,
+pub struct DagExecutionPlan {
+    pub levels: Vec<Vec<DagNode>>,
 }
 
-impl PipelineConfig {
-    /// Load and validate a pipeline workflow from `.janus/workflows/<name>.toml`.
+impl DagConfig {
+    /// Load and validate a DAG workflow from `.janus/workflows/<name>.toml`.
     pub fn load(name: &str, repo_root: &Path) -> Result<Self> {
         let path = [".janus/workflows", "templates/workflows", "workflows"]
             .iter()
@@ -57,14 +56,14 @@ impl PipelineConfig {
                 format!("workflow '{name}' not found in .janus/workflows/, templates/workflows/, or workflows/")
             })?;
         let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("read pipeline {}", path.display()))?;
+            .with_context(|| format!("read workflow {}", path.display()))?;
         let config: Self =
             toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
         config.validate()?;
-        if config.pipeline.name != name {
+        if config.meta.name != name {
             bail!(
-                "pipeline name mismatch: file declares '{}', expected '{name}'",
-                config.pipeline.name
+                "dag workflow name mismatch: file declares '{}', expected '{name}'",
+                config.meta.name
             );
         }
         Ok(config)
@@ -73,7 +72,7 @@ impl PipelineConfig {
     /// Validate node uniqueness and dependency references.
     pub fn validate(&self) -> Result<()> {
         if self.nodes.is_empty() {
-            bail!("pipeline '{}' has no nodes", self.pipeline.name);
+            bail!("dag workflow '{}' has no nodes", self.meta.name);
         }
         let mut seen = HashSet::new();
         for node in &self.nodes {
@@ -93,9 +92,9 @@ impl PipelineConfig {
         Ok(())
     }
 
-    /// Topologically sort into an [`ExecutionPlan`] with parallel levels.
+    /// Topologically sort into a [`DagExecutionPlan`] with parallel levels.
     /// Detects cycles and returns an error with the unresolved nodes.
-    pub fn plan(&self) -> Result<ExecutionPlan> {
+    pub fn plan(&self) -> Result<DagExecutionPlan> {
         let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut in_degree: HashMap<&str, usize> = HashMap::new();
 
@@ -145,16 +144,16 @@ impl PipelineConfig {
                 .map(|n| n.id.as_str())
                 .collect();
             bail!(
-                "cycle detected in pipeline '{}': nodes {:?} could not be resolved",
-                self.pipeline.name,
+                "cycle detected in dag workflow '{}': nodes {:?} could not be resolved",
+                self.meta.name,
                 unvisited
             );
         }
 
-        let node_map: HashMap<&str, &PipelineNode> =
+        let node_map: HashMap<&str, &DagNode> =
             self.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
 
-        Ok(ExecutionPlan {
+        Ok(DagExecutionPlan {
             levels: levels
                 .into_iter()
                 .map(|level| level.into_iter().map(|id| node_map[id].clone()).collect())
@@ -163,7 +162,7 @@ impl PipelineConfig {
     }
 }
 
-impl ExecutionPlan {
+impl DagExecutionPlan {
     pub fn level_count(&self) -> usize {
         self.levels.len()
     }
@@ -173,14 +172,14 @@ impl ExecutionPlan {
 mod tests {
     use super::*;
 
-    fn sample_pipeline() -> PipelineConfig {
-        PipelineConfig {
-            pipeline: PipelineMeta {
+    fn sample_dag() -> DagConfig {
+        DagConfig {
+            meta: DagMeta {
                 name: "full-release".into(),
                 description: None,
             },
             nodes: vec![
-                PipelineNode {
+                DagNode {
                     id: "compile".into(),
                     workflow: "wf_cargo_build".into(),
                     needs: vec![],
@@ -188,7 +187,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "audit".into(),
                     workflow: "wf_cross_audit".into(),
                     needs: vec!["compile".into()],
@@ -196,7 +195,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "flash".into(),
                     workflow: "wf_esptool_flash".into(),
                     needs: vec!["audit".into()],
@@ -210,7 +209,7 @@ mod tests {
 
     #[test]
     fn topo_sort_linear_chain() {
-        let config = sample_pipeline();
+        let config = sample_dag();
         let plan = config.plan().expect("plan");
         assert_eq!(plan.levels.len(), 3);
         assert_eq!(plan.levels[0][0].id, "compile");
@@ -220,13 +219,13 @@ mod tests {
 
     #[test]
     fn topo_sort_diamond() {
-        let config = PipelineConfig {
-            pipeline: PipelineMeta {
+        let config = DagConfig {
+            meta: DagMeta {
                 name: "diamond".into(),
                 description: None,
             },
             nodes: vec![
-                PipelineNode {
+                DagNode {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec![],
@@ -234,7 +233,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "b".into(),
                     workflow: "wf_b".into(),
                     needs: vec!["a".into()],
@@ -242,7 +241,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "c".into(),
                     workflow: "wf_c".into(),
                     needs: vec!["a".into()],
@@ -250,7 +249,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "d".into(),
                     workflow: "wf_d".into(),
                     needs: vec!["b".into(), "c".into()],
@@ -269,13 +268,13 @@ mod tests {
 
     #[test]
     fn topo_sort_independent_nodes() {
-        let config = PipelineConfig {
-            pipeline: PipelineMeta {
+        let config = DagConfig {
+            meta: DagMeta {
                 name: "parallel".into(),
                 description: None,
             },
             nodes: vec![
-                PipelineNode {
+                DagNode {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec![],
@@ -283,7 +282,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "b".into(),
                     workflow: "wf_b".into(),
                     needs: vec![],
@@ -291,7 +290,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "c".into(),
                     workflow: "wf_c".into(),
                     needs: vec![],
@@ -308,13 +307,13 @@ mod tests {
 
     #[test]
     fn cycle_detection() {
-        let config = PipelineConfig {
-            pipeline: PipelineMeta {
+        let config = DagConfig {
+            meta: DagMeta {
                 name: "cycle".into(),
                 description: None,
             },
             nodes: vec![
-                PipelineNode {
+                DagNode {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec!["b".into()],
@@ -322,7 +321,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "b".into(),
                     workflow: "wf_b".into(),
                     needs: vec!["a".into()],
@@ -341,12 +340,12 @@ mod tests {
 
     #[test]
     fn unknown_dependency_rejected() {
-        let config = PipelineConfig {
-            pipeline: PipelineMeta {
+        let config = DagConfig {
+            meta: DagMeta {
                 name: "bad".into(),
                 description: None,
             },
-            nodes: vec![PipelineNode {
+            nodes: vec![DagNode {
                 id: "a".into(),
                 workflow: "wf_a".into(),
                 needs: vec!["nonexistent".into()],
@@ -364,13 +363,13 @@ mod tests {
 
     #[test]
     fn duplicate_node_id_rejected() {
-        let config = PipelineConfig {
-            pipeline: PipelineMeta {
+        let config = DagConfig {
+            meta: DagMeta {
                 name: "dup".into(),
                 description: None,
             },
             nodes: vec![
-                PipelineNode {
+                DagNode {
                     id: "a".into(),
                     workflow: "wf_a".into(),
                     needs: vec![],
@@ -378,7 +377,7 @@ mod tests {
                     best_of_n: None,
                     writes: None,
                 },
-                PipelineNode {
+                DagNode {
                     id: "a".into(),
                     workflow: "wf_b".into(),
                     needs: vec![],

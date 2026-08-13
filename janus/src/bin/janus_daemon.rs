@@ -27,11 +27,11 @@ use janus::absurd::adapter::{AbsurdPgAdapter, DurableEngine};
 use janus::cognitive;
 use janus::gateway::{self, CallbackStatus, Gateway, HitlGateway, VerdictSink};
 use janus::paths;
-use janus::pipeline::PipelineConfig;
 use janus::protocol::{GatewayVerdict, Request, Response};
 use janus::tmux::{BackendFactory, DurableBackend, SessionId, TmuxBackend, TmuxFactory};
 use janus::tool_guard::webhook::{LoggingSender, TelegramSender};
 use janus::tool_guard::{Engine, Verdict, VerdictKind};
+use janus::workflow::dag::DagConfig;
 use janus::{coldstart, lifecycle, recipe, workflow};
 use sqlx::postgres::PgConnectOptions;
 use uuid::Uuid;
@@ -442,7 +442,7 @@ async fn handle_request(
                         config,
                         inline_register,
                     }) => {
-                        match handle_dispatch_pipeline(
+                        match handle_dispatch_dag(
                             db.clone(),
                             repo_root.to_path_buf(),
                             blueprint,
@@ -959,19 +959,19 @@ async fn is_task_successful(db: &AbsurdDb, blueprint: &str, task_id: Uuid) -> bo
 /// Dispatches a workflow DAG level-by-level onto the absurd engine with level barriers.
 /// Nodes within a level are executed concurrently, but Level N+1 waits until Level N
 /// tasks complete successfully before launching.
-async fn handle_dispatch_pipeline(
+async fn handle_dispatch_dag(
     db: Arc<AbsurdDb>,
     repo_root: PathBuf,
     blueprint: String,
-    config: &PipelineConfig,
+    config: &DagConfig,
     inline_register: &HashMap<String, recipe::Workflow>,
 ) -> Result<Uuid> {
     if !db.pg_online().await {
-        bail!("Absurd Postgres not reachable - cannot dispatch pipeline");
+        bail!("Absurd Postgres not reachable - cannot dispatch dag workflow");
     }
     let plan = config.plan()?;
     if plan.levels.is_empty() || plan.levels[0].is_empty() {
-        bail!("pipeline plan has no execution levels");
+        bail!("dag plan has no execution levels");
     }
 
     // 1. Dispatch level 0 immediately to acquire the first task_id for non-blocking return.
@@ -1073,7 +1073,7 @@ async fn handle_dispatch_pipeline(
                 }
             }
         }
-        info!(blueprint = %bp_clone, "DAG pipeline completed all levels successfully");
+        info!(blueprint = %bp_clone, "DAG workflow completed all levels successfully");
     });
 
     Ok(first_tid)

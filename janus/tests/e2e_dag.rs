@@ -1,4 +1,4 @@
-//! M5 ADR-028: E2E Pipeline CI tests with mock agents.
+//! M5 ADR-028: E2E DAG workflow CI tests with mock agents.
 //! All tests runtime-skip when PG or tmux is unavailable.
 
 use std::path::Path;
@@ -313,7 +313,7 @@ fn e2e_tool_guard_blocks_blacklisted() {
 }
 
 #[test]
-fn e2e_pipeline_dag_dispatch() {
+fn e2e_dag_dispatch() {
     if !pg_available() || !tmux_available() {
         eprintln!("skipping: PG or tmux not available");
         return;
@@ -399,7 +399,7 @@ fn e2e_pipeline_dag_dispatch() {
 }
 
 #[test]
-fn e2e_pipeline_dag_failing_node_aborts_subsequent_levels() {
+fn e2e_dag_failing_node_aborts_subsequent_levels() {
     if !pg_available() || !tmux_available() {
         eprintln!("skipping: PG or tmux not available");
         return;
@@ -558,7 +558,7 @@ fn e2e_stop_and_continue() {
 /// Verifies that Level 1 nodes B and C execute in parallel after Level 0 A,
 /// and Level 2 Join node D executes only after both B and C complete.
 #[test]
-fn e2e_pipeline_dag_diamond_dependency_parallel_execution() {
+fn e2e_dag_diamond_dependency_parallel_execution() {
     if !pg_available() || !tmux_available() {
         eprintln!("skipping: PG or tmux not available");
         return;

@@ -354,21 +354,37 @@ fn utc_03_01b_dispatch_step_transitions() {
     // (libpq) handles `?host=` fine, so build whichever URL fits the environment.
     let (pg_target, bp_db) = match std::env::var("DATABASE_URL") {
         Ok(url) if url.contains("host=") => {
-            let socket_dir = url.split("host=").nth(1).unwrap_or("").replace("%2F", "/");
-            (socket_dir, format!("metamach_blueprint_{name}"))
+            let socket_dir = url
+                .split("host=")
+                .nth(1)
+                .unwrap_or("")
+                .replace("%2F", "/")
+                .replace("%2f", "/");
+            let dir = if socket_dir.is_empty() {
+                std::env::var("PGHOST").unwrap_or_else(|_| "/tmp".to_string())
+            } else {
+                socket_dir
+            };
+            (dir, format!("metamach_blueprint_{name}"))
         }
         Ok(url) => {
             let decoded = url.replace("%2F", "/").replace("%2f", "/");
             if let Some(host_part) = decoded.strip_prefix("postgres://metamach_admin@") {
                 let socket_dir = host_part.trim_end_matches("/metamach_db");
-                (socket_dir.to_string(), format!("metamach_blueprint_{name}"))
+                let dir = if socket_dir.is_empty() {
+                    std::env::var("PGHOST").unwrap_or_else(|_| "/tmp".to_string())
+                } else {
+                    socket_dir.to_string()
+                };
+                (dir, format!("metamach_blueprint_{name}"))
             } else {
                 (decoded, format!("metamach_blueprint_{name}"))
             }
         }
         Err(_) => {
             let socket = std::env::var("METAMACH_PG_SOCKET_DIR")
-                .expect("DATABASE_URL or METAMACH_PG_SOCKET_DIR must be set");
+                .or_else(|_| std::env::var("PGHOST"))
+                .unwrap_or_else(|_| "/tmp".to_string());
             (socket, format!("metamach_blueprint_{name}"))
         }
     };
